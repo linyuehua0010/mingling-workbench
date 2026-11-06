@@ -7,7 +7,9 @@
 ## 1. 架构选择：内置 sidecar，而不是重写 C++，也不再依赖 DSH
 
 **选择**：把上游 `dsh-bili-whale` 0.4.6（MIT）作为私有 sidecar 随安装包分发，
-用 `sidecar\node\node.exe` 跑，ffmpeg 放在 sidecar 里，工作台只做 UI/编排/台账。
+用 `sidecar
+ode
+ode.exe` 跑，ffmpeg 放在 sidecar 里，工作台只做 UI/编排/台账。
 
 **理由**：
 
@@ -48,7 +50,9 @@ sidecar 的 `DSH_HOME` 变量名保留是为了少改上游代码，但值不再
 两边都调用同一个 CLI：
 
 ```
-<sidecar>\node\node.exe <sidecar>\bili-whale\tools\bili.mjs debrief <BV> --grid 3x3
+<sidecar>
+ode
+ode.exe <sidecar>\bili-whale\tools\bili.mjs debrief <BV> --grid 3x3
 ```
 
 - 工作台：`source=console`，`chat=工作台`，正文写 `logs\jobs\<BV>-<unix>.txt`。
@@ -414,3 +418,62 @@ icacls "%LOCALAPPDATA%\Programs\MinglingWorkbench" /setintegritylevel "(OI)(CI)M
 ProductVersion `V2.2.1`；静默安装 `exit=0`，日志 `Installation process succeeded.`。
 版本号只改了 `win32\src\version.h` 一处（`check-version.ps1` 通过），外加 `installer\mingling.nsi` 与
 `README.md` 里手抄的产物名。
+
+## 11. 自设定：一键自动配置的第三段（2026-11-06）
+
+**问题**：一键自动配置装完五个组件，机器人只是「能启动」——没有 DeepSeek 提供商、没有 QQ 平台、聊天设置是默认的、人设是空的。用户按下按钮之后还得自己去后台点一遍，等于「装好了但不会说话」。
+
+**选择**：把「配置」也做成数据驱动的一段，放在装组件之后，模型改成**配置包**（`pack\mingling-pack\pack.json`）而不是写死在 C++ 里。
+
+**理由**：
+
+- 配置项的名字和形状是 AstrBot 的内部契约（`/config-profiles/default`、`/provider-sources`、`/bots`），写死在 C++ 里一升级就碎；写成包，AstrBot 改了只改 JSON 和 `self-setup.ps1`。
+- 和「大肥鱼配置包」同一个形状：`pack\<id>\pack.json` + `blocks[]`，以后加插件块、语音块不用改窗口。
+- 真活留给 PowerShell（`tools\self-setup.ps1`），C++ 只负责拉起进程、翻译 `##STEP/##OK/##FAIL/##RESULT`、落日志。这条路 `auto-setup.ps1` 已经验证过，能流式给进度。
+
+**六块**（`-Only provider|platform|chat|plugins|persona|verify` 可单跑）：
+
+1. `provider`：`provider-sources` 建/更新 `deepseek` → 拉模型列表挑 `deepseek-flash` → `providers/test` 测通；
+2. `platform`：按 `pack.platform.id` 精确匹配 `aiocqhttp`；零个才建（`ws_reverse_port=6199`，令牌生成到 `private
+apcat-ws-token.txt`）；多个且没同名就报错，不猜；
+3. `chat`：按 `pack.chat` 的点路径写 13 项（分段回复、`compression.max_turns=30`、安全模式、`computer_use_runtime=none`……）；
+4. `persona`：子进程跑 `tools\import-mingling.ps1`，只认它的 `RESULT ok=1`；
+5. `verify`：跑 `tools\diag-config.ps1`，统计 `CHECK bad`。
+
+**两条保守规则**（都是被现场数据逼出来的）：
+
+- **白名单只加不删**：原来的六条一条不动，只补缺的。第一次干跑把前缀从「大肥鱼」改成「冥零」后按前缀找不到，白名单检查直接红；改成精确匹配 + 并集之后就绿了。
+- **默认模型不抢**：`agent_runner.config.model.provider_id` 非空且没 `-Force` 就不动。验收机的默认模型是 `mirarouter/deepseek-v4.1-flash`，换掉会让她当场失声。
+
+**快照与回退**：真改之前 `Take-Snapshot "selfsetup"` 落 `private\snapshots\before-selfsetup-<时间>.json`（config + personas + bots，留最近 20 份），`-Restore` 按 id 补/改人设、按 id PUT 平台，config 保留当前 dashboard 再整份写回。验收时真跑 → 核对 → 回退 → 再核对，两步都过。
+
+**入口**：维护页「自设定」（`op:selfsetup`，`StartAutoSetup` 第三段进度 75+pct/4）、`--selfsetup [--dry]`、`--her-op selfsetup [块名|dry]`。
+
+**四个坑**（都记在 `docs\ACCEPTANCE.md` 第 13 节）：命令行收尾 `\` 吃引号、协议行必须 `##RESULT`、`$pid` 只读、PS 5.1 没有 `-SkipLast`；另外两个脚本必须存成 **UTF-8 with BOM**，否则 PS 5.1 按 GBK 读出一堆 Parser 错（编辑工具会把 BOM 弄丢，改完要重存）。
+
+**P1（同一晚补上）：插件块**。把大肥鱼那 10 个插件原样收进 `pack\mingling-pack\plugins\`（MIT，附 `LICENSE-dafeiyu-config-pack.txt`），`pack.json` 里写成 `plugins.items[]`，每条带 `enable` 与 `config`：
+
+- 装：后台没有的目录打成 zip（`ZipFile::CreateFromDirectory`）传 `POST /plugins/install/upload`；装过就跳过；
+- 配：`GET /plugins/config` → 占位 `{主人会话}`/`{ffmpeg}`/`{asr_dir}`/`{硅基流动key}` 换得到才写、换不到跳过，`PUT` 只写有变化的；
+- 开：`PATCH /plugins/enabled` 按 `enable`；改过的再 `POST /plugins/reload`；
+- 默认只开 6 个（clean、memelog、groupimage、resetkeep、signature、video），petlink 与三个语音插件只装不开。
+
+验收：`-Only plugins` 真跑新装 3 个、10 个全在位（6 开 4 关），配置落盘核对正确（`owner_session`、`ffmpeg_path`、`sing.backend`），`diag-config.ps1` 加一项插件 CHECK 后八项全 ok。
+**P2（同一晚再补）：长期记忆与语音**。`pack.json` 的 blocks 扩到八块，新增 `memory`（`default_mode "0"`；1 本机 Ollama `bge-m3` → `冥零记忆-本机`；2 硅基流动 `BAAI/bge-m3` → `冥零记忆-硅基流动`；plugin `astrbot_plugin_livingmemory`（市场 id `lxfight/astrbot_plugin_livingmemory`）；scope `global` + 主人会话/桌宠/群）与 `voice`（`default_mode "0"`；1 Edge / 3 豆包 / 4 本机 Breeze / 5 Breeze 在线，四路 id 都以 `冥零语音-` 开头；`trigger_probability 0.33`）。`self-setup.ps1` 加 `Do-Memory`（Step 68–74）与 `Do-Voice`（Step 76–80）：embedding 与 TTS 都先 `POST /providers` 建源、`POST /providers/test` 测通，再写插件/全局设置；测不通就把 provider `enable=false` 并 FAIL，不动你现有的设置。本机 Breeze 先查 `/v1/voices`，包里要的 `mingling` 音色不在列表就**不动现场**、直接报「先做声音」。`diag-config.ps1` 加「记忆」「语音」两项 CHECK。踩坑补充：`$pid` 这种只读自动变量在参数位也会炸（`Get-ProviderConf` 的参数改名 `$providerId`）；快照回退不覆盖插件配置文件，退回后要手工 PUT `/plugins/config` 指回旧值（`DELETE /providers/{id}` 打不通）。
+
+## 12. 功能页与 V2.3.0（2026-11-06）
+
+**问题**：配置包里默认关着的几样（桌宠 petlink、唱歌 sing、豆包语音、在线 Breeze）和记忆/语音路线，只有改 `pack.json` / `answers.json` 才动得了。对用户来说等于「有这功能，但看不见」。
+
+**选择**：新增侧栏第 8 页「功能」，把它们摆成开关，而不是加一堆新命令。
+
+- 六个开关：四个插件二选一（开/关）、长期记忆三选一（关 / 本机 bge-m3 / 硅基流动）、语音路线五选一（关 / Edge / 豆包 / 本机 Breeze / 在线 Breeze）；
+- 点一下只做两件事：写覆盖文件（`<base>\private\features.txt` 一行 `插件名=1|0`；`memory-mode.txt`、`voice-mode.txt` 各一行数字），再自动跑对应的自设定块（插件→`plugins`，记忆→`memory`，语音→`plugins,voice`）。真正的后台改动仍然只发生在引擎里，和命令行走同一条路；
+- 覆盖文件优先于 `pack.json` 的 `enable`：`self-setup.ps1` 的 `Do-Plugins` 加了 `Get-Feature` 覆盖，`Do-Voice` 选豆包/在线时用 `Ensure-PluginOn` 顺手把对应插件打开；
+- C++ 侧：`her::FeatureOn` / `her::ModeNum` / `her::SetFeature`（`her_config.cpp`）+ op `feature`；界面在 `win32\src\ui_setup.inc`，TABS 扩到 10 项，`0` 键新增到帮助页。
+
+**没选**：没做成「设置对话框」或新的配置文件格式——覆盖文件是纯文本一行一个，用户手改、Agent 读都容易；也没把这四个插件直接改成默认开——桌宠要另装桌宠桥、豆包和在线语音要各自的 key，默认开会让新装的人一上来就撞失败。
+
+**验收**：功能页真点「桌宠 开」→ 写 `features.txt` → 跑 `plugins` 块 → 10 在位 7 开 3 关（快照 `before-selfsetup-20261106-210052.json`）；删覆盖文件再跑一遍回到 6 开 4 关。版本升 `V2.3.0`（按 VERSIONING：`Vx.x.0` 新增功能），`dist\MinglingWorkbench-2.3.0-setup.exe` 51,553,244 B。
+
+**踩坑**：`version.h` 是 **UTF-8 无 BOM**，用 GBK 读改会写坏中文注释（`APP_NAME` 的收尾引号被吃掉，编译报 `stray 'L'`）；改它要按 UTF-8 读写。另外 PowerShell 截 DPI-aware 窗口要先 `SetThreadDpiAwarenessContext(-4)` + `PrintWindow`，否则 `GetClientRect` 只报 150% 缩放后的逻辑尺寸，截出来的图右边和下边被裁掉——一度误判成「开关 chip 没画出来」。

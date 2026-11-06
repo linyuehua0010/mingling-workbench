@@ -333,3 +333,59 @@ tmp/lab3.exe 'D:\MinglingWorkbench\dist\MinglingWorkbench-2.0.0-setup.exe'
 → 安装成功，并且 `SaveStringToFile` 这次真的写出了 settings.json（走 userdocs 回退，因为测试前删过文件）。11.3 那条「安装器不写 settings.json」的结论就此推翻。用户真实配置已还原为 `{"workspace": "F:/MinglingWorkbench", "base": "F:/"}`。
 
 注意：**每次重建安装包都要重做一次 `icacls /setintegritylevel Medium`**，新文件会继承 dist 目录的 Low 标签；或把包拷到桌面再双击。
+
+## 12. 自设定验收（2026-11-06）
+
+「一键自动配置」原本只装组件，装完停在「能启动、不会说话」。这一节验收的是第三段：按 `pack\mingling-pack\pack.json` 把 DeepSeek、QQ 平台、聊天设置、插件、长期记忆、语音、人设配成冥零。
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 构建 | `win32\build.bat` | `OK: …\bin\MinglingWorkbench.exe` `size: 1273344 bytes`，exit 0 |
+| PS 语法 | `[Parser]::ParseFile` 过 `tools\self-setup.ps1`、`tools\diag-config.ps1` | 两份都 `syntax OK`；必须是 **UTF-8 with BOM**（无 BOM 时 PS 5.1 按 GBK 读，中文引号断成几十个 Parser 错） |
+| 干跑（脚本层） | `powershell -File tools\self-setup.ps1 -Base F:\dafeiyu -DryRun` | `##RESULT ok=0 done=7 fail=1`：provider/platform/chat/plugins/memory/persona/verify 七块 `##OK`，voice 因 Breeze 里没有 `mingling` 音色 `##FAIL`；把临时 answers 的 `breeze_voice=dafeiyu` 后 voice 也绿 |
+| 干跑（CLI） | `MinglingWorkbench.exe --selfsetup --dry`（隔离 `APPDATA` 指向临时 state 目录，`settings.json` 写 `base=F:/dafeiyu`） | 七条 `[ok]` + voice 一条 `[!!]`（同上，缺冥零音色）+ `[!!] 自设定脚本`；八块顺序 provider/platform/chat/plugins/memory/voice/persona/verify；`verify` 干跑时直接 `[ok] 干跑：不动现场，跳过核对`；输出写 `MINGLING_CLI_OUT` 指定的文件（GUI 子系统进程不占父控制台） |
+| 动作入口 | `MinglingWorkbench.exe --her-op selfsetup dry` | exit 0；`F:\dafeiyu\logs\her-op.txt` 写 `OK 自设定完成：…` |
+| 真跑 | `MinglingWorkbench.exe --her-op selfsetup`（base=`F:\dafeiyu`，live AstrBot 6185） | exit 0；快照 `F:\dafeiyu\private\snapshots\before-selfsetup-20261106-194005.json` 47,138 字节 |
+| 写入生效 | 真跑后读 `/config-profiles/default` | `compression.max_turns=30`、`computer_use_runtime=none`、`segmented_reply.enable=true`、`split_mode=regex`、`safety_mode=true`、`default_image_caption_provider_id=deepseek/deepseek-flash`、人设「冥零」len 1664→1571；`agent_runner.config.model.provider_id` 仍是 `mirarouter/deepseek-v4.1-flash`（非空不覆盖，符合设计） |
+| 插件真跑 | `powershell -File tools\self-setup.ps1 -Base F:\dafeiyu -Only plugins` | exit 0；快照 `before-selfsetup-20261106-194825.json`；`##OK plugins|插件 10 个：在位 10 个，开了 6 个、关了 4 个（这次新装 3 个）` |
+| 插件配置写盘 | 读 `F:\dafeiyu\astrbot\data\config\astrbot_plugin_dafeiyu_signature_config.json` 等 | `owner_session = "冥零:FriendMessage:2957389852"`；video 的 `ffmpeg_path`/`asr_dir` 与 `answers.json` 一致；sing `backend=doubao`。API 返回中文乱码是 AstrBot 没带 charset，不是写错 |
+| 记忆真跑 | `powershell -File tools\self-setup.ps1 -Base F:\dafeiyu -Only memory`（`answers.json` 的 `memory=1`） | exit 0；快照 `before-selfsetup-20261106-195840.json`；`##OK memory|记忆开了：本机 Ollama 的 bge-m3…`；新 provider `冥零记忆-本机`（`type=openai_embedding`、`model=bge-m3`、`enable=true`）；livingmemory 的 `provider_settings.embedding_provider_id=冥零记忆-本机`、`agent_tools.enable_memorize_tool=true`、`filtering_settings.memory_scope_mode=global` |
+| 语音真跑 | `powershell -File tools\self-setup.ps1 -Base F:\dafeiyu -Only voice -Answers <临时 answers，breeze_voice=dafeiyu>` | exit 0；快照 `before-selfsetup-20261106-195944.json`；`##OK voice|语音开了：本机 Breeze（dafeiyu）；三条回复里大约一条发语音`；`provider_tts_settings.provider_id=冥零语音-Breeze`、`enable=true`、`trigger_probability=0.33`；provider `type=openai_tts_api`、`openai-tts-voice=dafeiyu`、`api_base=http://127.0.0.1:8137/v1` |
+| 语音诚实失败 | 默认 answers（`voice=4`，Breeze 里只有 `dafeiyu` 一个音色） | `##FAIL voice|Breeze 里还没有叫 mingling 的声音（现有：dafeiyu）：先双击「做声音.bat」…现有语音设置没动`，exit 1；同一轮 `##OK memory` 仍是绿的（一块失败不影响别的） |
+| 验收脚本 | `powershell -File tools\diag-config.ps1 -Base F:\dafeiyu -Quick` | 十项 `CHECK … ok`（含「插件 10 个都在位，开了 6 个」「记忆开着，用 冥零记忆-本机」「语音开着，用「冥零语音-Breeze」」），`RESULT ok=1 bad=0 why=配置都验过了，能聊` |
+| 验收脚本（未应用时） | 同上，现场退回后 | 八项 ok；`CHECK 记忆 bad 记忆插件开着，记忆模型指向「大肥鱼记忆-本机」，要「冥零记忆-本机」`、`CHECK 语音 bad 全局语音指向「大肥鱼语音-Breeze」，不是配置包里那几路`，`RESULT ok=0 bad=2` |
+| 回退 | `powershell -File tools\self-setup.ps1 -Base F:\dafeiyu -Restore <上面那份快照>` | `##RESULT ok=1 done=1 fail=0 why=退回好了`；之后人设 len 回到 1664、`computer_use_runtime` 回到 `local` |
+| 路径引号 | base 为盘符根（`F:/`）时跑 `--selfsetup` | 脚本收到 `F:\`，干净报「后台没连上」+ exit 2；修前会把 `F:\` 削成 `F:`，`Test-Path F:` 变相对路径 |
+
+本轮**没有**实跑的两处，理由照规矩写清楚：
+
+- **维护页按钮与进度条**：`StartAutoSetup` 第三段（`her::Configure`，75+pct/4，「自设定：」前缀）只是接线，真点按钮要人手，脚本层和 CLI 两条路都已实跑。
+- **多平台歧义分支**：live 后台恰好有同名「冥零」平台，走的是精确匹配；「多个平台且没有同名 → 报错不猜」只做了代码核对。
+- **快照回退的边界**：快照只收 config、personas、bots。插件自己的配置文件（如 astrbot_plugin_livingmemory_config.json）与「把新增 provider 从列表里去掉」都不在回退范围内——PUT 配置是合并语义，DELETE /providers/{id} 这条路没打通（401）。实测退回后 livingmemory 仍指向 冥零记忆-本机，最后是用 PUT /plugins/config 手工指回 大肥鱼记忆-本机 才干净。
+
+## 13. 自设定踩到的六个坑（复现要点）
+
+1. **命令行收尾反斜杠吃掉引号**：`-Base "F:\x\"` 传进脚本变成 `F:\x"`，`Test-Path` 报「路径中具有非法字符」。`ArgPath` 削尾、盘符根补 `\`、最后再补一个 `\`（命令行里 `\\"` 才是字面反斜杠 + 收尾引号）。
+2. **协议行必须带 `##`**：`Done()` 原来写 `RESULT ok=…`，而 `Configure`/`BotsSetup` 只认 `##RESULT `，结果脚本全成功、UI 却报「脚本没给出结果」。统一成 `##RESULT`。
+3. **`$pid` 是只读自动变量**：`$pid = "deepseek/deepseek-flash"` 直接炸；两个脚本里的同名变量都改成 `$itemId`。
+4. **PS 5.1 没有 `Select-Object -SkipLast`**：快照保留 20 份的裁剪改成「取全部、Count>20 时 `Select-Object -First (n-20)` 删旧的」。
+5. **编辑工具会把 `.ps1` 的 UTF-8 BOM 弄丢**：改完必须用 `[IO.File]::WriteAllText($p, [IO.File]::ReadAllText($p,[Text.Encoding]::UTF8), (New-Object Text.UTF8Encoding($true)))` 重存，再用 `[Parser]::ParseFile` 过一遍；否则 PS 5.1 按 GBK 读，报一堆 `Missing closing ')'`。
+6. **PowerShell 截图会被 DPI 虚拟化**：工作台是 DPI-aware（`SetProcessDpiAwarenessContext`），150% 下真实客户区 2100x1350；不设 `SetThreadDpiAwarenessContext(-4)` 时 `GetClientRect` 只报 1400x900，`CopyFromScreen` 截出来的图右边和下边的控件全被裁掉（一度误判「功能页的开关 chip 没画」）。正确姿势：DPI-aware 线程 + `PrintWindow(hwnd, memDC, 1)`。
+
+## 14. 功能页验收（2026-11-06，V2.3.0）
+
+「配置包里默认关着的几样」做成侧栏第 8 页「功能」：四个插件开关（桌宠 / 唱歌 / 豆包语音 / 在线 Breeze）+ 长期记忆三选一 + 语音路线五选一。点一下写 `<base>\private\features.txt`、`memory-mode.txt`、`voice-mode.txt`，再自动跑对应的自设定块。
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 构建 | `win32\build.bat` | `OK: …\bin\MinglingWorkbench.exe` `size: 1289728 bytes` |
+| 版本 | `tools\check-version.ps1` | `[版本] OK V2.3.0 (2.3.0.0)` |
+| 切页 | `SendMessage WM_KEYDOWN 0x38`（`8`） | `g_tab=7`，功能页渲染；`0` 键新增到帮助页 |
+| 截图 | DPI-aware 线程 + `PrintWindow` | `tmp\ui-full.png` 2100x1350：六行齐全，桌宠/唱歌/豆包/在线 Breeze 的「开/关」、记忆「本机 bge-m3」、语音「本机 Breeze」选中态正确 |
+| 点「桌宠 开」 | 客户区 (1814,242) → 屏幕 (2044,364) 点击 | `private\features.txt` 写入 `astrbot_plugin_dafeiyu_petlink=1`；自设定跑 `plugins` 块，快照 `before-selfsetup-20261106-210052.json`，`##OK plugins|插件 10 个：在位 10 个，开了 7 个、关了 3 个`；页面刷新后「开」变蓝、状态行「自设定完成：自设定跑完了，都成了」 |
+| 还原 | 删 `features.txt` + `self-setup.ps1 -Only plugins` | `##OK plugins|插件 10 个：在位 10 个，开了 6 个、关了 4 个`，现场回到默认 |
+| 引擎覆盖 | `features.txt` 写 `…petlink=1` 后 `-DryRun -Only plugins` | `（dry-run，astrbot_plugin_dafeiyu_petlink → 开）`、`开了 7 个、关了 3 个` |
+| 命令行等价 | `--her-op feature voice/4` | `logs\her-op.txt` 写「OK 语音路线改成 4 了（跑完自设定就生效）」，生成 `private\voice-mode.txt` |
+| 安装包 | `installer\build-installer.bat` | `dist\MinglingWorkbench-2.3.0-setup.exe`，51,553,244 字节，sha256 `18970FFC411F4327D8DD3EFD9F8756538EFCBF1E08445DE31C3607F2B19C0E15`，ProductVersion `2.3.0` |
+
+没跑的：安装包覆盖安装（沿用 2.2.1 的注意：重建后要 `icacls /setintegritylevel Medium`）；「豆包语音」「在线 Breeze」两条路只验到写覆盖文件 + 跑块，没填真 key。
