@@ -236,7 +236,10 @@ void AppendJob(const JobRec& j) {
                    JsonEscape(j.title) + L"\",\"up\":\"" + JsonEscape(j.up) + L"\",\"source\":\"" +
                    JsonEscape(j.source) + L"\",\"chat\":\"" + JsonEscape(j.chat) + L"\",\"status\":\"" +
                    JsonEscape(j.status) + L"\",\"sink\":\"" + JsonEscape(j.sink) + L"\",\"seconds\":\"" +
-                   JsonEscape(j.seconds) + L"\"}\n";
+                   JsonEscape(j.seconds) + L"\"";
+    // type 只在真有值时才写：老记录没有这个键，读的人也不能指望它
+    if (!j.type.empty()) line += L",\"type\":\"" + JsonEscape(j.type) + L"\"";
+    line += L"}\n";
     WriteTextFile(JobsFile(), line, true);
 }
 
@@ -297,6 +300,7 @@ vector<JobRec> ReadJobs(int maxRows) {
         if (JsonGetString(l, L"status", v)) j.status = v;
         if (JsonGetString(l, L"sink", v)) j.sink = v;
         if (JsonGetString(l, L"seconds", v)) j.seconds = v;
+        if (JsonGetString(l, L"type", v)) j.type = v;
         jobs.push_back(j);
     }
     return jobs;

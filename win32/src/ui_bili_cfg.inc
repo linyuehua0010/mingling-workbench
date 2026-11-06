@@ -36,7 +36,7 @@ static const ApiRowDef kApiRows[] = {
     {L"path", L"路径", L"默认 /chat/completions（拼在 Base URL 后面）", 0},
     {L"model", L"模型名", L"例如 deepseek-chat", 0},
     {L"timeout", L"超时（秒）", L"5–300，只影响这一路对话，不挡看片", 1},
-    {L"key", L"API Key", L"存到 secrets\dsh-api-key.txt，不写 settings.json", 5},
+    {L"key", L"API Key", L"存到 secrets\\dsh-api-key.txt，不写 settings.json", 5},
 };
 static const int kApiRowCount = (int)(sizeof(kApiRows) / sizeof(kApiRows[0]));
 

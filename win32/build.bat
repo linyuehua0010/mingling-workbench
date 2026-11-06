@@ -30,7 +30,7 @@ echo [1/3] resources
 if errorlevel 1 goto fail
 
 echo [2/3] compile
-"%GXX%" -std=c++17 -O2 -Wall -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -fno-ident -ffunction-sections -fdata-sections src\main.cpp src\util.cpp src\paths.cpp src\whale.cpp src\biliapi.cpp src\ui.cpp src\her\her_json.cpp src\her\her_probe.cpp src\her\her_sqlite.cpp src\her\her_config.cpp src\her\her_astr.cpp src\her\her_status.cpp src\her\her_actions.cpp src\her\her_setup.cpp build\app.res.o -o build\MinglingWorkbench.exe -Wl,--gc-sections -static -static-libgcc -static-libstdc++ -s -mwindows -lgdiplus -lwinhttp -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -lcomdlg32 -lcomctl32 -lws2_32 -liphlpapi -lgdi32 -luser32 -ladvapi32
+"%GXX%" -std=c++17 -O2 -Wall -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -fno-ident -ffunction-sections -fdata-sections src\main.cpp src\util.cpp src\paths.cpp src\whale.cpp src\biliapi.cpp src\webfetch.cpp src\ui.cpp src\her\her_json.cpp src\her\her_probe.cpp src\her\her_sqlite.cpp src\her\her_config.cpp src\her\her_astr.cpp src\her\her_status.cpp src\her\her_actions.cpp src\her\her_setup.cpp build\app.res.o -o build\MinglingWorkbench.exe -Wl,--gc-sections -static -static-libgcc -static-libstdc++ -s -mwindows -lgdiplus -lwinhttp -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -lcomdlg32 -lcomctl32 -lws2_32 -liphlpapi -lgdi32 -luser32 -ladvapi32
 if errorlevel 1 goto fail
 
 echo [3/3] copy

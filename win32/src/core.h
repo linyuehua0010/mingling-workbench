@@ -146,10 +146,48 @@ vector<FeedItem> ParseFeed(const wstring& out);
 Debrief ParseDebrief(const wstring& out);
 wstring ExtractBv(const wstring& text);
 
+// ---------------------------------------------------------------- 输入分类（B 站 / 其他链接 / 分享文本 / 本地路径）
+enum InputKind {
+    IN_EMPTY = 0,
+    IN_BILI,   // B 站 BV 号或 B 站链接（含 b23.tv 短链、分享文本里的 B 站链接）
+    IN_URL,    // 别的 http(s) 网页链接
+    IN_SHARE,  // 应用分享文本，里面的首个链接不是 B 站的
+    IN_PATH,   // 本地文件/快捷方式，只做「打开」
+    IN_UNKNOWN // 看不出是什么
+};
+
+struct InputAction {
+    InputKind kind = IN_EMPTY;
+    wstring text; // 原始输入（已 Trim）
+    wstring url;  // 提取到的第一个 http(s) 链接
+    wstring bv;   // 提取到的 BV 号
+    wstring path; // 本地路径
+};
+
+// 按「先 B 站、再链接、再分享文本、再本地路径」的顺序判断，宁可保守也不猜错。
+InputAction ClassifyInput(const wstring& text);
+// 从任意文本里抓第一个 http(s) 链接（找到 http:// 或 https:// 后取到空白/引号为止）。
+wstring FirstUrl(const wstring& text);
+
+// ---------------------------------------------------------------- 通用网页读取（其他链接的 MVP）
+struct WebPage {
+    bool ok = false;
+    int code = 0;       // HTTP 状态码
+    wstring url;        // 跟随重定向后的最终地址
+    wstring title;      // <title>
+    wstring text;       // 去掉标签后的可读正文（已截断）
+    wstring err;        // 失败原因（超时 / 连不上 / 不是网页 / 编码看不懂 …）
+    size_t bytes = 0;   // 实际读到的字节数
+};
+
+// 只做一次 GET：跟重定向、限时、限大小、抽标题和正文；不执行 JS、不登录。
+WebPage FetchWebPage(const wstring& url, int timeoutMs = 15000, size_t maxBytes = 512 * 1024);
+
 // ---------------------------------------------------------------- 任务记录（和 QQ 插件共用一份）
 struct JobRec {
     long long t = 0;
     wstring bv, title, up, source, chat, status, sink, seconds;
+    wstring type; // 可选：空 = 看片（老记录都没这个键），"link" = 读网页
 };
 
 wstring JobsFile();

@@ -29,6 +29,7 @@ static void PostTask(TaskData* d) { PostMessageW(g_hwnd, WM_APP_JOB, 0, (LPARAM)
 // B 站输入框（自绘的，没有原生 EDIT 的剪贴板能力，得自己接）
 static const size_t kInputMax = 600;
 static bool g_inputSelAll = false;     // Ctrl+A：再打字/粘贴就整体替换
+static bool g_linkMode = false;        // 上一次「让她看」读的是网页还是 B 站
 static RectF g_rcInput;                // 输入框当前占的屏幕位置（右键菜单用）
 static wstring ClipboardText();
 static void InputPaste();
@@ -319,35 +320,126 @@ static void RefreshFeed() {
     }).detach();
 }
 
+// 只看域名，够用了：状态行和台账里写这个比写整条长 URL 好读
+static wstring UrlHost(const wstring& url) {
+    wstring u = url;
+    size_t p = u.find(L"://");
+    if (p != wstring::npos) u = u.substr(p + 3);
+    size_t e = u.find_first_of(L"/?#");
+    if (e != wstring::npos) u = u.substr(0, e);
+    return u;
+}
+
+// 把一次网页读取的结果拼成结果区能画的文本（DrawRich 认 ══════ 标题行）
+static wstring LinkReport(const wstring& url, const wstring& title, const WebPage& p) {
+    wstring s;
+    s += L"══════════ 读到的链接 ══════════\n";
+    s += L"标题: " + title + L"\n";
+    s += L"地址: " + (p.url.empty() ? url : p.url) + L"\n";
+    if (p.code > 0) s += L"状态: HTTP " + Num(p.code) + L" · 读到 " + PrettyBytes(p.bytes) + L"\n";
+    if (p.ok) {
+        s += L"\n══════════ 正文摘要 ══════════\n";
+        s += p.text;
+    } else {
+        s += L"\n══════════ 没读成 ══════════\n";
+        s += L"  " + (p.err.empty() ? wstring(L"原因不明") : p.err) + L"\n";
+        s += L"\n只做了这一件事：一次 GET。不跑脚本、不登录、不绕风控，读不到就是读不到。\n";
+    }
+    return s;
+}
+
 static void StartWatch() {
     if (g_watchBusy) return;
-    wstring bv = ExtractBv(g_bvInput);
-    if (bv.empty() && g_feedSel >= 0 && g_feedSel < (int)g_feed.size()) bv = g_feed[g_feedSel].bv;
-    if (bv.empty()) {
+
+    // 先判断用户到底粘了什么：B 站、别的网页、分享文本、还是本地快捷方式
+    InputAction act = ClassifyInput(g_bvInput);
+    if (act.kind == IN_EMPTY && g_feedSel >= 0 && g_feedSel < (int)g_feed.size()) {
+        act.kind = IN_BILI;
+        act.bv = g_feed[g_feedSel].bv;
+    }
+    if (act.kind == IN_EMPTY) {
         UiToast(L"先粘个链接，或者点左边一条选题");
         return;
     }
+    if (act.kind == IN_PATH) {
+        OpenPath(act.path);
+        UiToast(L"帮你打开了（只打开，不读里面的内容）");
+        return;
+    }
+    if (act.kind == IN_UNKNOWN) {
+        UiToast(L"看不出这是什么：B 站链接/BV、网页链接、分享文本都行");
+        return;
+    }
+    if (act.kind == IN_SHARE) UiToast(L"从分享文本里认出链接了，这就去读");
+
+    const bool isLink = (act.kind == IN_URL || act.kind == IN_SHARE);
+    g_linkMode = isLink;
+    wstring bv = act.bv;
+    wstring url = act.url;
+    if (act.kind == IN_BILI && bv.empty()) bv = ExtractBv(url);
     wstring hint;
     for (auto& f : g_feed)
-        if (f.bv == bv) hint = f.title;
+        if (!bv.empty() && f.bv == bv) hint = f.title;
+
     g_watchBusy = true;
-    g_watchBv = bv;
+    g_watchBv = isLink ? url : bv;
     g_watchT0 = NowUnix();
-    g_watchPct = 6;
+    g_watchPct = isLink ? 10 : 6;
     g_watchStage.clear();
     {
         std::lock_guard<std::mutex> lk(g_progMx);
         g_progPct = 0;
         g_progStage.clear();
     }
-    g_watchStatus = L"正在看 " + bv + L" · 起手 · 0s";
+    g_watchStatus = isLink ? (L"正在读 " + url) : (L"正在看 " + bv + L" · 起手 · 0s");
     g_hasResult = false;
     g_watchScroll = 0;
-    std::thread([bv, hint]() {
+
+    if (isLink) {
+        // 别的链接：一次 GET，读完把标题和正文摘要丢回结果区。
+        // 这条链路完全不碰 bili-whale，也就不会影响看片。
+        std::thread([url]() {
+            TaskData* d = new TaskData();
+            d->kind = TK_WATCH;
+            d->type = L"link";
+            long long t0 = NowUnix();
+            WebPage p = FetchWebPage(url, 15000, 512 * 1024);
+            d->bv = url;
+            d->up = UrlHost(p.url.empty() ? url : p.url);
+            d->ok = p.ok;
+            d->title = p.ok ? p.title : L"没读到";
+            d->text = LinkReport(url, p.ok ? p.title : wstring(L"（没读到）"), p);
+            d->seconds = Num((long long)(NowUnix() - t0)) + L"s";
+            PostTask(d);
+        }).detach();
+        UiRequestRepaint();
+        return;
+    }
+
+    // B 站：原链路，一个字节都不改（短链缺 BV 时先在后台跟一次重定向）
+    g_watchStatus = bv.empty() ? (L"正在跟短链 " + url) : (L"正在看 " + bv + L" · 起手 · 0s");
+    std::thread([bv, url, hint]() {
         TaskData* d = new TaskData();
         d->kind = TK_WATCH;
-        d->bv = bv;
+        wstring id = bv;
         long long t0 = NowUnix();
+        if (id.empty() && !url.empty()) {
+            // b23.tv 这类短链里没有 BV，跟一次重定向，从落地地址里找
+            WebPage p = FetchWebPage(url, 8000, 64 * 1024);
+            id = ExtractBv(p.url);
+            if (id.empty()) id = ExtractBv(p.text);
+            if (id.empty()) {
+                d->ok = false;
+                d->bv = url;
+                d->title = L"短链里没找到 BV";
+                d->text = L"跟过去也没找到 BV 号。\n从浏览器地址栏里把 BV 开头的那一段复制过来就行。\n\n（" +
+                          (p.err.empty() ? wstring(L"落地地址是 ") + p.url : p.err) + L"）";
+                d->seconds = Num((long long)(NowUnix() - t0)) + L"s";
+                PostTask(d);
+                return;
+            }
+        }
+        d->bv = id;
         WhaleEnv we = FindWhale();
         CmdResult r;
         if (!we.ok) {
@@ -359,7 +451,7 @@ static void StartWatch() {
             env.emplace_back(L"BILI_TMP_ROOT", JoinPath(RootDir(), L"tmp"));
             env.emplace_back(L"BILI_LOGS_ROOT", JoinPath(RootDir(), L"logs"));
             env.emplace_back(L"BILI_WHALE_CONFIG", we.config);
-            r = RunCaptureStream(we.node, L"\"" + we.mjs + L"\" debrief " + bv + L" --grid " + BiliGridSetting(),
+            r = RunCaptureStream(we.node, L"\"" + we.mjs + L"\" debrief " + id + L" --grid " + BiliGridSetting(),
                                  RootDir(), env, (DWORD)BiliTimeoutSec() * 1000, WatchOnLine, nullptr);
         }
         d->debrief = ParseDebrief(r.out);
@@ -821,7 +913,7 @@ static void PaintBili(Graphics& g) {
     Round(g, ed, S(12), g_editFocus ? 0xFFFFFFFF : C_PANEL2, g_editFocus ? C_ACCENT2 : C_LINE);
     float txx = ed.X + S(16);
     if (g_bvInput.empty()) {
-        Txt(g, L"粘贴 B站 链接或 BV 号…（Ctrl+V / 右键）", RectF(txx, ed.Y, ed.Width - S(24), ed.Height),
+        Txt(g, L"粘 B站 链接 / BV，或者别的网页链接、分享文本…（Ctrl+V / 右键）", RectF(txx, ed.Y, ed.Width - S(24), ed.Height),
             Fnt(SUBTITLE_SIZE, 1, 0), 0xFFAAB5C9, 0);
     } else {
         RectF tr(txx, ed.Y, ed.Width - S(24), ed.Height);
@@ -833,7 +925,9 @@ static void PaintBili(Graphics& g) {
     Button(g, RectF(ed.X + ed.Width + S(12), y0, S(110), S(46)), g_watchBusy ? L"看着呢…" : L"让她看", "btn:watch", 1,
            false, !g_watchBusy);
 
-    wstring status = g_watchBusy ? g_watchStatus : (g_hasResult ? L"看完了 · 结果在下面" : L"读字幕、弹幕、热评，再看几帧画面");
+    wstring status = g_watchBusy ? g_watchStatus
+                         : (g_hasResult ? (g_linkMode ? L"读完了 · 结果在下面" : L"看完了 · 结果在下面")
+                                        : (g_linkMode ? L"读标题和正文摘要；B 站链接照旧走看片" : L"读字幕、弹幕、热评，再看几帧画面"));
     if (!g_watchStatus.empty() && g_watchBusy) status = g_watchStatus;
     Txt(g, status, RectF(rx, y0 + S(54), rw, S(20)), Fnt(HINT_SIZE, 1, 0), g_watchBusy ? C_ACCENT : C_FAINT, 0, true);
     if (g_watchBusy) {
@@ -875,7 +969,9 @@ static void PaintBili(Graphics& g) {
             float iw = ih * (float)em->GetWidth() / (float)em->GetHeight();
             DrawImgFill(g, em, RectF(res.X + res.Width / 2 - iw / 2, res.Y + S(46), iw, ih), 0.0f, 0.0f, 1.0f, 1.0f);
         }
-        Txt(g, g_watchBusy ? (L"正在看… " + Num((long long)g_watchPct) + L"%") : L"她还没看过视频", RectF(res.X, res.Y + res.Height - S(58), res.Width, S(24)),
+        wstring emptyWord = g_linkMode ? (g_watchBusy ? L"正在读… " : L"她还没读过网页") : (g_watchBusy ? L"正在看… " : L"她还没看过视频");
+        if (g_watchBusy) emptyWord += Num((long long)g_watchPct) + L"%";
+        Txt(g, emptyWord, RectF(res.X, res.Y + res.Height - S(58), res.Width, S(24)),
             Fnt(TITLE_SIZE, 0, 0), C_SUB, 1);
     } else {
         float total = DrawRich(g, g_result.raw, textArea, g_watchScroll);
@@ -1678,7 +1774,19 @@ void UiOnTask(TaskData* d) {
             if (!g_result.cover.empty()) DropImg(g_result.cover);
             if (!g_result.sheet.empty()) DropImg(g_result.sheet);
             if (!g_result.subs.empty()) DropImg(g_result.subs);
-            g_result = d->debrief;
+            const bool isLink = (d->type == L"link");
+            g_linkMode = isLink;
+            if (isLink) {
+                // 网页没有分节、没有图，整段报告当正文画
+                Debrief db;
+                db.ok = d->ok;
+                db.raw = d->text;
+                db.title = d->title;
+                db.up = d->up;
+                g_result = db;
+            } else {
+                g_result = d->debrief;
+            }
             g_hasResult = !d->text.empty();
             g_watchScroll = 0;
             g_watchStatus.clear();
@@ -1693,14 +1801,23 @@ void UiOnTask(TaskData* d) {
             j.chat = L"工作台";
             j.status = d->ok ? L"ok" : L"fail";
             j.seconds = d->seconds;
+            j.type = d->type;
             wstring dir = JoinPath(JoinPath(RootDir(), L"logs"), L"jobs");
             CreateDirectoryW(dir.c_str(), nullptr);
-            j.sink = JoinPath(dir, d->bv + L"-" + Num(j.t) + L".txt");
+            // 看片用 BV 命名；读网页没有 BV，就用 link-时间，老解析照旧认
+            wstring baseName = isLink ? (L"link-" + Num(j.t)) : (d->bv + L"-" + Num(j.t));
+            j.sink = JoinPath(dir, baseName + L".txt");
             WriteTextFile(j.sink, d->text);
             AppendJob(j);
             LoadJobs();
-            if (d->ok) UiToast(L"看完啦，记在队列里了");
-            else UiToast(L"没看成功，去体检页看看");
+            if (isLink) {
+                if (d->ok) UiToast(L"读完了，记在队列里了");
+                else UiToast(L"没读成，原因在结果里");
+            } else if (d->ok) {
+                UiToast(L"看完啦，记在队列里了");
+            } else {
+                UiToast(L"没看成功，去体检页看看");
+            }
             break;
         }
         case TK_CHECK:

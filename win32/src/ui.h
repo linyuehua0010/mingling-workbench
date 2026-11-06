@@ -29,6 +29,7 @@ struct TaskData {
     wstring text;                // 原始输出
     wstring bv, title, up, status, seconds, sink;
     wstring opName, opArg;       // TK_OP：跑的是哪个动作
+    wstring type;                // TK_WATCH：空 = 看片，"link" = 读网页
     void* ptr = nullptr;         // TK_UPDATES：her::UpdatesInfo*（归 UiOnTask 释放）
     Debrief debrief;
     vector<FeedItem> feed;
