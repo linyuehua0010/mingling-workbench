@@ -551,4 +551,6 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 
 **私有仓库的更新检查**（2026-11-07 补）：仓库本身是私有的，未授权去查 `releases/latest` 只会拿到 404，更新页就永远显示「本机 / 没查到」。所以 `LatestGithub()` 现在会先看 `<base>\secrets\github-token.txt`：有这个文件就用它发 `Authorization: Bearer …` 查 API，没有就照旧匿名查。token 无效/过期仍按「没查到」处理，不报错、不打扰。`EnsureSecrets()` 的 README 里补了 `github-token.txt` 这一行（老装机只追加这一行，不动已有内容）。
 
+**预发布不在 latest 里**（2026-11-07 再补）：GitHub 的 `/releases/latest` 只认正式版，快照按约定发成 prerelease，所以配了 `repo_snapshot`、放好 token 之后还是显示「没查到」——问 latest 拿到的永远是正式版 V2.3.1，tag 里没有 `snapshot` 就被判成「别的通道」。改成带通道标记时问 `/releases?per_page=100`、挑 tag 里带 `snapshot` 的第一条；列表里没有就老实说没查到，绝不退回正式版的版本号。
+
 **验收**：见 `docs\ACCEPTANCE.md` 第 15 节（构建、版本一致、快照隔离、更新页降级、配置保存与备份、DSH API、剪贴板、链接读取、崩溃回归、安装包）。

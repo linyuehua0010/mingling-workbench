@@ -426,6 +426,7 @@ V3.0.0 是**预奏快照版**，走独立通道：界面与文件版本都是 `V
 | 只看快照 | 代码 | 只读 `repo_snapshot`；tag 里没有 `snapshot` 的 release 一律不认，正式版 exe 的下载按钮永远不会出现在这一行 |
 | 私有仓库（无凭据） | 仓库是 private，不带 token 查 `releases/latest` | 只有 404 → 页面仍显示`本机 / 没查到`，描述里点出正在查哪个仓库（`tmp\v3_upd_private.png`）；进程存活、不卡 |
 | 私有仓库（带凭据） | `<Base>\secrets\github-token.txt` 放一个无效 token 再点「再查一遍」 | 401 同样按「没查到」处理，不报错不崩（`tmp\v3_upd_faketoken.png`）；`EnsureSecrets()` 顺手在 `secrets\README.txt` 里补上 `github-token.txt` 那一行 |
+| 预发布不在 latest | `repo_snapshot` 已配、token 已放，release 发成 prerelease | `/releases/latest` 只回正式版 V2.3.1 → 旧逻辑判成「没查到」；改成问 `/releases?per_page=100` 挑 tag 带 `snapshot` 的第一条后，同一台机器上显示 Chip「最新」+「已经是最新（linyuehua0010/mingling-workbench）。换机器时从 Releases 页面下载安装包覆盖安装就行。」，页脚「都查到了。」（`tmp\v5_upd_ok.png`） |
 | 不自动更新 | 代码 | 没有任何下载/替换逻辑；有新版时按钮是「去 GitHub 下载」，点了只开浏览器 |
 
 ### 15.4 B 站页统合 + bili-whale 配置界面
