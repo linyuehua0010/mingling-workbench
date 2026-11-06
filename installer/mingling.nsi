@@ -13,7 +13,7 @@ Unicode true
 !include "..\build\parts\parts.nsh"
 
 !define APPNAME "冥零工作台"
-!define APPVERSION "2.2.0"
+!define APPVERSION "2.2.1"
 !define REGKEY "Software\MinglingWorkbench"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\MinglingWorkbench"
 
@@ -26,11 +26,11 @@ SetCompressor zlib
 ShowInstDetails show
 ShowUninstDetails show
 
-VIProductVersion "2.2.0.0"
+VIProductVersion "2.2.1.0"
 VIAddVersionKey "ProductName" "${APPNAME}"
 VIAddVersionKey "FileDescription" "${APPNAME} 安装程序"
-VIAddVersionKey "FileVersion" "2.2.0"
-VIAddVersionKey "ProductVersion" "2.2.0"
+VIAddVersionKey "FileVersion" "2.2.1"
+VIAddVersionKey "ProductVersion" "2.2.1"
 VIAddVersionKey "LegalCopyright" "MIT / 第三方见 THIRD-PARTY.md"
 
 Var WorkspaceDir

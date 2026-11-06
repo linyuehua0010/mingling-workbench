@@ -8,7 +8,7 @@
 原生 **Win32 + GDI+** 自绘，**不挂 Chromium / WebView2 / Electron**。一个进程、一个窗口，
 重复双击只会把已有窗口提到前面。
 
-![Version](https://img.shields.io/badge/version-V2.2.0-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-V2.2.1-2563eb?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0ea5e9?style=flat-square)
 ![GUI](https://img.shields.io/badge/GUI-Win32%20%2B%20GDI%2B-7c3aed?style=flat-square)
 ![No Electron](https://img.shields.io/badge/no-Electron%20%2F%20WebView2-16a34a?style=flat-square)
@@ -45,6 +45,8 @@
 | **掉线提醒** | 后台心跳默认每分钟探一次 SnowLuma（5099）、AstrBot（6199）、Breeze（8137）；连**续两次**失败才算掉线，同一条 10 分钟内只提醒一次。提醒是右上角滑动横幅（带「重启一下」按钮）+ 托盘气泡，标题/正文/头像/频率都能在 `settings.json` 里改。 |
 | **帮助页组件路径** | 帮助页直接列出工作区、台账、状态目录、组件根、AstrBot、SnowLuma、Breeze、Ollama 的绝对路径，配一个「组件目录」按钮，排错不用再猜装哪了。 |
 | **求助页可改字** | 十一张求助卡每张都能「改文字」，改过的内容存进 `settings.json` 的 `custom_help_texts`，重装不丢。 |
+
+> **V2.2.1 是补丁版**：修掉双击安装包报「错误 5：拒绝访问」的问题（根因是文件被标了低完整性，不是安装脚本），总览页不再放「打游戏模式」入口——它在维护页照样能用。
 
 ### 一直都有
 
@@ -102,7 +104,7 @@ build.bat
 
 ```bat
 installer\build-installer.bat
-:: 产物：dist\MinglingWorkbench-2.2.0-setup.exe
+:: 产物：dist\MinglingWorkbench-2.2.1-setup.exe
 ```
 
 需要 **Inno Setup 6**（`ISCC.exe`）。仓库自带 `tools\innosetup6\app\ISCC.exe` 时直接用它，
@@ -121,7 +123,7 @@ installer\build-installer.bat
 到 [Releases](https://github.com/linyuehua0010/mingling-workbench/releases) 页面下载：
 
 ```
-MinglingWorkbench-2.2.0-setup.exe      Windows 10/11 x64，约 51 MB
+MinglingWorkbench-2.2.1-setup.exe      Windows 10/11 x64，约 51 MB
 ```
 
 安装包**自带** `node.exe`、`ffmpeg.exe` 和 bili-whale，干净机器不用再装 Node / ffmpeg / Python / DSH。

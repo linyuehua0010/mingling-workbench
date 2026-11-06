@@ -378,3 +378,39 @@ bin\MinglingWorkbench.exe                                  label=0x2000 mask=0x1
 - 新增 `docs\VERSIONING.md`：三段号码各自的升法、改一个文件就够、发版六步。
 
 **验证**：`check-version.ps1` 故意把 `APP_VERSION_TAG` 改成 `V2.3.0` → 退出码 1 并指出应为 `V2.2.0`；改回后 0。`--version` 打「冥零工作台 V2.2.0 / 文件版本 2.2.0.0」；exe 属性 FileVersion `2.2.0.0`、ProductVersion `V2.2.0`；`--paths` 第一行「版本 : V2.2.0（2.2.0.0）」；安装包仍是 `dist\MinglingWorkbench-2.2.0-setup.exe`，其 ProductVersion `2.2.0`。
+
+---
+
+## 10. v2.2.1 补丁（2026-11-06）
+
+**症状**：双击 `dist\MinglingWorkbench-2.2.0-setup.exe`，第一屏还没出来就弹
+「安装程序不能创建目录 `C:\Users\<你>\AppData\Local\Temp\is-XXXX.tmp`，错误 5：拒绝访问」。
+
+**根因不在安装脚本**：`F:\` 那棵项目树被打了 **Low 强制完整性标签**
+（`icacls "F:\…\bili"` 显示 `Mandatory Label\Low Mandatory Level:(OI)(CI)(NW)`），
+编出来的 exe 靠继承也带上这个标签。Windows 的 no-write-up 规则：低完整性进程不能往
+中等完整性目录里写。`%TEMP%` 是中等完整性，Inno 第一步就要在那里解包，于是 CreateDirectory
+直接 `ERROR_ACCESS_DENIED`。ACL 里同时还留着 AppContainer 包 SID 与 `CodexSandboxUsers` 组，
+是早前某个沙箱/容器进程写过这棵树留下的——和「脚本写错了」一点关系都没有。
+
+**修法**（1883 个文件全转 Medium，0 个 Low）：
+
+```powershell
+icacls "F:\…\bili" /setintegritylevel "(OI)(CI)Medium" /T /C /Q
+icacls "%LOCALAPPDATA%\Programs\MinglingWorkbench" /setintegritylevel "(OI)(CI)Medium" /T /C /Q
+```
+
+下次再犯，一条命令就能判断：`icacls <路径> | findstr Mandatory`，看到 `Low` 就是它。
+（`icacls` 的 `"(OI)(CI)Medium"` 在 MSYS bash 里会被路径转换改坏，得在 PowerShell 里调。）
+
+**同版顺手改的两处**：
+
+- 总览页 DrawHero 右上角的「打游戏模式」三态按钮整块删掉，立绘改通栏；维护页的那三个状态照旧保留，帮助页指向也照旧。
+- `win32\build.bat` 复制 exe 失败时不再假成功：`copy` 后面接 `if errorlevel 1 goto copylocked`，
+  打印「bin 里现在还是旧 exe」并 `exit /b 1`。这次就是被它坑过一回——窗口开着的状态下编译，
+  脚本照样打 `OK` 和旧的 size。
+
+**产物**：`dist\MinglingWorkbench-2.2.1-setup.exe`，`bin\MinglingWorkbench.exe` FileVersion `2.2.1.0`、
+ProductVersion `V2.2.1`；静默安装 `exit=0`，日志 `Installation process succeeded.`。
+版本号只改了 `win32\src\version.h` 一处（`check-version.ps1` 通过），外加 `installer\mingling.nsi` 与
+`README.md` 里手抄的产物名。

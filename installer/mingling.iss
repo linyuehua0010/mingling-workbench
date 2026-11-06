@@ -1,5 +1,5 @@
 ﻿; 冥零工作台 v2 安装脚本（Inno Setup 6）
-; 编译：installer\build-installer.bat  →  dist\MinglingWorkbench-2.2.0-setup.exe
+; 编译：installer\build-installer.bat  →  dist\MinglingWorkbench-2.2.1-setup.exe
 #define AppName "冥零工作台"
 ; 版本号来自 win32\src\version.h（build-installer.bat 每次重新生成 version_auto.iss）
 #include "version_auto.iss"

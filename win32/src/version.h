@@ -5,8 +5,8 @@
 //
 //  改版本只改这一个文件，下面这些地方都从它取，别再手抄版本号：
 //    win32\res\app.rc             资源里的 FILEVERSION / FileVersion / ProductVersion
-//    win32\src\ui_pages.inc       侧边栏「工作台 · V2.2.0」
-//    win32\src\ui_help.inc        帮助页「冥零工作台 V2.2.0 · …」
+//    win32\src\ui_pages.inc       侧边栏「工作台 · V2.2.1」
+//    win32\src\ui_help.inc        帮助页「冥零工作台 V2.2.1 · …」
 //    win32\src\paths.cpp          卸载列表的 DisplayName / DisplayVersion
 //    win32\src\main.cpp           窗口标题 / --version / --paths
 //    installer\version_auto.iss   安装包版本（installer\build-installer.bat 生成）
@@ -22,19 +22,19 @@
 
 #define APP_VERSION_MAJOR 2
 #define APP_VERSION_MINOR 2
-#define APP_VERSION_PATCH 0
+#define APP_VERSION_PATCH 1
 #define APP_VERSION_BUILD 0
 
 // 资源文件用：FILEVERSION / PRODUCTVERSION
 #define APP_VERSION_NUM APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
 
 // 窄字符串：.rc / Inno Setup / NSIS / 脚本
-#define APP_VERSION_STR   "2.2.0.0"
-#define APP_VERSION_PLAIN "2.2.0"
-#define APP_VERSION_TAG   "V2.2.0"
+#define APP_VERSION_STR   "2.2.1.0"
+#define APP_VERSION_PLAIN "2.2.1"
+#define APP_VERSION_TAG   "V2.2.1"
 
 // 宽字符串：C++ / GDI+ 绘制
-#define APP_VERSION         L"V2.2.0"
-#define APP_VERSION_PLAIN_W L"2.2.0"
-#define APP_VERSION_FULL_W  L"2.2.0.0"
+#define APP_VERSION         L"V2.2.1"
+#define APP_VERSION_PLAIN_W L"2.2.1"
+#define APP_VERSION_FULL_W  L"2.2.1.0"
 #define APP_NAME            L"冥零工作台"
