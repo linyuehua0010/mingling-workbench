@@ -606,7 +606,17 @@ static void PaintSidebar(Graphics& g) {
     g.DrawEllipse(&ring, ax, ay, ar * 2, ar * 2);
 
     Txt(g, L"冥零", RectF(ax + ar * 2 + S(13), ay + S(2), S(120), S(24)), Fnt(17, 0, 0), C_TEXT, 0);
-    Txt(g, L"工作台 · " APP_VERSION, RectF(ax + ar * 2 + S(13), ay + S(26), S(120), S(16)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0);
+    {
+        // 版本号后面带不带 -snapshot 都放得下：塞不下就先去掉「工作台 · 」再缩一号字，
+        // 不靠省略号，免得把渠道后缀吃掉。
+        Font* vf = Fnt(HINT_SIZE, 1, 0);
+        wstring s = L"工作台 · " APP_VERSION;
+        float left = ax + ar * 2 + S(13);
+        float avail = S(236) - S(10) - left;
+        if (Tw(g, s, vf) > avail) vf = Fnt(MICRO_SIZE, 1, 0);
+        if (Tw(g, s, vf) > avail) s = APP_VERSION;
+        Txt(g, s, RectF(left, ay + S(26), avail, S(16)), vf, C_FAINT, 0);
+    }
 
     float y = S(96);
     int ntab = (int)(sizeof(TABS) / sizeof(TABS[0]));
