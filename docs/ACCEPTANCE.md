@@ -389,3 +389,114 @@ tmp/lab3.exe 'D:\MinglingWorkbench\dist\MinglingWorkbench-2.0.0-setup.exe'
 | 安装包 | `installer\build-installer.bat` | `dist\MinglingWorkbench-2.3.0-setup.exe`，51,553,244 字节，sha256 `18970FFC411F4327D8DD3EFD9F8756538EFCBF1E08445DE31C3607F2B19C0E15`，ProductVersion `2.3.0` |
 
 没跑的：安装包覆盖安装（沿用 2.2.1 的注意：重建后要 `icacls /setintegritylevel Medium`）；「豆包语音」「在线 Breeze」两条路只验到写覆盖文件 + 跑块，没填真 key。
+## 15. V3.0.0-snapshot 验收（2026-11-07）
+
+V3.0.0 是**预奏快照版**，走独立通道：界面与文件版本都是 `V3.0.0-snapshot` / `3.0.0.0-snapshot`，状态目录、卸载项、窗口类、AUMID、安装目录和正式版分开，工作区与 `<Base>\secrets` 共用。下面按六项需求逐条对。
+
+### 15.1 构建与版本（五处一致）
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 构建 | `win32\build.bat` | `OK: …\bin\MinglingWorkbench.exe`，1441280 字节，exit 0（只剩既有 warning：`#pragma comment`、`0x1F525` 超范围 case、几处 unused） |
+| 版本号出处 | `tools\check-version.ps1` | `[版本] OK V3.0.0-snapshot (3.0.0.0-snapshot)`，exit 0；脚本顺带校验「`APP_VERSION_SUFFIX` 非空 ⇔ `APP_SNAPSHOT=1`」 |
+| 命令行 | `MinglingWorkbench.exe --version` | `冥零工作台 V3.0.0-snapshot` / `  文件版本 3.0.0.0-snapshot` |
+| 命令行 | `--paths` 第一行 | `版本     : V3.0.0-snapshot（3.0.0.0-snapshot）` |
+| exe 属性 | 资源管理器 / `FileVersionInfo` | FileVersion `3.0.0.0-snapshot`、ProductVersion `V3.0.0-snapshot` |
+| 侧边栏 | 截图 `tmp\v2_maint.png` | `工作台 · V3.0.0-snapshot`（放不下时先降字号、再只留版本串，不用省略号切掉后缀） |
+| 维护页 | 同上 | 头部版本行「工作台 V3.0.0-snapshot　组件版本还没取到」——工作台版本与组件版本分开画，组件版本单独可辨 |
+| 帮助页 | 截图 `tmp\v3_help2.png` | 「关于」段：`冥零工作台 V3.0.0-snapshot · 单个 exe，Win32 + GDI+ 自绘，不挂浏览器内核。` |
+| 卸载列表 | 跑一遍安装后的 exe 后读注册表 | `HKCU\…\Uninstall\MinglingWorkbench_snapshot_is1`：DisplayName `冥零工作台 V3.0.0-snapshot`、DisplayVersion `V3.0.0-snapshot` |
+
+### 15.2 快照通道（不与正式版共通）
+
+| 项 | 观察点 | 结果 |
+| --- | --- | --- |
+| 状态目录 | `--paths` 的「状态」行 | `C:\Users\Mingling\AppData\Roaming\MinglingWorkbench\snapshot`（正式版在这层的上一级） |
+| 隔离排障 | 环境变量 `MINGLING_STATE_DIR` | `StateDir()` 优先认它，验收时用它把状态目录指到 `tmp\dshstate` 之类 |
+| 窗口类 / AUMID | `#if APP_SNAPSHOT` | `MinglingWorkbench.snapshot` / `Mingling.Workbench.snapshot`，两份可以同时开，不会互相顶掉 |
+| 安装目录 | 安装后 | `%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot`，正式版旁边并存 |
+| 共用部分 | 工作区 `out/tmp/logs`、`<Base>\secrets` | 不变，换渠道不用搬看片产物 |
+
+### 15.3 更新页（GitHub Releases）
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 未配通道 | `settings.json` 里没有 `repo_snapshot` | 「冥零工作台」行 Chip 显示`本机 / 没查到`，右侧 `V3.0.0-snapshot`，描述「快照通道还没配：在 settings.json 里写 repo_snapshot（owner/name），更新页就会去查那个仓库的 snapshot release。现在显示的是本机版本，不影响任何功能。」（`tmp\v2_upd2.png`） |
+| 配了但没 release | `repo_snapshot = linyuehua0010/mingling-workbench`，点「再查一遍」 | 该仓库 `releases/latest` 返回 404 → 仍显示`本机 / 没查到`，描述里写出正在查哪个仓库（`tmp\v2_upd3.png`）；页脚「有几项没查到最新版（多半是网络不通），过会儿再点「再查一遍」。」；进程存活、界面不卡 |
+| 只看快照 | 代码 | 只读 `repo_snapshot`；tag 里没有 `snapshot` 的 release 一律不认，正式版 exe 的下载按钮永远不会出现在这一行 |
+| 不自动更新 | 代码 | 没有任何下载/替换逻辑；有新版时按钮是「去 GitHub 下载」，点了只开浏览器 |
+
+### 15.4 B 站页统合 + bili-whale 配置界面
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 入口统合 | B 站页截图 `tmp\v2_bcfg2.png` | 一条工具带：`bili-whale 配置` / `登录` / `配额` / `风控` / `自检` / `产物` / `问一句`；看片、结果、产物都还在这一页 |
+| 维护页收敛 | 截图 `tmp\v2_maint.png` | 头部只留一个「B 站页」按钮（把 B 站相关操作交给 B 站页），八张卡与状态摘要原样 |
+| 配置读写 | 浮层标题下 | 路径 `C:\Users\Mingling\AppData\Roaming\MinglingWorkbench\snapshot\bili-whale.config.json`，就是 `BILI_WHALE_CONFIG` 指的那一份 |
+| 保存前备份 | 点「保存」 | 生成 `bili-whale.config.json.bak-20261107-001602`（1520 字节）；同一秒连存两次会依次 `-2`、`-3`，不互相覆盖 |
+| JSON 校验 + 回滚 | 无头自检 `tmp\cfgtest` | 写入后重新 `her::J::Parse` 校验；故意写坏时用备份 `CopyFileW` 回滚（原本没有文件则删掉） |
+| 未知键保留 | 无头自检：模板里塞 `futureUnknown.block.deeper = "keep-me"`，改 `risk.readDaily`/`preferences.like`/`diary.enabled` 后存盘 | 15 个原有顶层键全在、`futureUnknown.block.deeper` 原样留着；`risk.minGapMs=1500`、`night.windows[0]`、`persona`、`listen.comment/scope` 都没被碰 |
+| 工作台侧参数 | 存盘后的 `settings.json` | `bili_grid` 存字符串（`"4x4"`）、`bili_timeout_sec` 存数字（`600`），看片命令用 `--grid <bili_grid>`、超时用 `bili_timeout_sec` |
+| 测试连接（没填 Base） | 点「测试连接」 | 左下提示「先填 Base URL，再测」，不崩、不卡（`tmp\v2_bcfg_test.png`） |
+
+### 15.5 DSH 对话 API（OpenAI 兼容 /chat/completions）
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 配置项 | 配置浮层「对话 API（可选）」区 | 启用开关 / Base URL / 路径（默认 `/chat/completions`）/ 模型名（默认 `deepseek-chat`）/ 超时（5–300）/ API Key；提示写明「关掉的话只是 B 站页不调它，别的功能照旧」 |
+| Key 不进 settings | 无头自检 `tmp\dshtest` | `sk-test-123` 在 `secrets\dsh-api-key.txt`；`settings.json` 里搜不到；清空 Key 后密钥文件被删 |
+| 配置校验 | 同上，18 项 | 启用但空 Base 被拒、非 http(s) Base 被拒、超时越界收敛、存取往返一致、`DshApiUrl` 拼成 `https://127.0.0.1:1/v1/chat/completions` → 全过（`failures: 0`） |
+| 断网只影响这一路 | 同上：Base 指到 `127.0.0.1:1` 再调 | 返回失败且错误里是「连不上」；关掉开关后直接拒绝、不发请求；本地 bili-whale CLI 完全不受影响（B 站看片链路不经过它） |
+| 用在哪 | 「问一句」浮层 | 拿当前结果（标题/UP/前 8 节要点，上限 1500 字）去问，回答显示在浮层里，可复制；失败给「没问到：…」，不挡看片 |
+
+### 15.6 输入框复制粘贴
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| Ctrl+V | 剪贴板放完整 B 站 URL + 分享尾巴，点输入框按 Ctrl+V | 整串粘进去，`Trim` 后保留「快来看」这类尾巴（`tmp\shot_paste.png`） |
+| 输入时不吃快捷键 | 输入框有焦点按 `3` | 只打字符、不切页（`tmp\shot_key3.png`） |
+| Ctrl+A / Ctrl+X | 同上 | 全选有高亮（`tmp\shot_selall.png`）；剪切后输入框清空、剪贴板内容与原文一致（`Get-Clipboard` 长度 70） |
+| 右键菜单 | 输入框右键 | 六项：粘贴 Ctrl+V / 粘贴（Shift+Insert）/ 复制 Ctrl+C / 剪切 Ctrl+X / 全选 Ctrl+A / 清空；无内容时复制剪切置灰（`tmp\shot_rclick.png`）；选「粘贴」把含换行的 QQ 分享文本粘进去（`tmp\shot_menu_paste.png`） |
+| 上限 | 代码 | 输入框上限 200 → 600 字，超了截断并提示「太长了，只取了前面一段」 |
+
+### 15.7 其他链接 / 分享文本读取（MVP）
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 通用读取 | 粘 `https://example.com/` 回车 | 结果区：「读到的链接 / 标题: Example Domain / 地址 / 状态: HTTP 200 · 读到 577 B / 正文摘要」（`tmp\shot_link_rel.png`） |
+| 台账 | `logs\jobs.jsonl` 新增行 | `{"t":…,"bv":"https://example.com/","title":"Example Domain","up":"example.com",…,"sink":"…\\logs\\jobs\\link-1793979934.txt","seconds":"0s","type":"link"}` |
+| 分类器 | 无头自检 `tmp\wftest`，15 项 | 空→空；`BV1GJ411x7h7` 与小写 `bv…`→B 站；B 站 URL / `b23.tv` 短链 / B 站分享文本→B 站；普通 `https://…`（连句末「。」也算）→链接；`【分享】看看这个 https://… 挺好`→分享文本；`C:\Windows\notepad.exe`→本地路径；无链接中文→看不出；中文右括号能截断 |
+| 网络失败文案 | 同上，5 项 | 404 →「对方拒绝了（HTTP 404）」；`127.0.0.1:1` →「连不上这个站点」；不是 URL →「这不是一个完整链接」；超时/编码/非 HTML 各有自己的话，不崩 |
+| 分享文本 | 代码 | 先提首个 URL 再走读取；B 站分享文本走原看片链路 |
+| 本地路径 | 代码 | `.lnk/.exe` 只 `ShellExecute` 打开，不做进程注入、不读进程内容、不抓应用界面 |
+| B 站回归 | BV18P486KECi | 18s、`status":"ok"`、`sink ...\jobs\BV18P486KECi-1793980125.txt`，**没有 `type` 键**（老台账解析不受影响） |
+
+### 15.8 顺手修掉的老崩溃（0xc0000005）
+
+| 项 | 观察点 | 结果 |
+| --- | --- | --- |
+| 症状 | 自动化按 `6`/`7` 来回切页，1~2 轮必崩 | 事件日志 `0xc0000005`，同一次构建内偏移恒定 |
+| 定位 | 与 bin 同参数、只多 `-g` 的 `MinglingWorkbench_sym.exe` + `addr2line` | 落到 `her::WhitelistOn()` / `her_config.cpp:349` |
+| 真因 | `const J* v = CmdConfig().Path(…)` | `CmdConfig()` 按值返回临时 `J`，语句结束即析构，`v` 悬垂 → use-after-free |
+| 历史性 | 应用日志里 22:51:40 的 2.3.1 崩溃 | 同一个函数（`0x60f51`），不是本次快照引入的 |
+| 修法 | 先 `J cfg = CmdConfig();` 再取地址 | 顺带给 `Net()`/`ImagePath()` 的静态缓存补锁；`Net()` 由返回引用改成返回值 |
+| 验证 | 3 轮 × 每轮 16 次快速切 6/7 | run1/2/3 全存活，Windows 应用日志 `crashes=0`（此前同样脚本 1~2 轮必崩） |
+
+### 15.9 安装包
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 打包 | `installer\build-installer.bat` | `dist\MinglingWorkbench-3.0.0-snapshot-setup.exe`，51,615,396 字节，Inno 约 29s，exit 0 |
+| 静默升级安装 | 既有（UTF-8、中文工作区、带 `repo_snapshot`）settings 存在时 `/VERYSILENT` | exit 0、`Installation process succeeded.`，且 `settings_unchanged=True`——安装器**不碰**已有配置 |
+| 静默全新安装 | 先删 settings，`/WORKSPACE=F:\dsh工作区\tmp去装测试\MinglingWorkbench` | exit 0；写出 `{"workspace": "F:/dsh工作区/tmp去装测试/MinglingWorkbench", "base": "F:/dsh工作区/tmp去装测试"}`（ANSI/GBK 字节，工作台 `DecodeAuto()` 按 UTF-8→系统编码的顺序读，照样认识）；建好 `out`、`tmp`、`logs\jobs` |
+| secrets 不猜路径 | 安装后 | 安装器不再建 secrets 目录、也不放 README（工作台 `EnsureSecrets()` 首次启动自己建，含 `dsh-api-key.txt` 那一行），不会在「文档」下面凭空多一个 `secrets` |
+| 卸载项 | 跑一遍装好的 exe | DisplayName `冥零工作台 V3.0.0-snapshot`、DisplayVersion `V3.0.0-snapshot`、DisplayIcon 指安装目录的 exe |
+| 安装器踩坑 | 记在 `installer\mingling.iss` 注释里 | 别在安装器里解析工作台的 UTF-8 settings（Inno 6.0 没有可用的 UTF-8 解码，中文路径会被拆错字，静默安装直接报「文件夹名不能包含下列任何字符」）；也别塞 UTF-8 BOM 冒充 UTF-8，BOM 后面跟 GBK 字节会让工作台解错 |
+
+### 15.10 没跑的项
+
+- **真实 DSH 端点的「测试连接」**：手头没有可用的 API Key，只验到「没填 Base 就提示」与「断网报连不上、不影响别的功能」。填真 Key 的通路属于同一条代码，风险在服务端而不在这边。
+- **`repo_snapshot` 指向一个真有 snapshot release 的仓库**：「有新」分支只做了代码核对（`LatestGithub` 两个分支都回填原始 tag、`VerCmp` 比较 `APP_VERSION_PLAIN_W`），没等到真发版。
+- **release 构建下的完整看片链路**：修完崩溃后做的是切页压测（3×16）；完整 debrief 是在带符号构建下跑的，产物与台账字段都正常。
+- **GUI 里逐字改 bili-whale 配置再保存**：浮层打开/滚动/测试连接/保存/`Esc` 都点了；逐字编辑 + 保存的语义由无头自检 `tmp\cfgtest` 覆盖（同一套 `BiliCfgApply`/`BiliCfgSave`）。
+- **本地 `.lnk` / `.exe` 打开**：代码路径是 `ShellExecuteW`，与「打开工作区」同一条，没单独造快捷方式试。

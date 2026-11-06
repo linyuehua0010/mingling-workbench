@@ -496,3 +496,57 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 **验收**：`--paths` 五个组件全在 `bots\` 下；`--her-status` 八张卡全 ok（语音卡 canfix 由 `ComponentStartCmd` 命中 `bots\Breeze\start.cmd`），`VER Breeze 0.1.3` 证明 `bots\Breeze\bin` 的版本扫描生效；`tools\self-setup.ps1 -DryRun` 八块全过（`##RESULT ok=1 done=8 fail=0`）。`bin\MinglingWorkbench.exe` 1,290,240 B、FileVersion `2.3.1.0`；`dist\MinglingWorkbench-2.3.1-setup.exe` 51,566,870 B。
 
 **踩坑**：工作区根目录的 `start-astrbot.cmd` / `start-snowluma.cmd` 是上一版脚本用「UTF-8 无 BOM + 中文绝对路径」写的，在 `chcp 65001` 下 cmd 会把中文路径读成乱码，脚本直接静默退出（`run.log` 一直不更新，看着像进程起不来）。改成纯 ASCII + `%~dp0` 相对路径后正常，顺带也就不怕工作区改名字了。这类「现场生成、不进仓库」的东西（`start-*.cmd`、`answers.json`、`旧版\` 备份）一并写进 `.gitignore`。
+
+## 14. V3.0.0-snapshot 预奏快照（2026-11-07）
+
+**这是什么**：V3.0.0 的预奏快照，不是正式大版本。五项需求先落地、单独发一条渠道（版本串带 `-snapshot` 后缀），正式版之后从同一条主线切出去。**升级不需要动任何已有配置**：新增的键都是可选项，不写就按默认值走。
+
+**为什么单独一条通道**（用户拍板：快照版不与正式版共通）：
+
+- 版本串：`V3.0.0-snapshot`，文件版本 `3.0.0.0-snapshot`；数字部分仍是 `3.0.0.0`，比大小一律用 `APP_VERSION_PLAIN`。`version.h` 新增 `APP_VERSION_SUFFIX`（正式版 `""`）与 `APP_SNAPSHOT`（正式版 `0`），`tools\check-version.ps1` 会检查两者一致。
+- 分流清单：状态目录 `%APPDATA%\MinglingWorkbench\snapshot`、卸载键 `MinglingWorkbench_snapshot_is1`、窗口类 `MinglingWorkbench.snapshot`、AUMID `Mingling.Workbench.snapshot`、安装目录 `MinglingWorkbench-snapshot`、安装包 `MinglingWorkbench-3.0.0-snapshot-setup.exe`。
+- 共用清单：工作区（`out`/`tmp`/`logs`/`bots`）和 `<Base>\secrets`。看片产物、台账、密钥两边都能用，不复制两份。
+- 想回正式版：把 `version.h` 的 `APP_VERSION_SUFFIX` 改回 `""`、`APP_SNAPSHOT` 改回 `0`，再按 VERSIONING 发版；快照的状态目录和安装目录不会被删，留着随时能切回来。
+
+**1. 更新页牵引 GitHub Releases**
+
+- 工作台那一行不再拿本机数字糊弄：读 `settings.json` 的 `repo_snapshot`（快照通道专用；默认空 = 不联网，**绝不**回退到正式版的 `repo`），走 GitHub Releases API 比 tag。
+- 未配置 / 断网 / 限流 / 仓库没有 release：显示「本机 / 没查到」，安静降级，不报错、不卡 UI。tag 里不带 `snapshot` 的 release 不算快照。
+- 有新快照时「去 GitHub 下载」打开对应 Releases 页面（API 的 `html_url`；走代理兜底时用 `/releases/tag/<tag>`）。不做自动更新、不下载 exe、不静默替换。
+
+**2. 维护页显示当前工作台版本**
+
+- 头部版本行固定先画 `工作台 V3.0.0-snapshot`（取 `APP_VERSION`，不硬编码），后面再接组件版本；组件版本再也盖不掉它。
+- 侧边栏版本行先量宽度、放不下先缩一号字、再放不下就只留版本号——`-snapshot` 不会被省略号吃掉，和 `--version`、帮助页、卸载列表对得上。
+
+**3. B 站相关统合 + bili-whale 配置界面**
+
+- B 站页顶部一条工具带：`bili-whale 配置 / 登录 / 配额 / 风控 / 自检 / 产物 / 问一句`。维护页只留一个「B 站页」入口；体检页、日志页原有的 B 站命令保留，点了会切到体检页看结果。
+- 配置浮层读写 `BILI_WHALE_CONFIG`（实际就是 `%APPDATA%\MinglingWorkbench\snapshot\bili-whale.config.json`）。字段名逐个对着 `sidecar\bili-whale.config.template.json` 抄，共 25 行：`preferences.like/dislike/keywords`、`risk.*` 七个、`quota.shareDaily`、`night.skipChance/minGapMin/maxVideos/maxWakesPerDay`、`diary.enabled/push`、`share.enabled/minScore/silentAfterDays/aiCommentGuard`、`listen.comment/commentIntervalSec`；`night.windows` 这种数组套对象只读展示摘要。
+- 没往 bili-whale 配置里加「九宫格」「超时」——那是 `debrief` 的命令行参数，归工作台的 `settings.json`：`bili_grid`（默认 `3x3`）与 `bili_timeout_sec`（默认 420，30–3600）。
+- 保存前把原文件备成 `.bak-<时间戳>`（同一秒存两次自动加 `-2`），写完重新按 JSON 解析一遍，坏掉就用备份回滚；未知键原样保留（实测塞 `futureUnknown.block.deeper` 进去，存完还在）。
+
+**4. DSH 对话以 HTTP API 接入（不安装、不启动 DSH）**
+
+- `win32\src\biliapi.cpp` 新增 `DshApiCfg` / `DshApiLoad` / `DshApiSave` / `DshChat`：OpenAI 兼容 `POST <base><path>`，默认基址留空、路径 `/chat/completions`、模型 `deepseek-chat`、超时 60 秒（夹在 5–300）。解析 `choices[0].message.content`，兼容 `choices[0].text` 和 `error.message`。
+- Key 存 `<Base>\secrets\dsh-api-key.txt`，**不写 settings.json**；`EnsureSecrets` 的 README 补了一行说明，老装机只追加这一行、不覆盖用户内容。
+- 配置浮层里加「对话 API（可选）」区（启用开关 / Base URL / 路径 / 模型名 / 超时 / API Key）和「测试连接」；B 站页「问一句」浮层用同一套，解释当前这条片。失败只影响这两处，bili-whale CLI 看片一条路都不受影响。
+
+**5. 输入框支持复制粘贴**
+
+- `Ctrl+V` / `Ctrl+C` / `Ctrl+X` / `Ctrl+A` / `Shift+Insert`，外加右键菜单（粘贴 / 粘贴(Shift+Insert) / 复制 / 剪切 / 全选 / 清空）。粘贴走 `OpenClipboard` + `CF_UNICODETEXT`，把换行、制表、U+2028/U+2029 换成空格再 `Trim`，长度上限 200 → 600。
+- 输入框有焦点、或配置/问一句浮层打开时，`1–9` 只当字符进去，不切页。
+
+**6. 其他链接 / 分享文本读取（MVP）**
+
+- 新增 `win32\src\webfetch.cpp`：`ClassifyInput` 把输入分成 B 站（BV/URL/短链）、其他 `http(s)`、分享文本、本地路径、认不出；分享文本里提第一个链接。本地 `.lnk`/`.exe` 只打开，不注入进程、不读屏幕、不抓应用内容。
+- 其他链接走 `FetchWebPage`：单次 GET、跟随重定向、15 秒超时、512 KB 上限、按 charset 解码（GBK 也能认）、抽 `<title>` 和正文摘要。读到的内容显示在结果区，台账新增可选 `type:"link"`（`bv` 字段放 URL、`sink` 是 `logs\jobs\link-<unix>.txt`）。
+- B 站链路一个字没改：老台账行没有 `type` 键照样能读，新写的 B 站行也不会塞空键。
+- 「读取应用内容」（QQ/微信窗口里的东西）这一版**只写设计**，在 `docs\plan-v3.0.0-snapshot.md` §6。
+
+**顺手修掉一个 V2.3.1 就在崩的老 bug**
+
+- `her_config.cpp` 的 `WhitelistOn()` 原来是 `const J* v = CmdConfig().Path(...)`：`CmdConfig()` 返回临时对象，这条语句一结束就析构，`v` 立刻悬垂，下一句读 `v->t` 是 use-after-free。表现是维护页 ↔ 更新页来回切的时候偶发 `0xc0000005`（V2.3.1 的 `0x60f51` 也是它，不是这次引入的）。改成先接住 `J cfg = CmdConfig()` 再取指针；3 轮 × 16 次快速切页不再崩。
+- 顺带：`her_probe.cpp` 的 `Net()` 改成按值返回（原来是函数内 static，被看门狗、维护页、更新检查几个线程一起读，而它自己会 `clear()`），`ImagePath()` 的静态缓存加锁。
+
+**验收**：见 `docs\ACCEPTANCE.md` 第 15 节（构建、版本一致、快照隔离、更新页降级、配置保存与备份、DSH API、剪贴板、链接读取、崩溃回归、安装包）。
