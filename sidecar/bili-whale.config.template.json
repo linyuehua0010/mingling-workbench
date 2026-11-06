@@ -1,0 +1,77 @@
+{
+  "sessionRotateDays": 0,
+  "personaOncePerSession": false,
+  "risk": {
+    "minGapMs": 1500,
+    "readHourly": 600,
+    "readDaily": 3000,
+    "writeHourly": 12,
+    "writeDaily": 30,
+    "writeGapSec": 120,
+    "dmGapSec": 60
+  },
+  "owner": {
+    "mid": "",
+    "name": ""
+  },
+  "night": {
+    "windows": [
+      { "start": "18:00", "end": "24:00", "wakes": 4 },
+      { "start": "6:00", "end": "9:00", "wakes": 3 },
+      { "start": "12:00", "end": "14:00", "wakes": 2 }
+    ],
+    "skipChance": 0.3,
+    "minGapMin": 10,
+    "maxVideos": 5,
+    "maxWakesPerDay": 9
+  },
+  "preferences": {
+    "like": ["二次元", "单机游戏", "AI 工具", "猫咪", "Live2D"],
+    "dislike": ["带货", "擦边", "标题党", "纯搬运"],
+    "keywords": []
+  },
+  "quota": {
+    "shareDaily": 3
+  },
+  "diary": {
+    "push": true,
+    "enabled": true
+  },
+  "persona": {
+    "name": "冥零",
+    "ownerTitle": "朋友",
+    "selfClaim": "我"
+  },
+  "self": {
+    "mid": "",
+    "name": ""
+  },
+  "notify": {
+    "type": "dm",
+    "url": "",
+    "template": "text",
+    "cmd": ""
+  },
+  "listen": {
+    "comment": true,
+    "commentIntervalSec": 60,
+    "scope": "both",
+    "oncePerPerson": false,
+    "allDay": false,
+    "dm": false,
+    "live": false,
+    "liveRoom": "",
+    "liveScope": "owner",
+    "mentionSummary": false
+  },
+  "share": {
+    "aiCommentGuard": true,
+    "aiThreshold": 30,
+    "enabled": true,
+    "via": "dm",
+    "minScore": 13,
+    "silentAfterDays": 3
+  },
+  "toolsPath": "",
+  "home": ""
+}

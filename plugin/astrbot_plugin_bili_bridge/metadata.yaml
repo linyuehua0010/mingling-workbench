@@ -1,0 +1,6 @@
+name: astrbot_plugin_bili_bridge
+display_name: 冥零看B站
+desc: 群里发 B 站链接，冥零用工作台内置的看片能力看完，再用她自己的口气跟你聊两句
+version: 0.2.0
+author: mingling
+repo: ""
