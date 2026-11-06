@@ -682,10 +682,38 @@ static wstring GithubToken() {
     return Trim(ReadTextFile(p, 4096));
 }
 
-static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring* rawTagOut = nullptr) {
+// tagFilter 非空时改查「release 列表」再挑 tag 里带这个词的那一条：
+// 预发布（prerelease）不会出现在 /releases/latest 里——快照通道就是这么发的版，
+// 要是还问 latest，只会拿到正式版，界面就永远显示「没查到」。
+static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring* rawTagOut = nullptr,
+                            const wchar_t* tagFilter = nullptr) {
     if (url) url->clear();
     if (rawTagOut) rawTagOut->clear();
     const wstring tok = GithubToken();
+    if (tagFilter && *tagFilter) {
+        const wstring list = L"https://api.github.com/repos/" + repo + L"/releases?per_page=100";
+        Http lr = tok.empty() ? HttpGet(list, 6000) : HttpGetJson(list, tok, 6000);
+        if (lr.ok && lr.code < 400) {
+            bool lok = false;
+            J lj = J::Parse(lr.body, &lok);
+            if (lok && lj.Arr()) {
+                for (const J& it : lj.a) {
+                    wstring tag = it.Str(L"tag_name");
+                    if (tag.empty() || !IContains(tag, tagFilter)) continue;
+                    if (rawTagOut) *rawTagOut = tag;
+                    if (url) {
+                        *url = it.Str(L"html_url");
+                        if (url->empty()) *url = L"https://github.com/" + repo + L"/releases/tag/" + tag;
+                    }
+                    wstring v = tag;
+                    if (v[0] == L'v') v = v.substr(1);
+                    if (!v.empty()) return v;
+                }
+            }
+        }
+        // 列表里没有这个通道的 release：就当没查到，别退回去拿正式版的版本号。
+        return L"";
+    }
     Http r = tok.empty()
         ? HttpGet(L"https://api.github.com/repos/" + repo + L"/releases/latest", 6000)
         : HttpGetJson(L"https://api.github.com/repos/" + repo + L"/releases/latest", tok, 6000);
@@ -951,9 +979,10 @@ static UpdatesInfo FetchUpdates() {
     wstring wbUrl, wbTag;
     wstring wbLatest;
     if (!repo.empty()) {
-        wbLatest = LatestGithub(repo, &wbUrl, &wbTag);
-        // 通道里最新的 release 不是快照（tag 里没 snapshot）：当作没查到，而不是提示升级
-        if (!wbLatest.empty() && wbTag.find(L"snapshot") == wstring::npos) {
+        // 第 4 个参数是通道标记：快照 release 是 prerelease，只能从列表里挑
+        wbLatest = LatestGithub(repo, &wbUrl, &wbTag, L"snapshot");
+        // 列表里挑出来的 tag 一定带 snapshot；这里再兜一次底，防止以后改了筛选口径
+        if (!wbLatest.empty() && !IContains(wbTag, L"snapshot")) {
             wbLatest.clear();
             wbUrl.clear();
         }
