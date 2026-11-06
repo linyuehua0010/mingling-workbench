@@ -118,9 +118,9 @@ ActionResult StartBrain(bool restart) {
         WaitFor([&] { return !Listening(port); }, 25);
         SleepMs(2000);
     }
-    wstring cmd = JoinPath(Base(), L"start-astrbot.cmd");
-    if (!FileExists(cmd)) return Bad(L"找不到 start-astrbot.cmd。");
-    LaunchCmd(cmd, Base(), false);
+    wstring cmd = ComponentStartCmd(L"AstrBot", L"start-astrbot.cmd");
+    if (cmd.empty()) return Bad(L"找不到 AstrBot 的启动脚本（bots\\AstrBot\\start.cmd）。");
+    LaunchCmd(cmd, ParentDir(cmd), false);
     if (!WaitFor([&] { return Listening(port); }, 150))
         return Bad(L"两分半了后台还没起来。看看 AstrBot 那个窗口里说什么，或者点「求助信息」。");
     WaitFor([] { return QqOnline(); }, 40);
@@ -136,9 +136,10 @@ ActionResult Relogin() {
         bool nap = Protocol() == L"napcat";
         int port = nap ? 6099 : 5099;
         if (!Listening(port)) {
-            wstring start = JoinPath(Base(), nap ? L"start-napcat.cmd" : L"start-snowluma.cmd");
-            if (FileExists(start)) {
-                LaunchCmd(start, Base(), false);
+            wstring start = ComponentStartCmd(nap ? L"NapCat" : L"SnowLuma",
+                                             nap ? L"start-napcat.cmd" : L"start-snowluma.cmd");
+            if (!start.empty()) {
+                LaunchCmd(start, ParentDir(start), false);
                 WaitFor([&] { return Listening(port); }, 60);
             }
         }
@@ -157,22 +158,23 @@ ActionResult Relogin() {
 
 ActionResult RestartQQ() {
     bool nap = Protocol() == L"napcat";
-    wstring root = P(nap ? L"NapCat" : L"SnowLuma");
-    wstring cmd = JoinPath(Base(), nap ? L"start-napcat.cmd" : L"start-snowluma.cmd");
-    if (!FileExists(cmd)) return Bad(L"找不到 " + (nap ? wstring(L"start-napcat.cmd") : wstring(L"start-snowluma.cmd")) + L"。");
+    wstring root = BotPath(nap ? L"NapCat" : L"SnowLuma");
+    wstring cmd = ComponentStartCmd(nap ? L"NapCat" : L"SnowLuma",
+                                    nap ? L"start-napcat.cmd" : L"start-snowluma.cmd");
+    if (cmd.empty()) return Bad(L"找不到 " + (nap ? wstring(L"start-napcat.cmd") : wstring(L"start-snowluma.cmd")) + L"。");
     KillUnder(root);
     WaitFor([&] { return PidsUnder(root).empty(); }, 15);
     SleepMs(2000);
-    LaunchCmd(cmd, Base(), false);
+    LaunchCmd(cmd, ParentDir(cmd), false);
     if (!WaitFor([] { return QqOnline(); }, 75)) return Bad(L"重开了，但小号 75 秒没登上来。点「重登 QQ」扫一下码。");
     return Ok(L"登 QQ 的程序重开好了，小号在线。");
 }
 
 ActionResult StartBreeze() {
     if (Listening(8137)) return Ok(L"Breeze 本来就开着。");
-    wstring cmd = P(L"breeze-tts\\start-breeze.cmd");
-    if (!FileExists(cmd)) return Bad(L"找不到 Breeze 的启动文件（breeze-tts\\start-breeze.cmd）。");
-    LaunchCmd(cmd, P(L"breeze-tts"), false);
+    wstring cmd = ComponentStartCmd(L"Breeze", L"breeze-tts\\start-breeze.cmd");
+    if (cmd.empty()) return Bad(L"找不到 Breeze 的启动文件（bots\\Breeze\\start.cmd）。");
+    LaunchCmd(cmd, ParentDir(cmd), false);
     if (!WaitFor([] { return Listening(8137); }, 90))
         return Bad(L"一分半了 Breeze 还没开。它在加载声音模型，再等等；还不行就点「求助信息」。");
     return Ok(L"Breeze 开好了。");
@@ -251,21 +253,27 @@ ActionResult Diag() {
 }
 
 ActionResult AutostartFix() {
+    // 开机自启的目标脚本：组件在 <工作区>\bots 下就指组件目录里的 start.cmd，
+    // 老布局才指 <机器人根> 下的那几个。空串交给 PowerShell 那段的 Test-Path 挡掉。
+    wstring astrCmd = ComponentStartCmd(L"AstrBot", L"start-astrbot.cmd");
+    wstring breezeCmd = ComponentStartCmd(L"Breeze", L"breeze-tts\\start-breeze.cmd");
+    wstring ollamaExe = JoinPath(BotPath(L"Ollama"), L"ollama.exe");
     wstring ps =
         L"$ErrorActionPreference='Stop';"
         L"$Dir=$env:DFY_DIR;$proto=$env:DFY_PROTO;$mem=$env:DFY_MEM;$voice=$env:DFY_VOICE;"
+        L"$as=$env:DFY_ASTR;$bz=$env:DFY_BREEZE;$ol=$env:DFY_OLLAMA;"
         L". \"$env:DFY_SCRIPTS\\common.ps1\";"
         L"$startup=[Environment]::GetFolderPath('Startup');$ws=New-Object -ComObject WScript.Shell;"
         L"function L($p,$t,$w,$d,$a=''){$l=$ws.CreateShortcut($p);$l.TargetPath=$t;$l.Arguments=$a;"
         L"$l.WorkingDirectory=$w;$l.WindowStyle=7;$l.Description=$d;$l.Save();\"ADDED $(Split-Path $p -Leaf)\"};"
-        L"if((Test-Path \"$Dir\\start-astrbot.cmd\") -and -not (Test-Path \"$startup\\大肥鱼-AstrBot.lnk\")){"
-        L"L \"$startup\\大肥鱼-AstrBot.lnk\" \"$Dir\\start-astrbot.cmd\" $Dir '大肥鱼的大脑，别关'};"
+        L"if($as -and (Test-Path $as) -and -not (Test-Path \"$startup\\大肥鱼-AstrBot.lnk\")){"
+        L"L \"$startup\\大肥鱼-AstrBot.lnk\" $as (Split-Path $as) '大肥鱼的大脑，别关'};"
         L"Set-QQAutostart $Dir $proto;"
         L"if($mem -eq '1' -and -not (Test-Path \"$startup\\Ollama.lnk\")){"
-        L"$o=@(\"$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe\",\"$Dir\\Ollama\\ollama.exe\")|Where-Object{Test-Path $_}|Select-Object -First 1;"
+        L"$o=@($ol,\"$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe\")|Where-Object{$_ -and (Test-Path $_)}|Select-Object -First 1;"
         L"if($o){L \"$startup\\Ollama.lnk\" \"$env:SystemRoot\\System32\\conhost.exe\" (Split-Path $o) '大肥鱼的记忆' \"--headless `\"$o`\" serve\"}};"
-        L"if($voice -eq '4' -and -not (Get-ChildItem $startup -Filter '*Breeze*' -ErrorAction SilentlyContinue) -and (Test-Path \"$Dir\\breeze-tts\\start-breeze.cmd\")){"
-        L"L \"$startup\\启动Breeze语音.lnk\" \"$Dir\\breeze-tts\\start-breeze.cmd\" \"$Dir\\breeze-tts\" '大肥鱼的语音'};"
+        L"if($voice -eq '4' -and $bz -and (Test-Path $bz) -and -not (Get-ChildItem $startup -Filter '*Breeze*' -ErrorAction SilentlyContinue)){"
+        L"L \"$startup\\启动Breeze语音.lnk\" $bz (Split-Path $bz) '大肥鱼的语音'};"
         L"'DONE'";
     EnvList env;
     env.push_back({L"DFY_DIR", Base()});
@@ -273,6 +281,9 @@ ActionResult AutostartFix() {
     env.push_back({L"DFY_MEM", std::to_wstring(Memory())});
     env.push_back({L"DFY_VOICE", std::to_wstring(Voice())});
     env.push_back({L"DFY_SCRIPTS", JoinPath(Base(), L"tools")});
+    env.push_back({L"DFY_ASTR", astrCmd});
+    env.push_back({L"DFY_BREEZE", breezeCmd});
+    env.push_back({L"DFY_OLLAMA", ollamaExe});
     CmdResult r = PsEncoded(ps, env, 60000);
     if (r.code != 0 || r.out.find(L"DONE") == wstring::npos)
         return Bad(L"没补上：" + TailText(Trim(r.out), 160));
@@ -480,8 +491,9 @@ ActionResult GameOn() {
         }
     }
     if (voice && Listening(8137)) {
-        std::vector<DWORD> pids = PidsUnder(P(L"breeze-tts"));
-        if (pids.empty()) KillUnder(P(L"breeze-tts"));
+        std::wstring bdir = BotPath(L"Breeze");
+        std::vector<DWORD> pids = PidsUnder(bdir);
+        if (pids.empty()) KillUnder(bdir);
         else
             for (DWORD pid : pids) KillTree(pid);
         WaitFor([] { return !Listening(8137); }, 20);
@@ -532,9 +544,12 @@ ActionResult GameOff(bool boot) {
     }
     if (voice) {
         if (boot && !Listening(8137)) WaitFor([] { return Listening(8137); }, 150);
-        if (!Listening(8137) && FileExists(P(L"breeze-tts\\start-breeze.cmd"))) {
-            LaunchCmd(P(L"breeze-tts\\start-breeze.cmd"), P(L"breeze-tts"), false);
-            WaitFor([] { return Listening(8137); }, 90);
+        if (!Listening(8137)) {
+            wstring bcmd = ComponentStartCmd(L"Breeze", L"breeze-tts\\start-breeze.cmd");
+            if (!bcmd.empty()) {
+                LaunchCmd(bcmd, ParentDir(bcmd), false);
+                WaitFor([] { return Listening(8137); }, 90);
+            }
         }
         if (!Listening(8137)) fails.push_back(L"语音（Breeze 没开起来，点语音那行的「打开 Breeze」）");
     }
@@ -692,7 +707,7 @@ static wstring LatestGithub(const wstring& repo) {
 // 桌面 QQ 自动升级、SnowLuma 还没跟上：看它最新日志里「挂不上」是不是发生在最后一次挂上之后
 static bool QqUpgradeSuspect() {
     if (Protocol() != L"snowluma") return false;
-    wstring dir = P(L"SnowLuma\\logs");
+    wstring dir = JoinPath(BotPath(L"SnowLuma"), L"logs");
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW((dir + L"\\*.log").c_str(), &fd);
     if (h == INVALID_HANDLE_VALUE) return false;
@@ -842,8 +857,8 @@ static UpdatesInfo FetchUpdates() {
         items.Set(L"astrbot", it);
     }
 
-    if (DirExists(P(L"SnowLuma"))) {
-        wstring sl = ReadJson(P(L"SnowLuma\\release.json")).Str(L"version");
+    if (DirExists(BotPath(L"SnowLuma"))) {
+        wstring sl = ReadJson(JoinPath(BotPath(L"SnowLuma"), L"release.json")).Str(L"version");
         if (!sl.empty()) {
             wstring lv = LatestGithub(L"SnowLuma/SnowLuma");
             okAll = okAll && !lv.empty();

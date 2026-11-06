@@ -65,6 +65,9 @@ std::wstring Base();                      // 工作区根目录（默认 D:\）
 std::wstring Root();                      // D:\MinglingWorkbench（工作台自己）
 std::wstring P(const wchar_t* rel);       // Base()\rel
 std::wstring BotPath(const wchar_t* name);   // <工作区>\bots\name 优先，老布局兜底
+// 组件启动脚本：先 <组件目录>\start.cmd（bots 布局），再 <组件目录>\start-breeze.cmd，
+// 最后 <机器人根>\baseCmd（老布局，例如 start-snowluma.cmd）。都没有返回空串。
+std::wstring ComponentStartCmd(const wchar_t* name, const wchar_t* baseCmd = nullptr);
 std::wstring Data();                      // astrbot 的 data 目录
 std::wstring Answers(const wchar_t* key, const wchar_t* def = L"");
 int Voice();                              // 1 Edge / 2 MiMo / 3 豆包 / 4 Breeze 本机 / 5 Breeze 在线

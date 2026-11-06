@@ -44,6 +44,14 @@ data/
 bots/
 temp/
 
+# 自设定/一键装填现场写进工作区根的东西：答案卡、各组件的启动脚本
+answers.json
+start-astrbot.cmd
+start-snowluma.cmd
+start-napcat.cmd
+start-breeze.cmd
+start-petbridge.cmd
+
 # ---------- 4. 隐私与凭据（绝对不要提交） ----------
 credentials.json
 secrets/

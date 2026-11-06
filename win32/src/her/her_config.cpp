@@ -85,6 +85,21 @@ std::wstring BotPath(const wchar_t* name) {
     return inBots;
 }
 
+// 组件启动脚本：bots 布局看组件目录里的 start.cmd；老布局看 <Base>\start-xxx.cmd。
+std::wstring ComponentStartCmd(const wchar_t* name, const wchar_t* baseCmd) {
+    std::wstring dir = BotPath(name);
+    std::wstring c = JoinPath(dir, L"start.cmd");
+    if (FileExists(c)) return c;
+    // 早期 bots 布局里本机语音的脚本叫 start-breeze.cmd
+    c = JoinPath(dir, L"start-breeze.cmd");
+    if (FileExists(c)) return c;
+    if (baseCmd && baseCmd[0]) {
+        c = JoinPath(Base(), baseCmd);
+        if (FileExists(c)) return c;
+    }
+    return std::wstring();
+}
+
 
 std::wstring Data() {
     static std::wstring d;
@@ -729,13 +744,13 @@ static std::wstring FindUnder(const std::wstring& root, const std::wstring& name
 std::vector<std::pair<std::wstring, std::wstring>> Versions() {
     std::vector<std::pair<std::wstring, std::wstring>> v;
     v.push_back({L"工作台", L"2.0"});
-    std::wstring astr = DistVer(JoinPath(Base(), L"uv\\tools\\astrbot\\Lib\\site-packages"), L"astrbot");
+    std::wstring astr = DistVer(JoinPath(BotPath(L"uv"), L"tools\\astrbot\\Lib\\site-packages"), L"astrbot");
     if (astr.empty()) {
         std::wstring hit = FindUnder(Base(), L"astrbot-", 5);
         if (!hit.empty()) astr = DistVer(Up(hit), L"astrbot");
     }
     if (!astr.empty()) v.push_back({L"AstrBot", astr});
-    J sl = ReadJson(P(L"SnowLuma\\release.json"));
+    J sl = ReadJson(JoinPath(BotPath(L"SnowLuma"), L"release.json"));
     std::wstring slv = sl.Str(L"version");
     if (slv.empty()) {
         std::wstring hit = FindUnder(Base(), L"release.json", 3);
@@ -745,7 +760,7 @@ std::vector<std::pair<std::wstring, std::wstring>> Versions() {
     // Breeze：bin 里那个带 -v0.1.3 的目录
     {
         WIN32_FIND_DATAW fd;
-        HANDLE h = FindFirstFileW(P(L"breeze-tts\\bin\\*").c_str(), &fd);
+        HANDLE h = FindFirstFileW(JoinPath(BotPath(L"Breeze"), L"bin\\*").c_str(), &fd);
         if (h != INVALID_HANDLE_VALUE) {
             do {
                 std::wstring n = fd.cFileName;

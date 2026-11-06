@@ -512,8 +512,7 @@ bool CollectStatus(Status& st, wstring* err) {
                 c.state = L"ok";
                 c.text = L"开着，用你的显卡算，不花钱。";
             } else {
-                bool canfix = FileExists(JoinPath(BotPath(L"Breeze"), L"start.cmd")) ||
-                              FileExists(P(L"breeze-tts\\start-breeze.cmd"));
+                bool canfix = !ComponentStartCmd(L"Breeze", L"breeze-tts\\start-breeze.cmd").empty();
                 c.state = L"bad";
                 c.text = L"没在运行，她现在只能打字。" +
                          wstring(canfix ? L"修复会把它重新开起来，大约 20 秒。" : L"找不到 Breeze 的启动文件。");

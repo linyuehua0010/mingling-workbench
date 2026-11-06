@@ -68,7 +68,7 @@ bool Unwrap(const Http& r, J& out, wstring* err) {
 std::wstring DashboardPassword() {
     std::wstring pw = ReadKv(SecretFile(L"backend.txt"), L"password");
     if (!pw.empty()) return pw;
-    J cfg = ReadJson(P(L"astrbot\\data\\cmd_config.json"));
+    J cfg = ReadJson(JoinPath(BotPath(L"AstrBot"), L"data\\cmd_config.json"));
     const J* d = cfg.Get(L"dashboard");
     return d ? Trim(d->Str(L"password")) : std::wstring();
 }
@@ -81,7 +81,7 @@ bool AstrApi::Login(wstring* err) {
     if (name.empty()) name = L"astrbot";
     if (pw.empty()) pw = DashboardPassword();
     if (pw.empty()) {
-        J cfg = ReadJson(P(L"astrbot\\data\\cmd_config.json"));
+        J cfg = ReadJson(JoinPath(BotPath(L"AstrBot"), L"data\\cmd_config.json"));
         const J* d = cfg.Get(L"dashboard");
         std::wstring un = d ? d->Str(L"username") : L"";
         if (err)
