@@ -60,7 +60,6 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Dirs]
 ; 密钥目录：和工作区同级（默认 <Base>\secrets），在 {app} 之外，卸载不删
-Name: "{code:GetSecretsDir}"; Permissions: users-modify
 
 [Files]
 Source: "..\bin\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -70,7 +69,6 @@ Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs 
 Source: "..\plugin\astrbot_plugin_bili_bridge\*"; DestDir: "{app}\plugin\astrbot_plugin_bili_bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\sidecar\*"; DestDir: "{app}\sidecar"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
-Source: "..\installer\secrets-README.txt"; DestDir: "{code:GetSecretsDir}"; DestName: "README.txt"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
 Name: "{group}\{#AppTitle}"; Filename: "{app}\{#AppExe}"
@@ -105,78 +103,51 @@ begin
     Result := Result + '\' + '{#AppStateSub}';
 end;
 
-{ 从 JSON 文本里取一个字符串值。全程用绝对下标，不叠加相对偏移。 }
-function JsonStringValue(const raw: AnsiString; const key: String): String;
-var
-  txt, k, rest: String;
-  p, q: Integer;
+{ 目录名不能带 Windows 禁用字符（盘符那个冒号除外）。 }
+function PathUsable(const s: String): Boolean;
 begin
-  Result := '';
-  txt := String(raw);
-  k := '"' + key + '"';
-  p := Pos(k, txt);
-  if p = 0 then exit;
-  rest := Copy(txt, p + Length(k), Length(txt));
-  p := Pos(':', rest);
-  if p = 0 then exit;
-  rest := Copy(rest, p + 1, Length(rest));
-  p := Pos('"', rest);
-  if p = 0 then exit;
-  rest := Copy(rest, p + 1, Length(rest));
-  q := Pos('"', rest);
-  if q = 0 then exit;
-  Result := Trim(Copy(rest, 1, q - 1));
+  Result := (Length(s) >= 3) and (s[2] = ':') and ((s[3] = '\') or (s[3] = '/'))
+    and (Pos('"', s) = 0) and (Pos('*', s) = 0) and (Pos('?', s) = 0)
+    and (Pos('<', s) = 0) and (Pos('>', s) = 0) and (Pos('|', s) = 0);
 end;
 
-{ 只有 X:\ 或 X:/ 形态才认，避免把半截字符串写进向导。 }
-function LooksLikePath(const s: String): Boolean;
+{ 把一条路径收拾干净：去引号残留、\\ 还原成 \、/ 归成 \、去首尾空格。 }
+function CleanPath(s: String): String;
+var
+  p: Integer;
 begin
-  Result := (Length(s) >= 3) and (s[2] = ':') and ((s[3] = '\') or (s[3] = '/'));
+  p := Pos('"', s);
+  if p > 0 then s := Copy(s, 1, p - 1);
+  StringChangeEx(s, '\\', '\', False);
+  StringChangeEx(s, '/', '\', True);
+  Result := Trim(s);
 end;
 
-function ExistingWorkspace: String;
-var
-  cfg: String;
-  raw: AnsiString;
-  ws: String;
-begin
-  Result := '';
-  cfg := StateDirPath + '\settings.json';
-  if not FileExists(cfg) then exit;
-  if not LoadStringFromFile(cfg, raw) then exit;
-  ws := JsonStringValue(raw, 'workspace');
-  StringChangeEx(ws, '/', '\', True);
-  ws := Trim(ws);
-  if LooksLikePath(ws) then Result := ws;
-end;
+{ 为什么不在这里读工作台的 settings.json 猜工作区：
+  那是 UTF-8 的 JSON，而 Inno 6.0 的脚本里没有可用的 UTF-8 解码（MultiByteToWideChar 是 6.1 才有的），
+  中文路径会被按 ANSI 拆错字，解析出的路径带着尾巴，最后表现为
+  「文件夹名不能包含下列任何字符: / : * ? " < > |」——静默安装直接失败，日志里还看不出为什么。
+  现在的做法：安装器不去读它。已经有 settings.json 就一个字都不动，工作区交给工作台自己认；
+  只有首次安装（没有 settings.json）时才写一份新的，用的是用户在向导里选的那条路径。 }
 
 function InitializeSetup: Boolean;
 begin
-  WsPath := Trim(ExpandConstant('{param:WORKSPACE|}'));
-  if WsPath = '' then WsPath := ExistingWorkspace;
+  WsPath := CleanPath(Trim(ExpandConstant('{param:WORKSPACE|}')));
+  if not PathUsable(WsPath) then WsPath := '';
   if WsPath = '' then WsPath := ExpandConstant('{userdocs}\冥零工作台');
+  Log('WsPath=[' + WsPath + ']');
   Result := True;
 end;
 
-{ 密钥目录 = 工作区上一级的 secrets（工作区 D:\MinglingWorkbench → F:\secrets）。
-  安装器和服务读的是同一个约定，见 win32\src\paths.cpp 的 SecretsDir。 }
-function GetSecretsDir(Param: String): String;
-var
-  ws, b: String;
-begin
-  ws := WsPath;
-  if not LooksLikePath(ws) then ws := ExpandConstant('{userdocs}\冥零工作台');
-  b := ExtractFileDir(ws);
-  if (b <> '') and (Copy(b, Length(b), 1) = '\') then b := Copy(b, 1, Length(b) - 1);
-  if (b = '') or (not LooksLikePath(b)) then b := Copy(ws, 1, 2);
-  Result := b + '\secrets';
-end;
+{ 安装器不建 secrets 目录、也不放 README：工作台第一次启动时 EnsureSecrets() 会按自己的约定
+  （<Base>\secrets，Base 从 settings.json 来）建好目录和 README。安装器在这里猜不出真正的 Base，
+  猜错就会在「文档」下面凭空多一个 secrets 文件夹。 }
 
 procedure InitializeWizard;
 begin
   WsPage := CreateInputDirPage(wpSelectDir, '选择工作区',
     'B 站产物、台账和日志都放在工作区里。',
-    '默认放在“文档”下的「冥零工作台」。以后可在工作台「B站」页或「维护」页更换；更换不会自动搬走旧数据。',
+    '默认放在“文档”下的「冥零工作台」。已经装过的话这里选什么都不影响——已有的工作区会原样保留。',
     False, '');
   WsPage.Add('');
   WsPage.Values[0] := WsPath;
@@ -187,14 +158,14 @@ begin
   Result := True;
   if CurPageID = WsPage.ID then
   begin
-    WsPath := Trim(WsPage.Values[0]);
+    WsPath := CleanPath(Trim(WsPage.Values[0]));
     if WsPath = '' then
     begin
       MsgBox('请选择一个工作区目录。', mbError, MB_OK);
       Result := False;
       Exit;
     end;
-    if not LooksLikePath(WsPath) then
+    if not PathUsable(WsPath) then
     begin
       MsgBox('工作区要写成完整路径，例如 D:\MinglingWorkbench。', mbError, MB_OK);
       Result := False;
@@ -209,12 +180,8 @@ begin
         Exit;
       end;
     end;
-    ForceDirectories(WsPath + '\out');
-    ForceDirectories(WsPath + '\tmp');
-    ForceDirectories(WsPath + '\logs\jobs');
   end;
 end;
-
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -222,66 +189,36 @@ var
 begin
   if CurStep = ssPostInstall then
   begin
+    dir := StateDirPath;
+    cfg := dir + '\settings.json';
+    { 已有 settings.json：一个字都别动。那份是工作台自己写的，里面还有别的键；
+       工作区、base、密钥目录它都认得，装完直接接着用。 }
+    if FileExists(cfg) then exit;
     if WsPath = '' then WsPath := ExpandConstant('{userdocs}\冥零工作台');
     ForceDirectories(WsPath + '\out');
     ForceDirectories(WsPath + '\tmp');
     ForceDirectories(WsPath + '\logs\jobs');
-    dir := StateDirPath;
-    cfg := dir + '\settings.json';
     ForceDirectories(dir);
-    begin
-      b := ExtractFileDir(WsPath);
-      if b = '' then b := WsPath;
-      w1 := WsPath;
-      w2 := b;
-      StringChangeEx(w1, '\', '/', True);
-      StringChangeEx(w2, '\', '/', True);
-      js := '{"workspace": "' + w1 + '", "base": "' + w2 + '"}';
-      SaveStringToFile(cfg, js, False);
-    end;
+    b := ExtractFileDir(WsPath);
+    if b = '' then b := WsPath;
+    w1 := WsPath;
+    w2 := b;
+    StringChangeEx(w1, '\', '/', True);
+    StringChangeEx(w2, '\', '/', True);
+    js := '{"workspace": "' + w1 + '", "base": "' + w2 + '"}';
+    { 按 ANSI 写（工作台读 settings.json 时先试 UTF-8、不通再按系统编码解，中文路径照样认）；
+       不要在这里塞 UTF-8 BOM——BOM 后面跟 GBK 字节反而会让它解错。 }
+    SaveStringToFile(cfg, js, False);
   end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var
-  cfg: String;
-  raw: AnsiString;
-  txt, ws: String;
-  a, b: Integer;
 begin
   if CurUninstallStep = usPostUninstall then
-  begin
-    cfg := StateDirPath + '\settings.json';
-    ws := '';
-    if FileExists(cfg) then
-    begin
-      if LoadStringFromFile(cfg, raw) then
-      begin
-        txt := raw;
-        a := Pos('"workspace"', txt);
-        if a > 0 then
-        begin
-          a := Pos('"', Copy(txt, a + 11, Length(txt)));
-          if a > 0 then
-          begin
-            txt := Copy(txt, Pos('"workspace"', txt) + 11, Length(txt));
-            a := Pos('"', txt);
-            if a > 0 then
-            begin
-              txt := Copy(txt, a + 1, Length(txt));
-              b := Pos('"', txt);
-              if b > 0 then ws := Copy(txt, 1, b - 1);
-            end;
-          end;
-        end;
-      end;
-    end;
-    if ws = '' then ws := ExpandConstant('{userdocs}\冥零工作台');
-    StringChangeEx(ws, '/', '\', True);
     MsgBox('程序已卸载。' + #13#10 +
-           '你的看片产物、台账和日志没有删除：' + #13#10 + ws + #13#10 + #13#10 +
-           '密钥文件夹也保留了：' + #13#10 + GetSecretsDir('') + #13#10 +
-           '重装回来就能直接用。' + #13#10 + #13#10 +
-           '需要彻底清理时，手动删除上面两个目录即可。', mbInformation, MB_OK);
-  end;
+           '你的看片产物、台账和日志都还在工作区里，没有删除；' + #13#10 +
+           '工作区旁边的 secrets 文件夹（密钥）也保留着。' + #13#10 + #13#10 +
+           '重装回来就能直接用——重装时工作区选哪里都不影响，' + #13#10 +
+           '工作台会照旧读它自己记着的那份 settings.json。' + #13#10 + #13#10 +
+           '需要彻底清理时，手动删除工作区和 secrets 两个目录即可。', mbInformation, MB_OK);
 end;
