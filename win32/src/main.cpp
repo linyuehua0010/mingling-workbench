@@ -17,7 +17,15 @@ using namespace Gdiplus;
 // shell32 的导出，不在 shellapi.h 里，手写声明省得引入 shobjidl。
 extern "C" HRESULT WINAPI SetCurrentProcessExplicitAppUserModelID(PCWSTR appID);
 
+#if APP_SNAPSHOT
+// 快照版单独一条线：窗口类名、AppUserModelID 都和正式版分开，
+// 于是两个版本可以同时开着，「只留一份」也不会把正式版顶掉。
+static const wchar_t* CLS_NAME = L"MinglingWorkbench.snapshot";
+static const wchar_t* APP_USER_MODEL_ID = L"Mingling.Workbench.snapshot";
+#else
 static const wchar_t* CLS_NAME = L"MinglingWorkbench";
+static const wchar_t* APP_USER_MODEL_ID = L"Mingling.Workbench.2";
+#endif
 static const wchar_t* WIN_TITLE = L"冥零工作台 " APP_VERSION;
 
 static FILE* g_out = nullptr;
@@ -423,7 +431,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
 
     // 子进程会从启动它的宿主继承 AppUserModelID；不显式指定的话，任务栏会把本窗口归到
     // 宿主那一组、用宿主的图标（常常解析成通用文件图标）。给自己一个独立 ID。
-    SetCurrentProcessExplicitAppUserModelID(L"Mingling.Workbench.2");
+    SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID);
 
     WNDCLASSEXW wc = {0};
     wc.cbSize = sizeof(wc);

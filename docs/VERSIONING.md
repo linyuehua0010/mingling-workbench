@@ -40,6 +40,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1
 
 `win32\build.bat` 和 `installer\build-installer.bat` 开头都会先跑它，走散就停下，不会打出一个人造版本。
 
+## 渠道：正式版 / 快照版（V3.0.0 起）
+
+一条版本线，两种渠道。渠道只改**显示串**，不改数字：
+
+```cpp
+#define APP_VERSION_SUFFIX "-snapshot"   // 正式版写 ""
+#define APP_SNAPSHOT 1                    // 快照 1，正式 0；必须和后缀是否为空一致
+```
+
+- 显示串 = `V<plain><后缀>`（`APP_VERSION_TAG` / `APP_VERSION`），文件版本 = `<full><后缀>`
+  （`APP_VERSION_STR` / `APP_VERSION_FULL_W`）；**数字部**（`APP_VERSION_NUM`）永远是四个数字，
+  资源里的 FILEVERSION 还是 `3,0,0,0`。
+- `APP_SNAPSHOT=1` 时这些地方自动分流，正式版和快照版可以同装一台机器：
+  状态目录 `%APPDATA%\MinglingWorkbench\snapshot`、窗口类 `MinglingWorkbench.snapshot`、
+  AppUserModelID `Mingling.Workbench.snapshot`、卸载项 `MinglingWorkbench_snapshot_is1`、
+  Inno 的 AppId / 安装目录 `…\Programs\MinglingWorkbench-snapshot` / 快捷方式「冥零工作台（快照）」。
+- 工作区（`out` / `tmp` / `logs` / `bots`）和 `<Base>\secrets` 两个渠道共用，看片产物不变。
+- 回正式版：把后缀改回 `""`、`APP_SNAPSHOT` 改回 `0`，跑一次 `check-version.ps1`
+  （它会核对两者有没有走散），再打包。
+
 ## 谁在用这份号码
 
 | 地方 | 取法 | 用户在哪看到 |

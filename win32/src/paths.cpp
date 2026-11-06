@@ -1,4 +1,4 @@
-﻿// 冥零工作台 · 路径与设置（工作区契约的唯一来源）
+// 冥零工作台 · 路径与设置（工作区契约的唯一来源）
 //
 // 目录契约（工作台 / QQ 插件 / 内置 sidecar 三方共用）：
 //   <工作区>\out\<BV>\     封面、九宫格、字幕条、原片、正文缓存
@@ -31,10 +31,23 @@ wstring ParentDir(const wstring& p) {
 wstring AppDir() { return ExeDir(); }
 
 wstring StateDir() {
+    // 排障 / 验收时临时隔离：MINGLING_STATE_DIR 指哪就写哪，正式使用不设它。
+    wchar_t ov[MAX_PATH * 2] = {0};
+    GetEnvironmentVariableW(L"MINGLING_STATE_DIR", ov, MAX_PATH * 2);
+    if (ov[0]) {
+        wstring d = ov;
+        EnsureDirTree(d);
+        return d;
+    }
     wchar_t buf[MAX_PATH * 2] = {0};
     GetEnvironmentVariableW(L"APPDATA", buf, MAX_PATH * 2);
     wstring base = buf[0] ? buf : JoinPath(UserProfile(), L"AppData\\Roaming");
     wstring d = JoinPath(base, L"MinglingWorkbench");
+#if APP_SNAPSHOT
+    // 快照版和正式版并存：settings.json / bili-state / 运行临时目录各写各的，
+    // 装快照不会改掉正式版的设置，卸掉快照也不会带走正式版的配置。
+    d = JoinPath(d, L"snapshot");
+#endif
     EnsureDirTree(d);
     return d;
 }
@@ -393,7 +406,12 @@ void RegisterUninstallEntry() {
     wstring unins = JoinPath(app, L"unins000.exe");
     if (!FileExists(unins)) return;  // 开发目录直接跑 exe 时没有卸载器
     HKEY key = NULL;
+#if APP_SNAPSHOT
+    // 快照版自己的卸载项：和正式版各占一行，谁也别删谁
+    const wchar_t* sub = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\MinglingWorkbench_snapshot_is1";
+#else
     const wchar_t* sub = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\MinglingWorkbench_is1";
+#endif
     if (RegCreateKeyExW(HKEY_CURRENT_USER, sub, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL) != ERROR_SUCCESS)
         return;
     auto setStr = [&](const wchar_t* name, const wstring& val) {
@@ -401,7 +419,8 @@ void RegisterUninstallEntry() {
                        (DWORD)((val.size() + 1) * sizeof(wchar_t)));
     };
     setStr(L"DisplayName", std::wstring(APP_NAME) + L" " + APP_VERSION);
-    setStr(L"DisplayVersion", APP_VERSION_PLAIN_W);
+    // 显示完整串（含渠道后缀）：应用和功能列表里一眼能分出正式版和快照版
+    setStr(L"DisplayVersion", APP_VERSION);
     setStr(L"Publisher", L"冥零工作台");
     setStr(L"InstallLocation", app);
     setStr(L"DisplayIcon", JoinPath(app, L"MinglingWorkbench.exe"));

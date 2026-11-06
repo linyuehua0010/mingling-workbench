@@ -9,8 +9,9 @@
 
 | 决定 | 理由 | 没选的做法 |
 | --- | --- | --- |
-| 版本**显示**就是 `V3.0.0`，不带 `-snapshot` 后缀 | 界面、`--version`、exe 属性、卸载列表五处必须同一句话；后缀一混就又是两个版本源 | 界面留在 V2.3.x、只在文档里标快照（那会让「版本从哪来」重新变成谜） |
-| 安装包文件名允许带 `-snapshot` | 文件名是产物名，不是版本源；`installer\build-installer.bat` 照旧从 `version.h` 取版本 | 改 `version.h` 去迁就文件名 |
+| 版本串显示 `V3.0.0-snapshot`（文件版本 `3.0.0.0-snapshot`，数字部仍 `3.0.0.0`） | 快照和正式 `V3.0.0` 一眼分开；五处仍同一出处（`version.h`） | 只靠文档标快照——同一台机器上分不清谁是谁 |
+| 快照版与正式版**并存**：独立状态目录 / 窗口类 / AppUserModelID / 卸载项 / 安装目录；工作区与 `secrets` 共用 | 「快照版单独，不与正式版共通」：装快照不覆盖正式版的设置，卸快照不带走正式版的配置 | 覆盖安装共用 `settings.json`（等于替换正式版，回退要重装） |
+| 安装包文件名 `MinglingWorkbench-3.0.0-snapshot-setup.exe` | 文件名是产物名，不参与版本判定；`build-installer.bat` 照旧从 `version.h` 取 | 改 `version.h` 去迁就文件名 |
 | 五件事都做成**工作台内**的入口，不新增进程 | 快照版只动 UI 与本地编排，出问题 `git revert` 一片就回到 V2.3.1 | 给 B 站/链接/对话各起一个后台服务 |
 | 未知配置键一律原样保留 | `bili-whale.config.json` 是上游的，字段会随版本加；写死字段表就是下一版的 bug | 用固定结构体重写整份配置 |
 | 「读取其他应用」只到 MVP 边界 | 分享文本提 URL + 本地 `.lnk/.exe` 只做「打开」；进程注入/屏幕读取/内容抓取一律不做 | 先做应用内容抓取（本快照版只输出设计，见 §6） |
@@ -18,18 +19,21 @@
 ## 1. 需求 1：更新页「冥零工作台」牵引到 GitHub Releases
 
 现状：`ui_update.inc:71` `PaintUpRow()` 已经在 `it.id == "wb" && state == "new"` 时画
-「去 GitHub 下载」（`up:wbdl`），但版本号来自 `her_actions.cpp:923` 写死的 `up.Set(L"wb", JStr(L"2.0"))`，
-仓库地址只在用户自己写了 `settings.json` 的 `repo` 时才查（`her_actions.cpp:916`）。
+「去 GitHub 下载」（`up:wbdl`），但本机版本是 `her_actions.cpp` 里写死的 `"2.0"`，
+仓库地址只在用户自己写了 `settings.json` 的 `repo` 时才查。
 
-改动：
+改动（**只查快照通道**，这一条由「快照版单独」定下来）：
 
-- `her_actions.cpp`：`kDefaultWbRepo = L"linyuehua0010/mingling-workbench"`；`repo` 没配就用它（仍可被 `repo` 覆盖），
-  `wb` 本机版本改成 `APP_VERSION_PLAIN`（引 `version.h`），最新版只在**比本机新**时才算「有新版」；
-  `LatestGithub()` 顺带把 release 的 `html_url` 带回来，缓存里存 `wbUrl` / `wbRepo`。
-- `her.h`：`UpdatesInfo` 增加 `wbRepo` / `wbUrl`（只是多两个字段，旧缓存读出来是空，不炸）。
-- `ui_update.inc`：工作台那一行的状态词在「没查到/没配/无 release/断网」时统一显示
-  **「本机 / 没查到」**，并且把「在查哪个仓库」写在描述里；按钮打开 `wbUrl`，没有就退回
-  `https://github.com/<repo>/releases/latest`。
+- 通道键是 `settings.json` 的 `repo_snapshot`（owner/name），**默认空 = 不联网**；
+  不读正式版用的 `repo`，也绝不把正式 `V3.0.0` 的安装包推给快照用户；
+- 就算配了仓库，release tag 里不带 `snapshot` 的也忽略（防止正式 release 混进来）；
+- `wb` 本机版本改成 `APP_VERSION`（引 `version.h`，显示 `V3.0.0-snapshot`），
+  最新版只在**比本机新**时才算「有新版」；`LatestGithub()` 顺带把 release 的 `html_url`
+  带回来，缓存里存 `wbUrl` / `wbRepo`；
+- `her.h`：`UpdatesInfo` 增加 `wbRepo` / `wbUrl`（多两个字段，旧缓存读出来是空，不炸）；
+- `ui_update.inc`：工作台那一行在「没配通道 / 断网 / 限流 / 仓库还没发 snapshot release」时
+  统一显示 **「本机 / 没查到」**，描述里写清在查哪个仓库、以及没查到属于正常；
+  按钮打开 `wbUrl`，没有就退回 `https://github.com/<repo>/releases`。
 
 不做：自动下载 exe、静默替换、安装包自更新——快照版只把人送到浏览器。
 
@@ -38,7 +42,7 @@
 现状：`ui_maint.inc:226-234` 的版本行只拼 `g_mVers`（AstrBot / SnowLuma / Breeze 的组件版本），
 工作台自己是版本源，却一个字都没显示。
 
-改动：同一行前段固定是 `工作台 ` + `APP_VERSION`（宏，不硬编码），后面再接组件版本；
+改动：同一行前段固定是 `工作台 ` + `APP_VERSION`（宏，不硬编码，显示 `工作台 V3.0.0-snapshot`），后面再接组件版本；
 组件还没查到就只显示工作台版本，不再显示「版本还没取到」。
 
 ## 3. 需求 3：B 站相关统合 + bili-whale 配置界面 + DSH 对话 API
@@ -110,7 +114,8 @@
 
 | # | 提交 | 内容 |
 | --- | --- | --- |
-| 1 | `docs: V3.0.0-snapshot 计划与验收` | 本文件 + `version.h` 升到 V3.0.0 |
+| 1 | `docs: V3.0.0-snapshot 计划与验收` | 本文件 + `version.h` 升到 V3.0.0-snapshot |
+| 1b | `feat(release): 快照版独立通道` | `version.h`、`tools\check-version.ps1`、`paths.cpp`、`main.cpp`、`installer\mingling.iss`、`installer\build-installer.bat` |
 | 2 | `feat(update): 工作台更新牵引 GitHub Releases` | `her_actions.cpp`、`her.h`、`ui_update.inc`、`ui_pages.inc` |
 | 3 | `fix(maint): 维护页显示当前工作台版本` | `ui_maint.inc` |
 | 4 | `feat(bili): B 站入口统合 + bili-whale 配置界面` | `biliapi.cpp`（新）、`core.h`、`ui_pages.inc`、`ui_maint.inc`、`build.bat` |
@@ -126,8 +131,8 @@
 | 项 | 怎么验 | 期望 |
 | --- | --- | --- |
 | 编译 | `cd win32 && build.bat` | 0 error |
-| 版本一致 | `tools\check-version.ps1`、`MinglingWorkbench.exe --version`、维护页、侧边栏、帮助页、卸载列表 | 全是 `V3.0.0` / `3.0.0.0` |
-| 更新页 | `settings.json` 写 `repo` 指向真仓库后点「再查一遍」 | 有新版出「去 GitHub 下载」，无新版「最新」，断网/无 release「本机 / 没查到」 |
+| 版本一致 | `tools\check-version.ps1`、`MinglingWorkbench.exe --version`、维护页、侧边栏、帮助页、卸载列表 | 全是 `V3.0.0-snapshot` / `3.0.0.0-snapshot` |
+| 快照通道 | 不配 `repo_snapshot` 打开更新页；再配一个真仓库重查 | 不配时「本机 / 没查到」不报错；配了能查到 snapshot release |
 | 维护页 | 打开维护页 | 版本行含 `工作台 V3.0.0`，组件版本仍在 |
 | B 站配置 | 改一个字段、保存 | `.bak-<时间>` 存在、JSON 可读、未知键还在 |
 | DSH API | 填 Base URL + key 点「测试连接」；断网再点一次 | 成功显示回话；失败只影响该面板，看片照旧 |

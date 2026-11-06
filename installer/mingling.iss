@@ -1,27 +1,49 @@
 ﻿; 冥零工作台 v2 安装脚本（Inno Setup 6）
-; 编译：installer\build-installer.bat  →  dist\MinglingWorkbench-2.2.1-setup.exe
-#define AppName "冥零工作台"
+; 编译：installer\build-installer.bat  →  dist\MinglingWorkbench-<版本>-setup.exe
 ; 版本号来自 win32\src\version.h（build-installer.bat 每次重新生成 version_auto.iss）
 #include "version_auto.iss"
 #define AppExe "MinglingWorkbench.exe"
 
+; ── 通道分流：正式版和快照版必须能同装一台机器、互不覆盖 ──────────────────────
+; 决定权在 version.h 的 APP_SNAPSHOT（build-installer.bat 抄进 version_auto.iss）。
+; 快照版换掉 AppId、安装目录、卸载项、快捷方式和设置目录，其余内容完全一样。
+#ifndef AppSnapshot
+  #define AppSnapshot 0
+#endif
+
+#if AppSnapshot
+  #define AppIdValue "{{4F0C7D93-2A61-4B8E-9D35-6E1A8B2C4F70}"
+  #define AppTitle "冥零工作台（快照）"
+  #define AppDir "MinglingWorkbench-snapshot"
+  #define AppUninstKey "MinglingWorkbench_snapshot_is1"
+  #define AppStateSub "snapshot"
+  #define AppOutSuffix "-snapshot"
+#else
+  #define AppIdValue "{{8E1B7C42-5D3A-4F0E-9C21-7B6A1D3E5F80}"
+  #define AppTitle "冥零工作台"
+  #define AppDir "MinglingWorkbench"
+  #define AppUninstKey "MinglingWorkbench_is1"
+  #define AppStateSub ""
+  #define AppOutSuffix ""
+#endif
+
 [Setup]
-AppId={{8E1B7C42-5D3A-4F0E-9C21-7B6A1D3E5F80}
-AppName={#AppName}
+AppId={#AppIdValue}
+AppName={#AppTitle}
 AppVersion={#AppVer}
-AppVerName={#AppName} {#AppVerTag}
+AppVerName={#AppTitle} {#AppVerTag}
 AppPublisher=冥零工作台
-DefaultDirName={localappdata}\Programs\MinglingWorkbench
-DefaultGroupName={#AppName}
+DefaultDirName={localappdata}\Programs\{#AppDir}
+DefaultGroupName={#AppTitle}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 OutputDir=..\dist
-OutputBaseFilename=MinglingWorkbench-{#AppVer}-setup
+OutputBaseFilename=MinglingWorkbench-{#AppVer}{#AppOutSuffix}-setup
 SetupIconFile=..\win32\res\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
-UninstallDisplayName={#AppName}
+UninstallDisplayName={#AppTitle}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -51,19 +73,19 @@ Source: "..\sidecar\*"; DestDir: "{app}\sidecar"; Flags: ignoreversion recursesu
 Source: "..\installer\secrets-README.txt"; DestDir: "{code:GetSecretsDir}"; DestName: "README.txt"; Flags: onlyifdoesntexist uninsneveruninstall
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\{#AppTitle}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\使用说明"; Filename: "{app}\docs\使用说明.md"
 Name: "{group}\B 站部署教程"; Filename: "{app}\docs\deploy-bili.md"
 Name: "{group}\QQ 机器人部署教程"; Filename: "{app}\docs\deploy-qq.md"
-Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{group}\卸载 {#AppTitle}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "启动 {#AppTitle}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 
-Filename: "{cmd}"; Parameters: "/c reg delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\MinglingWorkbench_is1"" /f >nul 2>&1"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/c reg delete ""HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppUninstKey}"" /f >nul 2>&1"; Flags: runhidden
 
 
 [UninstallDelete]
@@ -73,6 +95,15 @@ Type: dirifempty; Name: "{app}"
 var
   WsPage: TInputDirWizardPage;
   WsPath: String;
+
+{ 设置目录：正式版 %APPDATA%\MinglingWorkbench，快照版再下一层 \snapshot。
+  必须和 win32\src\paths.cpp 的 StateDir() 是同一句话，否则装完 exe 读不到安装器写的 settings.json。 }
+function StateDirPath: String;
+begin
+  Result := ExpandConstant('{userappdata}\MinglingWorkbench');
+  if '{#AppStateSub}' <> '' then
+    Result := Result + '\' + '{#AppStateSub}';
+end;
 
 { 从 JSON 文本里取一个字符串值。全程用绝对下标，不叠加相对偏移。 }
 function JsonStringValue(const raw: AnsiString; const key: String): String;
@@ -110,7 +141,7 @@ var
   ws: String;
 begin
   Result := '';
-  cfg := ExpandConstant('{userappdata}\MinglingWorkbench\settings.json');
+  cfg := StateDirPath + '\settings.json';
   if not FileExists(cfg) then exit;
   if not LoadStringFromFile(cfg, raw) then exit;
   ws := JsonStringValue(raw, 'workspace');
@@ -195,7 +226,7 @@ begin
     ForceDirectories(WsPath + '\out');
     ForceDirectories(WsPath + '\tmp');
     ForceDirectories(WsPath + '\logs\jobs');
-    dir := ExpandConstant('{userappdata}\MinglingWorkbench');
+    dir := StateDirPath;
     cfg := dir + '\settings.json';
     ForceDirectories(dir);
     begin
@@ -220,7 +251,7 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    cfg := ExpandConstant('{userappdata}\MinglingWorkbench\settings.json');
+    cfg := StateDirPath + '\settings.json';
     ws := '';
     if FileExists(cfg) then
     begin
