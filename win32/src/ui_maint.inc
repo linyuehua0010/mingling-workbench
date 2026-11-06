@@ -222,15 +222,22 @@ static void PaintMaint(Graphics& g) {
     Txt(g, L"她今天怎么样", RectF(x0 + S(22), y0 + S(16), S(420), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, g_mBusy ? g_mNote : (g_mLastOp.empty() ? g_mNote : g_mLastOp),
         RectF(x0 + S(22), y0 + S(44), w * 0.40f, S(18)), Fnt(HINT_SIZE, 1, 0), g_mBusy ? C_ACCENT : C_FAINT, 0, true);
-    // 版本行
+    // 版本行：工作台版本单独可辨，取 version.h 的 APP_VERSION（不硬编码、不拿组件版本顶替），
+    // 后面才是组件版本。侧边栏、帮助页、--version、exe 属性、卸载列表读的都是同一个宏。
     {
+        Font* vf = Fnt(MICRO_SIZE, 1, 0);
+        wstring wb = L"工作台 " + wstring(APP_VERSION);
+        float wbw = Tw(g, wb, vf) + S(14);
+        Txt(g, wb, RectF(x0 + S(22), y0 + headH - S(30), wbw, S(18)), vf, 0xFF6E7C96, 0);
         wstring v;
         for (auto& kv : g_mVers) {
             if (!v.empty()) v += L"   ·   ";
             v += kv.first + L" " + kv.second;
         }
-        Txt(g, v.empty() ? L"版本还没取到" : v, RectF(x0 + S(22), y0 + headH - S(30), w * 0.55f, S(18)),
-            Fnt(MICRO_SIZE, 1, 0), 0xFFA8B3C8, 0, true);
+        float vw = w * 0.55f - wbw;
+        if (vw > S(40))
+            Txt(g, v.empty() ? L"组件版本还没取到" : v, RectF(x0 + S(22) + wbw, y0 + headH - S(30), vw, S(18)),
+                vf, 0xFFA8B3C8, 0, true);
     }
     Button(g, RectF(x0 + w - S(96), y0 + S(16), S(76), S(28)), g_mBusy ? L"在查…" : L"再查一遍", "mref", 0, true, !g_mBusy);
     // 打游戏模式：开了就把本机语音/记忆先放下，她照样打字
