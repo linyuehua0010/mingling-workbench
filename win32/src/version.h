@@ -20,21 +20,21 @@
 //    tools\check-version.ps1，或者直接 build.bat（它会先跑一遍，走散就停）。
 // ─────────────────────────────────────────────────────────────────────────────
 
-#define APP_VERSION_MAJOR 2
-#define APP_VERSION_MINOR 3
-#define APP_VERSION_PATCH 1
+#define APP_VERSION_MAJOR 3
+#define APP_VERSION_MINOR 0
+#define APP_VERSION_PATCH 0
 #define APP_VERSION_BUILD 0
 
 // 资源文件用：FILEVERSION / PRODUCTVERSION
 #define APP_VERSION_NUM APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
 
 // 窄字符串：.rc / Inno Setup / NSIS / 脚本
-#define APP_VERSION_STR   "2.3.1.0"
-#define APP_VERSION_PLAIN "2.3.1"
-#define APP_VERSION_TAG   "V2.3.1"
+#define APP_VERSION_STR   "3.0.0.0"
+#define APP_VERSION_PLAIN "3.0.0"
+#define APP_VERSION_TAG   "V3.0.0"
 
 // 宽字符串：C++ / GDI+ 绘制
-#define APP_VERSION         L"V2.3.1"
-#define APP_VERSION_PLAIN_W L"2.3.1"
-#define APP_VERSION_FULL_W  L"2.3.1.0"
+#define APP_VERSION         L"V3.0.0"
+#define APP_VERSION_PLAIN_W L"3.0.0"
+#define APP_VERSION_FULL_W  L"3.0.0.0"
 #define APP_NAME            L"冥零工作台"
