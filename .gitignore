@@ -52,6 +52,27 @@ start-napcat.cmd
 start-breeze.cmd
 start-petbridge.cmd
 
+# 工作台自己写的老版本备份（点「一键修复」前会存一份）
+旧版/
+
+# 掉线提醒 / 桌宠那套老运行时脚本：工作区里现场带着，不属于仓库
+tools/python/
+tools/qq_watch.py
+tools/qq-toast.ps1
+tools/qq-watch.cmd
+tools/common.ps1
+tools/relogin-qq.ps1
+tools/relogin.cmd
+tools/autostart.ps1
+tools/backend_state.py
+tools/backup.ps1
+tools/diag.ps1
+tools/import-pack.ps1
+tools/dafeiyu_pet_bridge.py
+tools/pet_config.py
+tools/pet-*.txt
+tools/setup-pet.ps1
+
 # ---------- 4. 隐私与凭据（绝对不要提交） ----------
 credentials.json
 secrets/
