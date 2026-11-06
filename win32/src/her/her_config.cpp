@@ -343,7 +343,11 @@ J CmdConfig() { return ReadJson(JoinPath(Data(), L"cmd_config.json")); }
 bool CmdConfigSave(const J& cfg) { return WriteJsonAtomic(JoinPath(Data(), L"cmd_config.json"), cfg); }
 
 bool WhitelistOn() {
-    const J* v = CmdConfig().Path(L"platform_settings.enable_id_white_list");
+    // 以前是一行 const J* v = CmdConfig().Path(...)：CmdConfig() 返回的是临时 J，
+    // 那条语句一结束它就被析构了，v 立刻变悬垂——并发切页时会随机 0xc0000005。
+    // 先把配置接住，再取指针。
+    J cfg = CmdConfig();
+    const J* v = cfg.Path(L"platform_settings.enable_id_white_list");
     return v && v->t == J::BOOL ? v->b : false;
 }
 

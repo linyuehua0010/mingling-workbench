@@ -7,6 +7,7 @@
 #include "../core.h"
 
 #include <array>
+#include <mutex>
 #include <functional>
 #include <utility>
 
@@ -174,7 +175,7 @@ struct NetSnap {
     std::vector<Est> est;
     DWORD at = 0;
 };
-const NetSnap& Net();
+NetSnap Net();   // 每次给一份拷贝：端口表会被多个线程同时问，别共享同一份可变状态
 bool Listening(int port);
 DWORD ListenPid(int port);
 std::wstring ImagePath(DWORD pid);                       // 小写全路径

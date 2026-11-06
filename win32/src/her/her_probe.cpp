@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cwchar>
+#include <mutex>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -53,8 +54,12 @@ std::vector<ProcEntry> Snapshot() {
 }  // namespace
 
 // ---------------------------------------------------------------- 端口表
-const NetSnap& Net() {
+// 端口表要给好几个线程看（看门狗心跳、维护页刷新、更新检查同时可能都在问），
+// 所以这里每次都拷一份出去：谁也别拿着别人的 vector 一边读一边被清空。
+NetSnap Net() {
+    static std::mutex mx;
     static NetSnap snap;
+    std::lock_guard<std::mutex> lk(mx);
     DWORD now = GetTickCount();
     if (snap.at && now - snap.at < 2000) return snap;
     snap.listen.clear();
@@ -94,16 +99,22 @@ const NetSnap& Net() {
 bool Listening(int port) { return Net().listen.count(port) > 0; }
 
 DWORD ListenPid(int port) {
-    auto& n = Net();
+    NetSnap n = Net();
     auto it = n.listen.find(port);
     return it == n.listen.end() ? 0 : it->second;
 }
 
 std::wstring ImagePath(DWORD pid) {
+    // 同一个缓存也会被几个线程同时问（维护页刷新、更新检查、掉线看门狗），
+    // 锁一下：std::map 并发插入会把堆写坏，表现成乱七八糟的 0xc0000005。
+    static std::mutex mx;
     static std::map<DWORD, std::pair<std::wstring, DWORD>> cache;  // pid -> (path, tick)
     DWORD now = GetTickCount();
-    auto it = cache.find(pid);
-    if (it != cache.end() && now - it->second.second < 3000) return it->second.first;
+    {
+        std::lock_guard<std::mutex> lk(mx);
+        auto it = cache.find(pid);
+        if (it != cache.end() && now - it->second.second < 3000) return it->second.first;
+    }
     std::wstring path;
     HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
     if (h) {
@@ -112,7 +123,10 @@ std::wstring ImagePath(DWORD pid) {
         if (QueryFullProcessImageNameW(h, 0, buf, &n)) path = Lower(std::wstring(buf, n));
         CloseHandle(h);
     }
-    if (!path.empty()) cache[pid] = {path, now};
+    if (!path.empty()) {
+        std::lock_guard<std::mutex> lk(mx);
+        cache[pid] = {path, now};
+    }
     return path;
 }
 
@@ -219,7 +233,8 @@ bool QqOnline() {
     }
     std::wstring dirs[] = {Lower(P(L"SnowLuma")), Lower(P(L"NapCat")),
                            Lower(BotPath(L"SnowLuma")), Lower(BotPath(L"NapCat"))};
-    for (auto& e : Net().est) {
+    NetSnap net = Net();
+    for (auto& e : net.est) {
         if (e.rport != ws) continue;
         std::wstring p = ImagePath(e.pid);
         if (p.empty()) continue;
