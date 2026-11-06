@@ -156,7 +156,9 @@ struct UpdatesInfo {
     bool ok = false;
     bool busy = false;
     long long at = 0;
-    std::wstring wb;
+    std::wstring wb;          // 本机工作台版本（APP_VERSION_PLAIN）
+    std::wstring wbRepo;      // 在查的 GitHub 仓库 owner/name（空 = 用默认仓库）
+    std::wstring wbUrl;       // 最新 release 的网页地址（查不到为空）
     std::wstring err;
     bool qqUpgrade = false;   // 桌面 QQ 像是自动升级了，SnowLuma 挂不上
     std::vector<UpdateItem> items;

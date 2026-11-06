@@ -3,6 +3,7 @@
 //   启停进程用 CreateProcess + 等端口，改开关走 AstrBot 接口或直接改配置，
 //   备份 / 求助信息 / 开机自启 / 补装这些东西本来就有 ps1 脚本，直接调脚本，不再经 python。
 #include "her.h"
+#include "../version.h"   // 工作台版本只有这一个出处（更新页要比的 local 就是它）
 
 #include <shlobj.h>
 #include <shellapi.h>
@@ -670,36 +671,51 @@ static wstring LatestAstrbot() {
     return best;
 }
 
-// GitHub 最新 release 的版本号：先问 API，不通就让加速站跳到 releases/latest 再从地址里抠
-static wstring LatestGithub(const wstring& repo) {
+// GitHub 最新 release 的版本号：先问 API，不通就让加速站跳到 releases/latest 再从地址里抠。
+// url 出参是这一版 release 的网页地址（API 直接给 html_url；走加速站时按 tag 拼回来），
+// 更新页的「去 GitHub 下载」就点它，不再自己拼 /releases/latest。
+static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring* rawTagOut = nullptr) {
+    if (url) url->clear();
+    if (rawTagOut) rawTagOut->clear();
     Http r = HttpGet(L"https://api.github.com/repos/" + repo + L"/releases/latest", 6000);
     if (r.ok && r.code < 400) {
         bool ok = false;
         J j = J::Parse(r.body, &ok);
         if (ok) {
             wstring tag = j.Str(L"tag_name");
-            if (!tag.empty() && tag[0] == L'v') tag = tag.substr(1);
-            if (!tag.empty()) return tag;
+            if (!tag.empty()) {
+                if (rawTagOut) *rawTagOut = tag;
+                if (url) {
+                    *url = j.Str(L"html_url");
+                    if (url->empty()) *url = L"https://github.com/" + repo + L"/releases/tag/" + tag;
+                }
+                if (tag[0] == L'v') tag = tag.substr(1);
+                if (!tag.empty()) return tag;
+            }
         }
     }
     for (const wchar_t* p : kProxies) {
         wstring t = FetchText(wstring(p) + L"https://github.com/" + repo + L"/releases/latest", 6000);
         size_t at = t.find(L"/releases/tag/");
         if (at == wstring::npos) continue;
-        size_t i = at + 14;
-        if (i < t.size() && t[i] == L'v') i++;
-        wstring v;
-        while (i < t.size()) {
-            wchar_t c = t[i];
+        size_t tagStart = at + 14, tagEnd = tagStart;
+        while (tagEnd < t.size()) {
+            wchar_t c = t[tagEnd];
             if ((c >= L'0' && c <= L'9') || c == L'.' || c == L'-' || (c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z')) {
-                v.push_back(c);
-                i++;
+                tagEnd++;
             } else {
                 break;
             }
         }
+        wstring rawTag = t.substr(tagStart, tagEnd - tagStart);
+        if (rawTag.empty()) continue;
+        wstring v = rawTag;
+        if (v[0] == L'v') v = v.substr(1);
         while (!v.empty() && (v.back() == L'.' || v.back() == L'-')) v.pop_back();
-        if (!v.empty()) return v;
+        if (v.empty()) continue;
+        if (url) *url = L"https://github.com/" + repo + L"/releases/tag/" + rawTag;
+        if (rawTagOut) *rawTagOut = rawTag;
+        return v;
     }
     return L"";
 }
@@ -827,11 +843,16 @@ static UpdatesInfo ParseUpdates(const J& up) {
     w.id = L"wb";
     w.name = ItemName(w.id);
     w.what = ItemWhat(w.id);
-    w.local = u.wb.empty() ? L"2.0" : u.wb;
+    // 显示用完整串（V3.0.0-snapshot），比较用数字串（3.0.0）——快照版和正式版数字一样，
+    // 只差后缀，混着比会把「两个渠道」当成同一版。
+    w.local = u.wb.empty() ? APP_VERSION : u.wb;
+    u.wb = w.local;
+    u.wbRepo = up.Str(L"wbRepo");
+    u.wbUrl = up.Str(L"wbUrl");
     w.latest = JustVer(w.id, up.Str(L"wbLatest"));
     if (w.latest.empty()) {
-        w.state = L"local";  // 还没发布/还没配仓库：就显示本机版本
-    } else if (VerCmp(w.latest, w.local) > 0) {
+        w.state = L"local";  // 还没发布/查不到：就显示本机版本
+    } else if (VerCmp(w.latest, APP_VERSION_PLAIN_W) > 0) {
         w.state = L"new";
     } else {
         w.state = L"latest";
@@ -911,18 +932,33 @@ static UpdatesInfo FetchUpdates() {
         items.Set(L"skill", it);
     }
 
-    // 工作台自己：仓库地址写在 settings.json 的 repo（owner/name）；没配就明确说「还没发布」
+    // 工作台自己：只走快照通道。repo_snapshot（owner/name）配了才联网；
+    // 不读正式版用的 repo，也绝不把正式 V3.0.0 的包推给快照用户。
+    const wstring wbLocal = APP_VERSION_PLAIN_W;
+    const wstring wbShow = APP_VERSION;
+    wstring repo = Trim(SettingGet(L"repo_snapshot"));
+    wstring wbUrl, wbTag;
     wstring wbLatest;
-    wstring repo = Trim(SettingGet(L"repo"));
-    if (!repo.empty()) wbLatest = LatestGithub(repo);
-    if (!wbLatest.empty() && VerCmp(wbLatest, L"2.0") < 0) wbLatest = L"2.0";
+    if (!repo.empty()) {
+        wbLatest = LatestGithub(repo, &wbUrl, &wbTag);
+        // 通道里最新的 release 不是快照（tag 里没 snapshot）：当作没查到，而不是提示升级
+        if (!wbLatest.empty() && wbTag.find(L"snapshot") == wstring::npos) {
+            wbLatest.clear();
+            wbUrl.clear();
+        }
+        // 本机比 GitHub 上还新（没发布的版本）：别提示「更新」，免得换回旧的
+        if (!wbLatest.empty() && VerCmp(wbLatest, wbLocal) < 0) wbLatest = wbLocal;
+        okAll = okAll && !wbLatest.empty();
+    }
 
     J up = JObj();
     up.Set(L"at", JNum((double)time(nullptr)));
     up.Set(L"dir", JStr(Base()));
-    up.Set(L"wb", JStr(L"2.0"));
+    up.Set(L"wb", JStr(wbShow));
     up.Set(L"wbLatest", JStr(wbLatest));
     up.Set(L"repo", JStr(repo));
+    up.Set(L"wbRepo", JStr(repo));
+    up.Set(L"wbUrl", JStr(wbUrl));
     up.Set(L"items", items);
     up.Set(L"ok", JBool(okAll));
     J all = ReadJson(CachePath());

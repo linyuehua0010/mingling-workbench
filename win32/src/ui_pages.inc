@@ -1104,11 +1104,15 @@ void UiOnClick(int x, int y) {
         wstring k = Utf8ToW(p[1]);
         if (k == L"refresh") { RefreshUpdates(true); return; }
         if (k == L"wbdl") {
-            wstring repo = Trim(SettingGet(L"repo"));
-            if (repo.empty()) {
-                UiToast(L"还没配更新仓库：在 settings.json 里写 repo（owner/name）");
+            // 优先点这一轮查到的 release 网页（可能是具体某个 tag）；
+            // 没查到就退回快照通道仓库的 releases 列表，再不行才提示去配 repo_snapshot。
+            wstring url = g_up.wbUrl;
+            wstring repo = g_up.wbRepo.empty() ? Trim(SettingGet(L"repo_snapshot")) : g_up.wbRepo;
+            if (url.empty() && !repo.empty()) url = L"https://github.com/" + repo + L"/releases";
+            if (url.empty()) {
+                UiToast(L"快照通道还没配：在 settings.json 里写 repo_snapshot（owner/name）后再试");
             } else {
-                OpenPath(L"https://github.com/" + repo + L"/releases/latest");
+                OpenPath(url);
                 UiToast(L"已打开 GitHub 发布页");
             }
             return;

@@ -45,11 +45,19 @@ static wstring UpAskText(const her::UpdateItem& it) {
            L"：先备份，只换程序，我的设置、记忆和登录都别动。";
 }
 
-static wstring UpStateWord(const wstring& st) {
+// 在查哪个仓库：快照通道（settings.json 的 repo_snapshot）。没配就是空字符串，
+// 界面据此说「还没配」，而不是假装在查一个不存在的仓库。
+static wstring UpWbRepo() { return g_up.wbRepo; }
+
+static wstring UpStateWord(const her::UpdateItem& it) {
+    const wstring& st = it.state;
     if (st == L"new") return L"有新版";
     if (st == L"latest") return L"最新";
     if (st == L"unknown") return L"查不到";
     if (st == L"missing") return L"没找到";
+    // 工作台自己：没配 repo_snapshot、断网、限流、仓库还没发 snapshot release，都归到这一种说法，
+    // 别让人以为是工作台装坏了
+    if (it.id == L"wb") return L"本机 / 没查到";
     return L"本机";
 }
 
@@ -73,7 +81,9 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
     Font* nf = Fnt(TITLE_SIZE, 0, 0);
     Txt(g, it.name, RectF(c.X + S(20), c.Y + S(13), S(340), S(22)), nf, C_TEXT, 0, true);
     float nw = Tw(g, it.name, nf) + S(12);
-    Chip(g, RectF(c.X + S(20) + nw, c.Y + S(14), S(52), S(19)), UpStateWord(it.state), UpStateColor(it.state),
+    // 工作台那行的状态词是「本机 / 没查到」，比别的长，chip 得放宽
+    float chipW = it.id == L"wb" ? S(96) : S(52);
+    Chip(g, RectF(c.X + S(20) + nw, c.Y + S(14), chipW, S(19)), UpStateWord(it), UpStateColor(it.state),
          (UpStateColor(it.state) & 0x00FFFFFF) | 0x1A000000);
 
     // 右边：版本 + 下一步
@@ -100,7 +110,16 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
     if (it.state == L"new" && it.id == L"skill")
         desc = L"有新版，点一下就换上，大约半分钟，她照常聊天。" + wstring(UpSkillNotes(it) ? L"这一版改了：" : L"");
     else if (it.state == L"new" && it.id == L"wb")
-        desc = L"GitHub 上有新版了。下载安装包覆盖安装即可：设置、台账和看过的视频都在工作区里，不会被换掉。";
+        desc = L"快照通道 " + UpWbRepo() +
+               L" 上有新快照了。点右边去 Releases 下载，覆盖安装即可：设置、台账和看过的视频都在工作区里，不会被换掉。";
+    else if (it.id == L"wb" && it.state == L"latest")
+        desc = L"已经是最新（" + UpWbRepo() + L"）。换机器时从 Releases 页面下载安装包覆盖安装就行。";
+    else if (it.id == L"wb" && UpWbRepo().empty())
+        desc = L"快照通道还没配：在 settings.json 里写 repo_snapshot（owner/name），更新页就会去查那个仓库的 "
+               L"snapshot release。现在显示的是本机版本，不影响任何功能。";
+    else if (it.id == L"wb")
+        desc = L"本机就是最新一版，或者这会儿没查到 " + UpWbRepo() +
+               L" 的 snapshot release——断网、被限流、仓库还没发版都会这样。查到会变成「有新版」。";
     else if (it.state == L"new")
         desc = it.what + L"有新版。升级前 Agent 会先备份，升级时她会下线一两分钟。";
     else if (it.state == L"latest")
