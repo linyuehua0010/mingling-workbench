@@ -41,3 +41,29 @@ bool BiliCfgSave(const her::J& root, std::wstring* err);
 // 网格（debrief --grid）与超时（毫秒）跟着 settings.json 走，看片命令读它们
 std::wstring BiliGridSetting();
 int BiliTimeoutSec();
+
+// ---------------------------------------------------------------- DSH 对话 API
+// 这是个外部 HTTP 接口（OpenAI 兼容的 /chat/completions），不是 DSH 运行时：
+// 不安装、不启动、不读 ~/.dsh。填好就能用，连不上只影响这一个功能。
+struct DshApiCfg {
+    bool enabled = false;
+    std::wstring base;    // 例如 https://api.deepseek.com/v1
+    std::wstring model;   // 例如 deepseek-chat
+    std::wstring path;    // 默认 /chat/completions
+    int timeoutSec = 60;  // 5–300
+    std::wstring key;     // 只存在 <base>\secrets\dsh-api-key.txt，不写 settings.json
+};
+
+// 密钥文件：secrets\dsh-api-key.txt（secrets 目录被重定向时跟着走）
+std::wstring DshApiKeyPath();
+
+// 配置项落在 settings.json 的 dsh_api_* 里；密钥单独一个文件
+DshApiCfg DshApiLoad();
+bool DshApiSave(const DshApiCfg& cfg, std::wstring* err);
+
+// base + path 拼成真正要 POST 的地址（界面和测试都用它）
+std::wstring DshApiUrl(const DshApiCfg& cfg);
+
+// 问一句。成功回 reply（模型原文），失败回 err（中文，能直接显示）。
+// 调用方负责放到工作线程里跑——它会等网络。
+bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* reply, std::wstring* err);

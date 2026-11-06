@@ -34,6 +34,13 @@ static void BiliCfgEndEdit(bool apply);
 static bool BiliCfgClick(const std::string& id);
 static bool BiliCfgWheel(int delta);
 static void PaintBiliCfg(Graphics& g);
+// 「问一句」浮层（对话 API，实现在 ui_dsh.inc）
+static bool g_dshOpen = false;
+static void DshAsk();
+static void DshClose();
+static bool DshClick(const std::string& id);
+static bool DshWheel(int delta);
+static void PaintDshAsk(Graphics& g);
 
 // ---------------------------------------------------------------- 看视频的进度
 // debrief 一边跑一边把 ①..⑥ 的分节标题打出来，这里认标题算进度，别的行不管。
@@ -768,6 +775,8 @@ static void PaintBili(Graphics& g) {
             sx += S(62);
         }
         if (sx + S(60) < rx + rw) Button(g, RectF(sx, sy, S(56), bh), L"产物", "bfiles", 0, true);
+        sx += S(62);
+        if (sx + S(72) < rx + rw) Button(g, RectF(sx, sy, S(72), bh), L"问一句", "bdsh", 0, true);
     }
 
     RectF res(rx, y0 + S(122), rw, H - S(122));
@@ -831,6 +840,7 @@ static void PaintBili(Graphics& g) {
         }
     }
     if (g_bcfgOpen) PaintBiliCfg(g);   // 配置浮层最后画，命中区盖在最上面
+    if (g_dshOpen) PaintDshAsk(g);
 }
 
 // ---------------------------------------------------------------- 队列
@@ -966,6 +976,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_update.inc"
 #include "ui_help.inc"
 #include "ui_bili_cfg.inc"
+#include "ui_dsh.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
     if (!g_bmp || w != g_bw || h != g_bh) {
@@ -1067,6 +1078,10 @@ static void SwitchWorkspace() {
 
 void UiOnClick(int x, int y) {
     std::string id = HitAt(x, y);
+    if (g_dshOpen) {   // 「问一句」浮层开着：点哪儿都先归它
+        DshClick(id);
+        return;
+    }
     if (g_bcfgOpen) {   // 配置浮层开着：点哪儿都先归它，别让下面的页签偷偷响应
         if (id.empty()) BiliCfgEndEdit(true);   // 点空白 = 这一格就这样
         BiliCfgClick(id);
@@ -1128,6 +1143,11 @@ void UiOnClick(int x, int y) {
     }
     if (p[0] == "bfiles") {
         OpenPath(JoinPath(RootDir(), L"out"));
+        return;
+    }
+    if (p[0] == "bdsh") {
+        DshAsk();
+        g_editFocus = 0;
         return;
     }
     if (p[0] == "feed") {
@@ -1335,6 +1355,7 @@ void UiOnMove(int x, int y) {
                                     id.rfind("fix:", 0) == 0 || id.rfind("lnk:", 0) == 0 ||
                                     id.rfind("up:", 0) == 0 || id.rfind("upact:", 0) == 0 ||
                                     id.rfind("bcfg", 0) == 0 || id.rfind("bfiles", 0) == 0 ||
+                                    id.rfind("bcfgrow:", 0) == 0 || id.rfind("bdsh", 0) == 0 ||
                                     id.rfind("askedit:", 0) == 0 || id.rfind("askeditor:", 0) == 0 ||
                                     id.rfind("notify:", 0) == 0);
         SetCursor(LoadCursorW(nullptr, hand ? IDC_HAND : IDC_ARROW));
@@ -1343,6 +1364,7 @@ void UiOnMove(int x, int y) {
 }
 
 bool UiOnWheel(int x, int y, int delta) {
+    if (g_dshOpen) return DshWheel(delta);
     if (g_bcfgOpen) return BiliCfgWheel(delta);
     float step = -delta / 120.0f * S(52);
     auto clampf = [](float v, float content, float view) {
@@ -1406,6 +1428,7 @@ bool UiOnWheel(int x, int y, int delta) {
 void UiOnChar(unsigned int ch) {
     if (g_askEditor) return;   // 正在输入框里打字
     if (g_bcfgOpen) return;    // 配置浮层：字符归它自己的 EDIT
+    if (g_dshOpen) return;     // 「问一句」浮层：不接受输入
     if (!g_editFocus) return;
     if (ch == 8) {
         if (!g_bvInput.empty()) g_bvInput.pop_back();
@@ -1424,6 +1447,10 @@ void UiOnChar(unsigned int ch) {
 
 void UiOnKeyDown(int vk) {
     if (g_askEditor) return;   // 编辑卡片时按键归输入框
+    if (g_dshOpen) {           // 「问一句」浮层：Esc 关掉，1–9 不切页
+        if (vk == VK_ESCAPE) DshClose();
+        return;
+    }
     if (g_bcfgOpen) {          // 配置浮层：Esc 关掉，1–9 照样不切页
         if (vk == VK_ESCAPE) BiliCfgClose(false);
         return;
@@ -1542,6 +1569,23 @@ void UiOnTask(TaskData* d) {
                 g_upScroll = 0;
                 if (!g_up.err.empty()) UiToast(g_up.err);
             }
+            break;
+        }
+        case TK_DSHTEST: {   // DSH 对话 API：action 0=测连接（配置浮层） 1=问一句（看片结果）
+            wstring text = d->text;
+            if (text.size() > 400) text = text.substr(0, 400) + L"…";
+            if (d->action == 1) {
+                g_dshBusy = false;
+                g_dshText = d->ok ? d->text : (L"没问到：" + d->text);
+                g_dshAt = GetTickCount();
+                if (d->ok) g_dshScroll = 0;
+            } else {
+                g_bcfgTestBusy = false;
+                g_bcfgMsg = d->ok ? (L"连上了：" + text) : (L"没连上：" + text);
+                g_bcfgMsgAt = GetTickCount();
+            }
+            if (!d->ok) UiToast(d->action == 1 ? L"对话 API 没答上来（不影响看片）" : L"对话 API 没连上（不影响看片）");
+            UiRequestRepaint();
             break;
         }
         case TK_OP: {

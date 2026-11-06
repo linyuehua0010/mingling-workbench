@@ -19,6 +19,7 @@ enum TaskKind {
     TK_STATUS = 7,
     TK_OP = 8,
     TK_UPDATES = 9,
+    TK_DSHTEST = 10,   // DSH 对话 API：action 0=测试连接 1=问一句
 };
 
 struct TaskData {

@@ -294,3 +294,149 @@ int BiliTimeoutSec() {
     if (sec < 30 || sec > 3600) return 420;
     return (int)sec;
 }
+
+// ================================================================ DSH 对话 API
+// 只做 HTTP：不装 DSH、不启动进程、不读 ~/.dsh。配错了也就这一路用不了。
+static int ClampDshTimeout(int sec) {
+    if (sec < 5) return 5;
+    if (sec > 300) return 300;
+    return sec;
+}
+
+std::wstring DshApiKeyPath() { return SecretFile(L"dsh-api-key.txt"); }
+
+DshApiCfg DshApiLoad() {
+    DshApiCfg c;
+    std::wstring on = Trim(SettingGet(L"dsh_api_enabled"));
+    c.enabled = (on == L"1" || on == L"true" || on == L"开" || on == L"是");
+    c.base = Trim(SettingGet(L"dsh_api_base"));
+    c.model = Trim(SettingGet(L"dsh_api_model"));
+    if (c.model.empty()) c.model = L"deepseek-chat";
+    c.path = Trim(SettingGet(L"dsh_api_path"));
+    if (c.path.empty()) c.path = L"/chat/completions";
+    long long sec = _wtoi64(Trim(SettingGet(L"dsh_api_timeout")).c_str());
+    c.timeoutSec = ClampDshTimeout(sec <= 0 ? 60 : (int)sec);
+    c.key = Trim(ReadTextFile(DshApiKeyPath(), 8192));
+    return c;
+}
+
+bool DshApiSave(const DshApiCfg& cfg, std::wstring* err) {
+    DshApiCfg c = cfg;
+    c.base = Trim(c.base);
+    c.model = Trim(c.model);
+    c.path = Trim(c.path);
+    c.key = Trim(c.key);
+    if (c.model.empty()) c.model = L"deepseek-chat";
+    if (c.path.empty()) c.path = L"/chat/completions";
+    if (!c.base.empty() && c.base.compare(0, 7, L"http://") != 0 && c.base.compare(0, 8, L"https://") != 0) {
+        if (err) *err = L"Base URL 要以 http:// 或 https:// 开头";
+        return false;
+    }
+    if (c.enabled && c.base.empty()) {
+        if (err) *err = L"要启用的话，先把 Base URL 填上";
+        return false;
+    }
+    c.timeoutSec = ClampDshTimeout(c.timeoutSec);
+    SettingRawSet(L"dsh_api_enabled", c.enabled ? L"1" : L"0");
+    SettingSet(L"dsh_api_base", c.base);
+    SettingSet(L"dsh_api_model", c.model);
+    SettingSet(L"dsh_api_path", c.path);
+    SettingRawSet(L"dsh_api_timeout", Num(c.timeoutSec));
+
+    // Key 不进 settings.json：单独一个文件，卸载也不删
+    EnsureSecrets();
+    std::wstring kp = DshApiKeyPath();
+    if (c.key.empty()) {
+        if (FileExists(kp)) DeleteFileW(kp.c_str());
+    } else if (!WriteTextFile(kp, c.key + L"\r\n")) {
+        if (err) *err = L"API Key 写不进去：" + kp;
+        return false;
+    }
+    if (err) err->clear();
+    return true;
+}
+
+std::wstring DshApiUrl(const DshApiCfg& cfg) {
+    std::wstring base = Trim(cfg.base);
+    while (!base.empty() && base.back() == L'/') base.pop_back();
+    if (base.empty()) return L"";
+    std::wstring path = Trim(cfg.path);
+    if (path.empty()) path = L"/chat/completions";
+    if (path[0] != L'/') path = L"/" + path;
+    return base + path;
+}
+
+bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* reply, std::wstring* err) {
+    if (!cfg.enabled) {
+        if (err) *err = L"对话 API 还没启用（在 B 站页的配置里打开）";
+        return false;
+    }
+    std::wstring url = DshApiUrl(cfg);
+    if (url.empty()) {
+        if (err) *err = L"还没填 Base URL";
+        return false;
+    }
+
+    her::J body = her::JObj();
+    body.Set(L"model", her::JStr(Trim(cfg.model).empty() ? L"deepseek-chat" : Trim(cfg.model)));
+    her::J msg = her::JObj();
+    msg.Set(L"role", her::JStr(L"user"));
+    msg.Set(L"content", her::JStr(prompt));
+    her::J msgs = her::JArr();
+    msgs.Push(msg);
+    body.Set(L"messages", msgs);
+    body.Set(L"stream", her::JBool(false));
+
+    her::Http r = her::HttpPostJson(url, body.Dump(0), Trim(cfg.key), ClampDshTimeout(cfg.timeoutSec) * 1000);
+    if (!r.ok) {
+        if (err) *err = L"连不上（断网、地址写错或者超时）";
+        return false;
+    }
+    if (r.code == 401 || r.code == 403) {
+        if (err) *err = L"API Key 不对或者没权限（HTTP " + Num(r.code) + L"）";
+        return false;
+    }
+    if (r.code == 404) {
+        if (err) *err = L"路径不对（HTTP 404）：检查 Base URL 和路径是不是拼对了";
+        return false;
+    }
+    if (r.code == 429) {
+        if (err) *err = L"被限流了（HTTP 429），过一会儿再试";
+        return false;
+    }
+    if (r.code >= 400) {
+        if (err) *err = L"服务端说不行（HTTP " + Num(r.code) + L"）";
+        return false;
+    }
+
+    bool ok = false;
+    her::J j = her::J::Parse(r.body, &ok);
+    if (!ok) {
+        if (err) *err = L"返回的不是 JSON（HTTP " + Num(r.code) + L"）";
+        return false;
+    }
+
+    // OpenAI 兼容：choices[0].message.content；少数实现只给 choices[0].text
+    std::wstring content;
+    const her::J* choices = j.Get(L"choices");
+    if (choices && choices->Arr() && !choices->a.empty()) {
+        const her::J& c0 = choices->a[0];
+        if (const her::J* m = c0.Get(L"message")) content = m->Str(L"content");
+        if (content.empty()) content = c0.Str(L"content");
+        if (content.empty()) content = c0.Str(L"text");
+    }
+    if (content.empty()) {
+        std::wstring why;
+        if (const her::J* e = j.Path(L"error.message")) why = e->s;
+        if (why.empty()) {
+            if (const her::J* e = j.Get(L"error")) {
+                if (e->t == her::J::STR) why = e->s;
+            }
+        }
+        if (err) *err = why.empty() ? L"连上了，但没取到回复内容（返回里没有 choices）" : (L"服务端返回错误：" + why);
+        return false;
+    }
+    if (reply) *reply = content;
+    if (err) err->clear();
+    return true;
+}
