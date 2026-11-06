@@ -1,4 +1,4 @@
-// ---------------------------------------------------------------- 维护页
+﻿// ---------------------------------------------------------------- 维护页
 // 把「大肥鱼工作台」那套逻辑自己做了：八张卡、四个频率、十几个按钮，
 // 全部由 src\her 里的 C++ 直接查、直接改、直接启停进程。
 // 不经过旧网页工作台，也不再需要任何 python 桥。
@@ -10,7 +10,7 @@ struct MItem {
 static vector<MItem> g_mItems;
 static wstring g_mMsg = L"—", g_mReply = L"—", g_mToken = L"—", g_mMem = L"—";
 static wstring g_mGroup = L"", g_mMeme = L"", g_mVoice = L"";
-// 打游戏模式的两个状态在 ui.cpp 里定义（总览页也要用，它在 ui_maint 之前 include）
+// 打游戏模式的两个状态在 ui.cpp 里定义（它在 ui_maint 之前 include）
 static bool g_mWatchCan = false, g_mWatchOn = false, g_mWatchRun = false;
 static wstring g_mWatchNote = L"";
 static vector<std::pair<wstring, wstring>> g_mVers;

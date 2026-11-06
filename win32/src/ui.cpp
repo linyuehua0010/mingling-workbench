@@ -469,7 +469,7 @@ static void ScrollBar(Graphics& g, const RectF& area, float scroll, float conten
     Round(g, RectF(area.X + area.Width - S(4), y, S(4), h), S(2), 0x335F6B85, 0);
 }
 
-// 打游戏模式：总览页（DrawHero）和 维护页 都要看，所以在 include 之前定义
+// 打游戏模式：维护页要用，所以在 include 之前定义
 static bool g_mGameOn = false, g_mGameCan = false;
 
 // 页面与事件在 ui_pages.inc 里（同一个编译单元，共用上面的状态和绘制助手）

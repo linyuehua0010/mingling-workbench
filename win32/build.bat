@@ -35,10 +35,18 @@ if errorlevel 1 goto fail
 
 echo [3/3] copy
 copy /y build\MinglingWorkbench.exe "%OUTDIR%\MinglingWorkbench.exe" >nul
+if errorlevel 1 goto copylocked
 echo.
 echo OK: %OUTDIR%\MinglingWorkbench.exe
 for %%F in ("%OUTDIR%\MinglingWorkbench.exe") do echo size: %%~zF bytes
 exit /b 0
+
+:copylocked
+echo.
+echo COPY FAILED: %OUTDIR%\MinglingWorkbench.exe is locked.
+echo Close the running app (it is started from bin\) and run build.bat again.
+echo What is in bin\ right now is still the OLD exe.
+exit /b 1
 
 :fail
 echo.

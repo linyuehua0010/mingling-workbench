@@ -525,21 +525,6 @@ static void DrawHero(Graphics& g, const RectF& r) {
 
     Button(g, RectF(tx, r.Y + r.Height - S(52), S(116), S(34)), L"让她看视频", "btn:goto_bili", 1, false);
     Button(g, RectF(tx + S(126), r.Y + r.Height - S(52), S(104), S(34)), L"打开日记", "btn:diary", 0, false);
-
-    // 右上角：打游戏模式（总览页也能开，不用切到维护页）
-    {
-        const float bw = S(150), bh = S(32);
-        RectF br(r.X + r.Width - bw - S(24), r.Y + S(24), bw, bh);
-        Round(g, RectF(br.X - S(6), br.Y - S(6), br.Width + S(12), br.Height + S(12)), S(12), 0xCCFFFFFF, 0);
-        if (g_mGameOn) {
-            Chip(g, RectF(br.X - S(78), br.Y + S(6), S(66), S(20)), L"打游戏中", C_ACCENT, 0x1F3E5FBF);
-            Button(g, br, L"打完了，恢复", "op:game_off", 1, false);
-        } else if (g_mGameCan) {
-            Button(g, br, L"开打游戏模式", "op:game_on", 0, false);
-        } else {
-            Button(g, br, L"打游戏模式", "op:game_hint", 0, false, true, true);   // 灰的但点得动
-        }
-    }
 }
 
 static void PaintOverview(Graphics& g) {
