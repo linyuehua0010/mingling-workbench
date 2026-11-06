@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------- 求助 / 帮助
+// ---------------------------------------------------------------- 求助 / 帮助
 // 求助：「交给 Agent」那十一张任务卡，点一下就把那句话复制走，粘到 DSH 里发出去。
 // 帮助：常见问题，用冥零的说法，底下配几个直达按钮。
 // 这一页不联网、不跑命令，纯静态文字 + 剪贴板。
@@ -142,9 +142,15 @@ static void OpenAskEditor(int i) {
     UiRequestRepaint();
 }
 
-bool UiAskEditorBusy() { return g_askEditor != nullptr; }
+bool UiAskEditorBusy() { return g_askEditor != nullptr || g_bcfgOpen; }
 
-void UiAskEditorClose(bool save) { CloseAskEditor(save); }
+void UiAskEditorClose(bool save) {
+    if (g_bcfgOpen) {   // 配置浮层也算「有浮层开着」，Esc 先收它
+        BiliCfgClose(save);
+        return;
+    }
+    CloseAskEditor(save);
+}
 
 static void PaintAskEditor(Graphics& g) {
     SolidBrush veil(Color(150, 3, 5, 9));

@@ -240,6 +240,8 @@ static void PaintMaint(Graphics& g) {
                 vf, 0xFFA8B3C8, 0, true);
     }
     Button(g, RectF(x0 + w - S(96), y0 + S(16), S(76), S(28)), g_mBusy ? L"在查…" : L"再查一遍", "mref", 0, true, !g_mBusy);
+    // B 站的事都在 B 站页上做，这里只留一个入口（状态摘要就是上面那些卡片）
+    Button(g, RectF(x0 + w - S(96) - S(100), y0 + S(16), S(92), S(28)), L"B 站页", "maint:bili", 0, true);
     // 打游戏模式：开了就把本机语音/记忆先放下，她照样打字
     {
         float gbw = S(146);

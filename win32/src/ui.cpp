@@ -2,6 +2,7 @@
 #include "ui.h"
 #include "version.h"
 #include "her/her.h"
+#include "biliapi.h"
 
 #include <shellapi.h>
 #include <shlobj.h>

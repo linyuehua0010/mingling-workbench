@@ -26,6 +26,14 @@ static void LoadJobs();
 static void LoadJobDetail(int idx);
 static void RefreshLogsNow();
 static void PostTask(TaskData* d) { PostMessageW(g_hwnd, WM_APP_JOB, 0, (LPARAM)d); }
+// bili-whale 配置浮层（实现在 ui_bili_cfg.inc；帮助页的浮层要一起管 Esc，所以这里先声明）
+static bool g_bcfgOpen = false;
+static void BiliCfgOpen();
+static void BiliCfgClose(bool save);
+static void BiliCfgEndEdit(bool apply);
+static bool BiliCfgClick(const std::string& id);
+static bool BiliCfgWheel(int delta);
+static void PaintBiliCfg(Graphics& g);
 
 // ---------------------------------------------------------------- 看视频的进度
 // debrief 一边跑一边把 ①..⑥ 的分节标题打出来，这里认标题算进度，别的行不管。
@@ -269,8 +277,8 @@ static void StartWatch() {
             env.emplace_back(L"BILI_TMP_ROOT", JoinPath(RootDir(), L"tmp"));
             env.emplace_back(L"BILI_LOGS_ROOT", JoinPath(RootDir(), L"logs"));
             env.emplace_back(L"BILI_WHALE_CONFIG", we.config);
-            r = RunCaptureStream(we.node, L"\"" + we.mjs + L"\" debrief " + bv + L" --grid 3x3", RootDir(), env,
-                                 420000, WatchOnLine, nullptr);
+            r = RunCaptureStream(we.node, L"\"" + we.mjs + L"\" debrief " + bv + L" --grid " + BiliGridSetting(),
+                                 RootDir(), env, (DWORD)BiliTimeoutSec() * 1000, WatchOnLine, nullptr);
         }
         d->debrief = ParseDebrief(r.out);
         d->text = r.out;
@@ -671,6 +679,12 @@ static void PaintBili(Graphics& g) {
         Fnt(HINT_SIZE, 1, 0), C_FAINT, 0);
     Button(g, RectF(left.X + left.Width - S(88), left.Y + S(14), S(66), S(28)), g_feedBusy ? L"…" : L"换一批",
            "btn:feed", 0, true, !g_feedBusy);
+    {
+        RectF b(left.X + left.Width - S(148), left.Y + S(18), S(52), S(22));
+        bool hov = Hov("bfiles");
+        Txt(g, L"产物", b, Fnt(MICRO_SIZE, hov ? 0 : 1, 0), hov ? C_ACCENT : C_ACCENT2, 2);
+        AddHit(b, "bfiles");
+    }
     HLine(g, left.X + S(20), left.Y + S(66), left.X + left.Width - S(20), C_LINE2);
 
     RectF list(left.X + S(8), left.Y + S(72), left.Width - S(16), left.Height - S(116));
@@ -742,7 +756,21 @@ static void PaintBili(Graphics& g) {
         if (wd > S(3)) Round(g, RectF(rx, y0 + S(76), wd, S(3)), S(1.5f), C_ACCENT, 0, 0);
     }
 
-    RectF res(rx, y0 + S(82), rw, H - S(82));
+    // ---- B 站相关的入口都收在这一条上：配置、诊断（登录/配额/风控/自检）、产物
+    {
+        float sy = y0 + S(86), bh = S(28), sx = rx;
+        Button(g, RectF(sx, sy, S(120), bh), L"bili-whale 配置", "bcfg", 0, true);
+        sx += S(128);
+        const wchar_t* diag[] = {L"登录", L"配额", L"风控", L"自检"};
+        const int dact[] = {0, 2, 3, 4};
+        for (int i = 0; i < 4; i++) {
+            Button(g, RectF(sx, sy, S(56), bh), diag[i], "bchk:" + std::to_string(dact[i]), 0, true);
+            sx += S(62);
+        }
+        if (sx + S(60) < rx + rw) Button(g, RectF(sx, sy, S(56), bh), L"产物", "bfiles", 0, true);
+    }
+
+    RectF res(rx, y0 + S(122), rw, H - S(122));
     Round(g, res, S(14), C_PANEL, C_LINE);
 
     bool hasArt = g_hasResult && (!g_result.sheet.empty() || !g_result.cover.empty());
@@ -802,6 +830,7 @@ static void PaintBili(Graphics& g) {
             }
         }
     }
+    if (g_bcfgOpen) PaintBiliCfg(g);   // 配置浮层最后画，命中区盖在最上面
 }
 
 // ---------------------------------------------------------------- 队列
@@ -936,6 +965,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_setup.inc"
 #include "ui_update.inc"
 #include "ui_help.inc"
+#include "ui_bili_cfg.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
     if (!g_bmp || w != g_bw || h != g_bh) {
@@ -1037,6 +1067,11 @@ static void SwitchWorkspace() {
 
 void UiOnClick(int x, int y) {
     std::string id = HitAt(x, y);
+    if (g_bcfgOpen) {   // 配置浮层开着：点哪儿都先归它，别让下面的页签偷偷响应
+        if (id.empty()) BiliCfgEndEdit(true);   // 点空白 = 这一格就这样
+        BiliCfgClick(id);
+        return;
+    }
     if (id.empty()) {
         if (g_askEditor) {   // 点空白等于「就这样」：存下来再收
             CloseAskEditor(true);
@@ -1068,6 +1103,31 @@ void UiOnClick(int x, int y) {
     if (p[0] == "edit") {
         g_editFocus = 1;
         UiRequestRepaint();
+        return;
+    }
+    if (p[0] == "maint" && p.size() > 1 && p[1] == "bili") {
+        g_tab = 1;
+        if (g_feed.empty() && !g_feedBusy) RefreshFeed();
+        g_editFocus = 0;
+        UiRequestRepaint();
+        return;
+    }
+    if (p[0] == "bcfg") {
+        BiliCfgOpen();
+        g_editFocus = 0;
+        return;
+    }
+    if (p[0] == "bchk" && p.size() > 1) {
+        // 诊断还是体检页那几条命令，只是入口挪到 B 站页上；跑完跳过去看结果
+        g_editFocus = 0;
+        RunCheck(std::atoi(p[1].c_str()));
+        g_tab = 4;
+        UiRequestRepaint();
+        UiToast(L"自检在跑，结果在体检页");
+        return;
+    }
+    if (p[0] == "bfiles") {
+        OpenPath(JoinPath(RootDir(), L"out"));
         return;
     }
     if (p[0] == "feed") {
@@ -1274,6 +1334,7 @@ void UiOnMove(int x, int y) {
                                     id.rfind("op:", 0) == 0 || id.rfind("freq:", 0) == 0 ||
                                     id.rfind("fix:", 0) == 0 || id.rfind("lnk:", 0) == 0 ||
                                     id.rfind("up:", 0) == 0 || id.rfind("upact:", 0) == 0 ||
+                                    id.rfind("bcfg", 0) == 0 || id.rfind("bfiles", 0) == 0 ||
                                     id.rfind("askedit:", 0) == 0 || id.rfind("askeditor:", 0) == 0 ||
                                     id.rfind("notify:", 0) == 0);
         SetCursor(LoadCursorW(nullptr, hand ? IDC_HAND : IDC_ARROW));
@@ -1282,6 +1343,7 @@ void UiOnMove(int x, int y) {
 }
 
 bool UiOnWheel(int x, int y, int delta) {
+    if (g_bcfgOpen) return BiliCfgWheel(delta);
     float step = -delta / 120.0f * S(52);
     auto clampf = [](float v, float content, float view) {
         float maxv = std::max(0.0f, content - view);
@@ -1343,6 +1405,7 @@ bool UiOnWheel(int x, int y, int delta) {
 
 void UiOnChar(unsigned int ch) {
     if (g_askEditor) return;   // 正在输入框里打字
+    if (g_bcfgOpen) return;    // 配置浮层：字符归它自己的 EDIT
     if (!g_editFocus) return;
     if (ch == 8) {
         if (!g_bvInput.empty()) g_bvInput.pop_back();
@@ -1361,6 +1424,10 @@ void UiOnChar(unsigned int ch) {
 
 void UiOnKeyDown(int vk) {
     if (g_askEditor) return;   // 编辑卡片时按键归输入框
+    if (g_bcfgOpen) {          // 配置浮层：Esc 关掉，1–9 照样不切页
+        if (vk == VK_ESCAPE) BiliCfgClose(false);
+        return;
+    }
     if (g_editFocus && vk == VK_RETURN) {
         StartWatch();
         return;
