@@ -47,6 +47,7 @@ struct NotifyReq {
 void UiInit(HWND hwnd);
 void UiPaint(HDC hdc, int w, int h);
 void UiOnClick(int x, int y);
+void UiOnRClick(int x, int y);   // 输入框右键菜单
 void UiOnMove(int x, int y);
 bool UiOnWheel(int x, int y, int delta);
 void UiOnChar(unsigned int ch);

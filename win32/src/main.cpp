@@ -150,6 +150,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             UiOnClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             return 0;
 
+        case WM_RBUTTONUP:   // 输入框上的右键菜单：粘贴 / 复制 / 剪切 / 全选
+            UiOnRClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            return 0;
+
         case WM_MOUSEWHEEL: {
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ScreenToClient(hwnd, &pt);

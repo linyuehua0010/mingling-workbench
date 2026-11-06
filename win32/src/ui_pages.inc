@@ -26,6 +26,15 @@ static void LoadJobs();
 static void LoadJobDetail(int idx);
 static void RefreshLogsNow();
 static void PostTask(TaskData* d) { PostMessageW(g_hwnd, WM_APP_JOB, 0, (LPARAM)d); }
+// B 站输入框（自绘的，没有原生 EDIT 的剪贴板能力，得自己接）
+static const size_t kInputMax = 600;
+static bool g_inputSelAll = false;     // Ctrl+A：再打字/粘贴就整体替换
+static RectF g_rcInput;                // 输入框当前占的屏幕位置（右键菜单用）
+static wstring ClipboardText();
+static void InputPaste();
+static void InputCopy();
+static void InputCut();
+static void InputSelectAll();
 // bili-whale 配置浮层（实现在 ui_bili_cfg.inc；帮助页的浮层要一起管 Esc，所以这里先声明）
 static bool g_bcfgOpen = false;
 static void BiliCfgOpen();
@@ -146,6 +155,72 @@ static void CopyText(const wstring& s) {
     }
     CloseClipboard();
     UiToast(L"已复制");
+}
+
+// ---------------------------------------------------------------- 输入框的剪贴板
+// 自绘输入框没有原生 EDIT 的那套键盘处理，Ctrl+V/C/X/A、Shift+Insert 和右键菜单
+// 都得自己接上。读剪贴板一律 CF_UNICODETEXT：BV 号、完整 URL、QQ/微信的分享文本
+// 都是纯文本，不需要别的格式。
+static wstring ClipboardText() {
+    wstring out;
+    if (!OpenClipboard(g_hwnd)) return out;
+    HANDLE h = GetClipboardData(CF_UNICODETEXT);
+    if (h) {
+        const wchar_t* p = (const wchar_t*)GlobalLock(h);
+        if (p) {
+            out = p;
+            GlobalUnlock(h);
+        }
+    }
+    CloseClipboard();
+    // 单行化：分享文本常带换行，压成空格；首尾空白剪掉，粘进来就能直接识别
+    for (wchar_t& c : out) {
+        if (c == L'\r' || c == L'\n' || c == L'\t' || c == 0x2028 || c == 0x2029) c = L' ';
+    }
+    return Trim(out);
+}
+
+static void InputPaste() {
+    wstring t = ClipboardText();
+    if (t.empty()) {
+        UiToast(L"剪贴板里没有文字");
+        return;
+    }
+    if (g_inputSelAll) {
+        g_bvInput.clear();
+        g_inputSelAll = false;
+    }
+    size_t room = g_bvInput.size() < kInputMax ? kInputMax - g_bvInput.size() : 0;
+    if (room == 0) {
+        UiToast(L"输入框满了，先删一点");
+        return;
+    }
+    if (t.size() > room) {
+        t.resize(room);
+        UiToast(L"太长了，只取了前面一段");
+    }
+    g_bvInput += t;
+    g_editFocus = 1;
+    UiRequestRepaint();
+}
+
+static void InputCopy() {
+    if (g_bvInput.empty()) return;
+    CopyText(g_bvInput);
+}
+
+static void InputCut() {
+    if (g_bvInput.empty()) return;
+    CopyText(g_bvInput);
+    g_bvInput.clear();
+    g_inputSelAll = false;
+    UiRequestRepaint();
+}
+
+static void InputSelectAll() {
+    g_inputSelAll = true;
+    g_editFocus = 1;
+    UiRequestRepaint();
 }
 
 // ---------------------------------------------------------------- 服务 / 任务
@@ -742,12 +817,17 @@ static void PaintBili(Graphics& g) {
     float rx = x0 + lw + S(16);
     float rw = (float)g_w - rx - S(24);
     RectF ed(rx, y0, rw - S(122), S(46));
+    g_rcInput = ed;
     Round(g, ed, S(12), g_editFocus ? 0xFFFFFFFF : C_PANEL2, g_editFocus ? C_ACCENT2 : C_LINE);
     float txx = ed.X + S(16);
     if (g_bvInput.empty()) {
-        Txt(g, L"粘贴 B站 链接或 BV 号…", RectF(txx, ed.Y, ed.Width - S(24), ed.Height), Fnt(SUBTITLE_SIZE, 1, 0), 0xFFAAB5C9, 0);
+        Txt(g, L"粘贴 B站 链接或 BV 号…（Ctrl+V / 右键）", RectF(txx, ed.Y, ed.Width - S(24), ed.Height),
+            Fnt(SUBTITLE_SIZE, 1, 0), 0xFFAAB5C9, 0);
     } else {
-        Txt(g, g_bvInput, RectF(txx, ed.Y, ed.Width - S(24), ed.Height), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT, 0, true);
+        RectF tr(txx, ed.Y, ed.Width - S(24), ed.Height);
+        if (g_inputSelAll) Round(g, RectF(ed.X + S(3), ed.Y + S(3), ed.Width - S(6), ed.Height - S(6)), S(9),
+                                 0x2E3E5FBF, 0x00000000);
+        Txt(g, g_bvInput, tr, Fnt(SUBTITLE_SIZE, 0, 0), g_inputSelAll ? C_ACCENT : C_TEXT, 0, true);
     }
     AddHit(ed, "edit:bv");
     Button(g, RectF(ed.X + ed.Width + S(12), y0, S(110), S(46)), g_watchBusy ? L"看着呢…" : L"让她看", "btn:watch", 1,
@@ -1117,6 +1197,7 @@ void UiOnClick(int x, int y) {
     }
     if (p[0] == "edit") {
         g_editFocus = 1;
+        g_inputSelAll = false;
         UiRequestRepaint();
         return;
     }
@@ -1343,6 +1424,47 @@ void UiOnClick(int x, int y) {
     if (id == "btn:jobs_refresh") { LoadJobs(); UiRequestRepaint(); return; }
 }
 
+// 输入框上的右键菜单。自绘输入框没有原生 EDIT 的默认菜单，这里补一个：
+// 粘贴 / 复制 / 剪切 / 全选，快捷键提示直接写在菜单项里。
+void UiOnRClick(int x, int y) {
+    if (g_bcfgOpen || g_dshOpen) return;
+    if (g_tab != 1) return;
+    if (!g_rcInput.Contains(PointF((float)x, (float)y))) return;
+
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    bool has = !g_bvInput.empty();
+    UINT copyFlag = MF_STRING | (has ? 0 : MF_GRAYED);
+    AppendMenuW(m, MF_STRING, 1, L"粘贴\tCtrl+V");
+    AppendMenuW(m, MF_STRING, 2, L"粘贴（Shift+Insert）\tShift+Insert");
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(m, copyFlag, 3, L"复制\tCtrl+C");
+    AppendMenuW(m, copyFlag, 4, L"剪切\tCtrl+X");
+    AppendMenuW(m, MF_STRING, 5, L"全选\tCtrl+A");
+    AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(m, MF_STRING, 6, L"清空");
+
+    POINT pt{x, y};
+    ClientToScreen(g_hwnd, &pt);
+    SetForegroundWindow(g_hwnd);
+    int cmd = (int)TrackPopupMenu(m, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, pt.x, pt.y, 0, g_hwnd,
+                                  nullptr);
+    DestroyMenu(m);
+    switch (cmd) {
+        case 1:
+        case 2: InputPaste(); break;
+        case 3: InputCopy(); break;
+        case 4: InputCut(); break;
+        case 5: InputSelectAll(); break;
+        case 6:
+            g_bvInput.clear();
+            g_inputSelAll = false;
+            UiRequestRepaint();
+            break;
+        default: break;
+    }
+}
+
 void UiOnMove(int x, int y) {
     std::string id = HitAt(x, y);
     if (id != g_hover) {
@@ -1431,7 +1553,12 @@ void UiOnChar(unsigned int ch) {
     if (g_dshOpen) return;     // 「问一句」浮层：不接受输入
     if (!g_editFocus) return;
     if (ch == 8) {
-        if (!g_bvInput.empty()) g_bvInput.pop_back();
+        if (g_inputSelAll) {
+            g_bvInput.clear();
+            g_inputSelAll = false;
+        } else if (!g_bvInput.empty()) {
+            g_bvInput.pop_back();
+        }
         UiRequestRepaint();
         return;
     }
@@ -1439,9 +1566,15 @@ void UiOnChar(unsigned int ch) {
         StartWatch();
         return;
     }
-    if (ch >= 32 && ch != 127 && g_bvInput.size() < 200) {
-        g_bvInput.push_back((wchar_t)ch);
-        UiRequestRepaint();
+    if (ch >= 32 && ch != 127) {
+        if (g_inputSelAll) {
+            g_bvInput.clear();
+            g_inputSelAll = false;
+        }
+        if (g_bvInput.size() < kInputMax) {
+            g_bvInput.push_back((wchar_t)ch);
+            UiRequestRepaint();
+        }
     }
 }
 
@@ -1455,11 +1588,39 @@ void UiOnKeyDown(int vk) {
         if (vk == VK_ESCAPE) BiliCfgClose(false);
         return;
     }
-    if (g_editFocus && vk == VK_RETURN) {
-        StartWatch();
-        return;
+    if (g_editFocus) {
+        // 自绘输入框：编辑按键一律喂给输入框，别被「1–9 切页」「Esc」抢走
+        bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (ctrl && vk == 'V') {
+            InputPaste();
+            return;
+        }
+        if (ctrl && vk == 'C') {
+            InputCopy();
+            return;
+        }
+        if (ctrl && vk == 'X') {
+            InputCut();
+            return;
+        }
+        if (ctrl && vk == 'A') {
+            InputSelectAll();
+            return;
+        }
+        if (shift && vk == VK_INSERT) {
+            InputPaste();
+            return;
+        }
+        if (vk == VK_RETURN) {
+            StartWatch();
+            return;
+        }
     }
-    if (vk == VK_ESCAPE) g_editFocus = 0;
+    if (vk == VK_ESCAPE) {
+        g_editFocus = 0;
+        g_inputSelAll = false;
+    }
     // 1..9 直接切页签，键盘党不用摸鼠标
     if (!g_editFocus && (vk == '0')) {   // 0 = 最后一个页签（帮助）
         g_tab = 9;
