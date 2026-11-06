@@ -477,3 +477,22 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 **验收**：功能页真点「桌宠 开」→ 写 `features.txt` → 跑 `plugins` 块 → 10 在位 7 开 3 关（快照 `before-selfsetup-20261106-210052.json`）；删覆盖文件再跑一遍回到 6 开 4 关。版本升 `V2.3.0`（按 VERSIONING：`Vx.x.0` 新增功能），`dist\MinglingWorkbench-2.3.0-setup.exe` 51,553,244 B。
 
 **踩坑**：`version.h` 是 **UTF-8 无 BOM**，用 GBK 读改会写坏中文注释（`APP_NAME` 的收尾引号被吃掉，编译报 `stray 'L'`）；改它要按 UTF-8 读写。另外 PowerShell 截 DPI-aware 窗口要先 `SetThreadDpiAwarenessContext(-4)` + `PrintWindow`，否则 `GetClientRect` 只报 150% 缩放后的逻辑尺寸，截出来的图右边和下边被裁掉——一度误判成「开关 chip 没画出来」。
+## 13. v2.3.1 补丁：组件目录只认 <工作区>\bots（2026-11-06）
+
+**问题**：从 v2.2.0 起组件统一装进 `<工作区>\bots`（`bots\AstrBot`、`bots\SnowLuma`、`bots\Breeze`、`bots\Ollama`、`bots\uv`，各自带 `start.cmd`），可 C++ 里还留着一批硬编码的老布局路径：`P(L"breeze-tts\start-breeze.cmd")`、`P(L"breeze-tts")`、`P(L"SnowLuma\logs")`、`P(L"astrbot\data\cmd_config.json")`、`P(L"Ollama\ollama.exe")`。`BotPath()`（`her_config.cpp:58`）本来就会先找 `bots\<name>`、再退回 alias 表里的老目录，但这些地方绕过了它，于是：语音卡 canfix 永远红（它只看 `ComponentStartCmd`）、GameOn/GameOff 的 Breeze 启停落空、AstrBot 登录密码读不到、版本扫描扫不到 Breeze、开机自启的快捷方式还指老路径。
+
+**选择**：不再逐处修补，而是收成两个函数。
+
+- `BotPath(name)` 作为唯一出口：`<工作区>\bots\<name>` 存在就用它，否则回退 alias（`breeze-tts`/`astrbot`/`snowluma` 这类老目录），一个函数同时兼容两种布局；
+- 新增 `her::ComponentStartCmd(name, baseCmd)`（`her.h:67-70`）：依次找 `<组件目录>\start.cmd` → `<组件目录>\start-breeze.cmd` → `<机器人根>\<baseCmd>`，谁先存在用谁；
+- 改走它们的点：`StartAstrBot`、`Relogin`/`RestartQQ`、`StartBreeze`、`GameOn` 的 `PidsUnder/KillUnder`、`GameOff` 的重启、`AutostartFix`、`her_astr.cpp` 的两处 `cmd_config.json`、`her_config.cpp` 的版本扫描（`FindFirstFileW(JoinPath(BotPath(L"Breeze"), L"bin\*"))`、`DistVer(JoinPath(BotPath(L"uv"), …))`）、`her_status.cpp:515` 的 canfix。
+
+**没选**：
+
+- 没在磁盘上建 junction 把 `breeze-tts` 指到 `Breeze`——alias 表已经能兼容，多一层链接只会在卸载/搬家时留下悬空引用；
+- 没保留「先试老路径、再试新路径」的双份硬编码——那正是这次出问题的原因；
+- 没改 `tools\auto-setup.ps1` 的目录名：`bots\Breeze` 本来就是它装的，是 C++ 该跟上它，不是反过来。
+
+**验收**：`--paths` 五个组件全在 `bots\` 下；`--her-status` 八张卡全 ok（语音卡 canfix 由 `ComponentStartCmd` 命中 `bots\Breeze\start.cmd`），`VER Breeze 0.1.3` 证明 `bots\Breeze\bin` 的版本扫描生效；`tools\self-setup.ps1 -DryRun` 八块全过（`##RESULT ok=1 done=8 fail=0`）。`bin\MinglingWorkbench.exe` 1,290,240 B、FileVersion `2.3.1.0`；`dist\MinglingWorkbench-2.3.1-setup.exe` 51,566,870 B。
+
+**踩坑**：工作区根目录的 `start-astrbot.cmd` / `start-snowluma.cmd` 是上一版脚本用「UTF-8 无 BOM + 中文绝对路径」写的，在 `chcp 65001` 下 cmd 会把中文路径读成乱码，脚本直接静默退出（`run.log` 一直不更新，看着像进程起不来）。改成纯 ASCII + `%~dp0` 相对路径后正常，顺带也就不怕工作区改名字了。这类「现场生成、不进仓库」的东西（`start-*.cmd`、`answers.json`、`旧版\` 备份）一并写进 `.gitignore`。
