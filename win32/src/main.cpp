@@ -1,4 +1,4 @@
-﻿// 冥零工作台 · Win32 入口
+// 冥零工作台 · Win32 入口
 // 一个可执行文件，没有浏览器内核、没有 HTTP 服务：界面全部 GDI+ 自绘，
 // B站 部分直接调 dsh-bili-whale 的命令行。
 #include "ui.h"
@@ -33,6 +33,7 @@ static void AttachConsoleIfAsked() {
                 wcscmp(argv[i], L"--feed") == 0 || wcscmp(argv[i], L"--debrief") == 0 ||
                 wcscmp(argv[i], L"--bili") == 0 || wcscmp(argv[i], L"--autosetup") == 0 ||
                 wcscmp(argv[i], L"--bots-setup") == 0 ||
+                wcscmp(argv[i], L"--selfsetup") == 0 ||
                 wcscmp(argv[i], L"--version") == 0) want = true;
         LocalFree(argv);
     }
@@ -341,6 +342,22 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
         Out(rep.summary);
         return rep.ok ? 0 : 2;
     }
+
+    if (has(L"--selfsetup")) {
+        // 自设定：拿 pack\mingling-pack\pack.json 把 DeepSeek、QQ 平台、聊天设置、人设配成冥零
+        bool dry = false;
+        for (size_t i = 0; i + 1 < args.size(); ++i)
+            if (args[i] == L"--selfsetup" && args[i + 1] == L"--dry") dry = true;
+        Out(dry ? L"[自设定] 干跑（只看不说，什么都不改）…"
+                : L"[自设定] 开始（要连后台，缺 key 或缺 QQ 平台会告诉你）…");
+        her::SetupReport rep = her::Configure([](int pct, const std::wstring& s) {
+            Out(L"[" + std::to_wstring(pct) + L"%] " + s);
+        }, dry);
+        for (auto& s : rep.steps)
+            Out(wstring(L"  ") + (s.ok ? L"[ok] " : L"[!!] ") + s.name + L"  " + s.detail);
+        Out(rep.summary);
+        return rep.ok ? 0 : 2;
+    }
     return 1;
 }
 
@@ -361,6 +378,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
                     wcscmp(argv[i], L"--feed") == 0 || wcscmp(argv[i], L"--debrief") == 0 ||
                     wcscmp(argv[i], L"--watch") == 0 || wcscmp(argv[i], L"--bili") == 0 ||
                     wcscmp(argv[i], L"--autosetup") == 0 || wcscmp(argv[i], L"--bots-setup") == 0 ||
+                    wcscmp(argv[i], L"--selfsetup") == 0 ||
                     wcscmp(argv[i], L"--version") == 0) cli = true;
             }
             LocalFree(argv);
@@ -369,7 +387,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
             for (int i = 0; i < (int)args.size(); i++) {
                 if (args[i] == L"--version" || args[i] == L"--paths" || args[i] == L"--feed" || args[i] == L"--debrief" ||
                     args[i] == L"--watch" || args[i] == L"--bili" || args[i] == L"--autosetup" ||
-                    args[i] == L"--bots-setup")
+                    args[i] == L"--bots-setup" || args[i] == L"--selfsetup")
                     return BiliCli(args, i);
             }
             return her::CliMain(args);

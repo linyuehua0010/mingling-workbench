@@ -1,4 +1,4 @@
-// 冥零工作台 · 一键自动配置（纯 C++，跑在 RunHerOp 的工作线程里）
+﻿// 冥零工作台 · 一键自动配置（纯 C++，跑在 RunHerOp 的工作线程里）
 // 只补「缺了就一定用不了」的东西：Node、ffmpeg、工作区、密钥目录。
 // Ollama 体积大，只提示不静默装；Python 可选，装不上不影响主流程。
 #include "her.h"
@@ -346,6 +346,23 @@ std::wstring AfterBar(const std::wstring& line) {
     return p == std::wstring::npos ? std::wstring() : Trim(line.substr(p + 1));
 }
 
+std::wstring PowerShellExe() {
+    wchar_t sysroot[MAX_PATH * 2] = {0};
+    GetEnvironmentVariableW(L"SystemRoot", sysroot, MAX_PATH * 2);
+    std::wstring win = sysroot[0] ? std::wstring(sysroot) : std::wstring(L"C:\\Windows");
+    return JoinPath(JoinPath(JoinPath(win, L"System32"), L"WindowsPowerShell"), L"v1.0\\powershell.exe");
+}
+
+// 传给 PowerShell 的路径参数：末尾的 \ 会吃掉自己的收尾引号（"F:\x\" → 参数变成 F:\x"），
+// 所以统一削掉尾部分隔符再按需要补成对的反斜杠；盘符根（F:\）单独照顾。
+std::wstring ArgPath(const std::wstring& s) {
+    std::wstring t = s;
+    while (t.size() > 2 && (t.back() == L'\\' || t.back() == L'/')) t.pop_back();
+    if (t.size() == 2 && t[1] == L':') t += L'\\';     // "F:" → "F:\"
+    if (!t.empty() && t.back() == L'\\') t += L'\\';   // "F:\" → "F:\\"（命令行里 \\" 才是字面反斜杠）
+    return t;
+}
+
 void OnBotsLine(const std::wstring& raw, void* user) {
     BotsCtx* c = (BotsCtx*)user;
     std::wstring line = Trim(raw);
@@ -373,7 +390,11 @@ void OnBotsLine(const std::wstring& raw, void* user) {
         size_t f = line.find(L"fixed=");
         if (f != std::wstring::npos && c->rep) c->rep->fixed = _wtoi(line.c_str() + f + 6);
         size_t w = line.find(L"why=");
-        if (w != std::wstring::npos && c->rep) c->rep->summary = Trim(line.substr(w + 4));
+        if (w != std::wstring::npos && c->rep) {
+            std::wstring v = Trim(line.substr(w + 4));
+            size_t n = v.find(L" next=");   // why=… next=… 只留 why 那一段
+            c->rep->summary = n == std::wstring::npos ? v : Trim(v.substr(0, n));
+        }
     }
 }
 
@@ -394,11 +415,7 @@ SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onSte
         rep.summary = L"没找到安装脚本，先把工作台更新到带 auto-setup.ps1 的版本。";
         return rep;
     }
-    wchar_t sysroot[MAX_PATH * 2] = {0};
-    GetEnvironmentVariableW(L"SystemRoot", sysroot, MAX_PATH * 2);
-    std::wstring win = sysroot[0] ? std::wstring(sysroot) : std::wstring(L"C:\\Windows");
-    std::wstring ps =
-        JoinPath(JoinPath(JoinPath(win, L"System32"), L"WindowsPowerShell"), L"v1.0\\powershell.exe");
+    std::wstring ps = PowerShellExe();
     if (!FileExists(ps)) {
         add(L"安装脚本", false, L"找不到 PowerShell：" + ps);
         rep.summary = L"这台机器缺 PowerShell，组件装不了。";
@@ -406,7 +423,8 @@ SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onSte
     }
 
     std::wstring args = L"-NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Workspace \"" +
-                        WorkspaceDir() + L"\" -Bots \"" + BotRoot() + L"\" -Base \"" + Base() + L"\"";
+                        ArgPath(WorkspaceDir()) + L"\" -Bots \"" + ArgPath(BotRoot()) + L"\" -Base \"" +
+                        ArgPath(Base()) + L"\"";
     BotsCtx ctx;
     ctx.rep = &rep;
     ctx.onStep = &onStep;
@@ -434,6 +452,68 @@ SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onSte
                           : (std::wstring(L"还有 ") + std::to_wstring(bad) + L" 项没成，看报告里的红字。");
     } else {
         rep.ok = ctx.resultOk;
+    }
+    return rep;
+}
+
+// ---------------------------------------------------------------- 自设定（冥零配置包）
+// 拿 pack\mingling-pack\pack.json，把 DeepSeek、QQ 平台、聊天设置、插件、记忆、语音、人设都配成冥零。
+// 真正的活在 tools\self-setup.ps1（provider / platform / chat / plugins / memory / voice / persona / verify 八块），
+// 这里只拉起它，把 ##STEP / ##OK / ##FAIL / ##RESULT 翻译成进度和报告。
+SetupReport Configure(const std::function<void(int, const std::wstring&)>& onStep, bool dryRun) {
+    SetupReport rep;
+    auto add = [&](const wchar_t* name, bool ok, const std::wstring& detail) {
+        SetupStep s;
+        s.name = name;
+        s.ok = ok;
+        s.detail = detail;
+        rep.steps.push_back(s);
+    };
+    std::wstring script = JoinPath(JoinPath(Root(), L"tools"), L"self-setup.ps1");
+    if (!FileExists(script)) {
+        add(L"自设定脚本", false, L"没找到 " + script + L"（这一版没带 self-setup.ps1）");
+        rep.summary = L"没找到自设定脚本，先把工作台更新到带 self-setup.ps1 的版本。";
+        return rep;
+    }
+    std::wstring ps = PowerShellExe();
+    if (!FileExists(ps)) {
+        add(L"自设定脚本", false, L"找不到 PowerShell：" + ps);
+        rep.summary = L"这台机器缺 PowerShell，自设定跑不了。";
+        return rep;
+    }
+
+    std::wstring args =
+        L"-NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Base \"" + ArgPath(Base()) + L"\"";
+    if (dryRun) args += L" -DryRun";
+    BotsCtx ctx;
+    ctx.rep = &rep;
+    ctx.onStep = &onStep;
+    if (onStep) onStep(1, L"读配置包（pack\\mingling-pack\\pack.json）");
+    CmdResult r = RunCaptureStream(ps, args, Root(), EnvList(), 15 * 60 * 1000, OnBotsLine, &ctx);
+
+    if (r.timeout) {
+        add(L"自设定脚本", false, L"跑了 15 分钟还没结束，先停了（后台卡住就先重启大脑再试）");
+    } else if (!ctx.sawResult) {
+        std::wstring tail = Trim(r.out);
+        if (tail.size() > 600) tail = tail.substr(tail.size() - 600);
+        add(L"自设定脚本", false, L"脚本没给出结果（退出码 " + std::to_wstring(r.code) + L"）：" + tail);
+    } else {
+        add(L"自设定脚本", ctx.resultOk,
+            ctx.resultOk ? L"跑完了：DeepSeek、QQ 平台、聊天设置、插件、记忆、语音、人设都按配置包对过一遍"
+                         : L"有块没成，看上面的红字（改完 key 或 QQ 再点一次就行）");
+    }
+
+    int bad = 0;
+    for (auto& s : rep.steps)
+        if (!s.ok) bad++;
+    rep.ok = ctx.sawResult && ctx.resultOk && bad == 0;
+    if (rep.summary.empty() || !rep.ok) {
+        if (rep.ok) {
+            rep.summary = L"自设定完成：DeepSeek、QQ 平台、聊天设置、插件、记忆、语音、人设都配好了，可以私聊她了。";
+        } else if (rep.summary.empty()) {
+            rep.summary = std::wstring(L"还差 ") + std::to_wstring(bad == 0 ? 1 : bad) +
+                          L" 项没配好，看报告里的红字。";
+        }
     }
     return rep;
 }

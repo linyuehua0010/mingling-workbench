@@ -70,6 +70,10 @@ std::wstring Answers(const wchar_t* key, const wchar_t* def = L"");
 int Voice();                              // 1 Edge / 2 MiMo / 3 豆包 / 4 Breeze 本机 / 5 Breeze 在线
 int Memory();                             // living memory 开没开
 int Video();                              // 看图看视频开没开
+// 「功能」页写的覆盖文件：private\features.txt（一行 "<插件名>=1/0"）、
+// private\memory-mode.txt、private\voice-mode.txt。文件在就以文件为准。
+bool FeatureOn(const std::wstring& name, bool def);
+int ModeNum(const std::wstring& key, int def);
 std::wstring Protocol();                  // snowluma / napcat
 bool IsCli();                             // start-astrbot.cmd 在不在（CLI 版安装）
 int BackendPort();                        // 从 answers.base_url 里取端口
@@ -263,6 +267,9 @@ struct ActionResult {
 };
 
 ActionResult RunAction(const std::wstring& op, const std::wstring& arg);
+// 「功能」页用：写覆盖文件（不动 answers.json）。
+// arg 形如 "plugin:dafeiyu_petlink:1" / "memory:2" / "voice:5"。
+ActionResult SetFeature(const std::wstring& arg);
 std::wstring GroupReplyMode();
 std::wstring MemeMode();
 std::wstring VoiceMode();
@@ -284,6 +291,10 @@ SetupReport AutoSetup(const std::function<void(int, const std::wstring&)>& onSte
 // 五个组件（AstrBot/SnowLuma/Breeze/Ollama/bili-whale）装进 <工作区>\bots。
 // 真正的下载在 tools\auto-setup.ps1，这里只拉起它并把 ##STEP/##OK/##RESULT 翻成步骤。
 SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onStep);
+// 自设定：拿 pack\mingling-pack\pack.json 把 DeepSeek、QQ 平台、聊天设置、人设都配成冥零。
+// 真正的活在 tools\self-setup.ps1（分 provider/platform/chat/plugins/memory/voice/persona/verify 八块），
+// 这里只拉起它、把 ##STEP/##OK/##FAIL/##RESULT 翻成步骤。
+SetupReport Configure(const std::function<void(int, const std::wstring&)>& onStep, bool dryRun = false);
 
 // --her-status：命令行自检（GUI 版也带，方便对照 / 交给 Agent 看）
 int CliMain(const std::vector<std::wstring>& args);

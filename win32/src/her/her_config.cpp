@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <cwctype>
 #include <ctime>
 
 namespace her {
@@ -131,6 +132,93 @@ std::wstring Answers(const wchar_t* key, const wchar_t* def) {
 int Voice() { return _wtoi(Answers(L"voice", L"0").c_str()); }
 int Memory() { return _wtoi(Answers(L"memory", L"0").c_str()); }
 int Video() { return _wtoi(Answers(L"video", L"0").c_str()); }
+
+// ---------------------------------------------------------------- 功能页的覆盖文件
+// 这三个文件跟 answers.json 分开存：answers.json 是安装时答的题，用户后来在界面上的
+// 改动不该把那份「安装记录」改掉，复查起来也对不上。
+static std::wstring PrivateDir() { return JoinPath(Base(), L"private"); }
+
+static void EnsurePrivateDir() {
+    std::wstring d = PrivateDir();
+    if (!DirExists(d)) CreateDirectoryW(d.c_str(), nullptr);
+}
+
+bool FeatureOn(const std::wstring& name, bool def) {
+    std::wstring f = JoinPath(PrivateDir(), L"features.txt");
+    for (auto& raw : SplitLines(ReadTextFile(f, 65536))) {
+        std::wstring line = Trim(raw);
+        if (!line.empty() && line[0] == 0xFEFF) line = Trim(line.substr(1));
+        if (line.empty() || line[0] == L'#') continue;
+        size_t c = line.find(L'=');
+        if (c == std::wstring::npos) continue;
+        if (Trim(line.substr(0, c)) != name) continue;
+        std::wstring v = Trim(line.substr(c + 1));
+        for (auto& ch : v) ch = (wchar_t)towlower(ch);
+        return v == L"1" || v == L"true" || v == L"on" || v == L"开";
+    }
+    return def;
+}
+
+int ModeNum(const std::wstring& key, int def) {
+    std::wstring f = JoinPath(PrivateDir(), key + L"-mode.txt");
+    if (FileExists(f)) {
+        std::wstring t = Trim(ReadTextFile(f, 64));
+        if (!t.empty()) return _wtoi(t.c_str());
+    }
+    std::wstring a = Answers(key.c_str(), L"");
+    if (!a.empty()) return _wtoi(a.c_str());
+    return def;
+}
+
+// 一行一个 key=value；有就换、没有就加，别的行原样保留。
+static void UpsertKvFile(const std::wstring& path, const std::wstring& key, const std::wstring& val) {
+    std::wstring out;
+    bool hit = false;
+    for (auto& raw : SplitLines(ReadTextFile(path, 65536))) {
+        std::wstring line = Trim(raw);
+        size_t c = line.find(L'=');
+        if (c != std::wstring::npos && Trim(line.substr(0, c)) == key) {
+            out += key + L"=" + val + L"\r\n";
+            hit = true;
+        } else if (!line.empty()) {
+            out += raw + L"\r\n";
+        }
+    }
+    if (!hit) out += key + L"=" + val + L"\r\n";
+    WriteTextFile(path, out);
+}
+
+ActionResult SetFeature(const std::wstring& arg) {
+    std::vector<std::wstring> p;
+    {
+        std::wstring cur;
+        for (wchar_t c : arg) {
+            if (c == L'/') { p.push_back(cur); cur.clear(); }
+            else cur.push_back(c);
+        }
+        p.push_back(cur);
+    }
+    if (p.empty()) return {false, L"没说要改什么"};
+    EnsurePrivateDir();
+    if (p[0] == L"plugin" && p.size() >= 3) {
+        const std::wstring& name = p[1];
+        bool on = p[2] == L"1" || p[2] == L"on";
+        UpsertKvFile(JoinPath(PrivateDir(), L"features.txt"), name, on ? L"1" : L"0");
+        return {true, on ? L"开了 " + name + L"（跑完自设定就生效）" : L"关了 " + name + L"（跑完自设定就生效）"};
+    }
+    if (p[0] == L"memory" && p.size() >= 2) {
+        WriteTextFile(JoinPath(PrivateDir(), L"memory-mode.txt"), p[1]);
+        return {true, L"记忆改成 " + p[1] + L" 了（跑完自设定就生效）"};
+    }
+    if (p[0] == L"voice" && p.size() >= 2) {
+        WriteTextFile(JoinPath(PrivateDir(), L"voice-mode.txt"), p[1]);
+        // 选豆包/在线 Breeze 就等于要用那两个插件，顺手把开关也打开
+        if (p[1] == L"3") UpsertKvFile(JoinPath(PrivateDir(), L"features.txt"), L"astrbot_plugin_seed_audio_tts", L"1");
+        if (p[1] == L"5") UpsertKvFile(JoinPath(PrivateDir(), L"features.txt"), L"astrbot_plugin_breeze_online_tts", L"1");
+        return {true, L"语音路线改成 " + p[1] + L" 了（跑完自设定就生效）"};
+    }
+    return {false, L"不认识的功能设置：" + arg};
+}
 
 bool IsCli() {
     return FileExists(JoinPath(Base(), L"start-astrbot.cmd")) ||

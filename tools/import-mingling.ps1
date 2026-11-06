@@ -242,23 +242,39 @@ try {
 # ------------------------------------------------------------------ 切默认人设 + 白名单
 if (-not $SkipDefault) {
     try {
-        $prof = Get-Json "$api/config-profiles/default" $h 30
+        # 平台 id 与档案同名时（冥零平台 → 冥零档案），那个平台读的是那份档案；没有同名才用 default
+        $profId = "default"
+        $plist = Get-Json "$api/config-profiles" $h 20
+        if ($plist -and $plist.data -and $plist.data.info_list) {
+            foreach ($x in $plist.data.info_list) { if (([string]$x.name) -eq $id) { $profId = [string]$x.id } }
+        }
+        $prof = Get-Json ("$api/config-profiles/" + $profId) $h 30
         # 这个接口收的就是「配置本体」，不要再套一层 .config（套了会 400: agent_runner must be an object）
         $cfg = $prof.data.config
         if ($cfg.agent_runner -and $cfg.agent_runner.config -and $cfg.agent_runner.config.persona) {
             $cfg.agent_runner.config.persona.persona_id = $id
         }
-        # 白名单条目形如 "大肥鱼:FriendMessage:2957389852"，把前缀换成新人设名
+        # 白名单条目形如 "大肥鱼:FriendMessage:2957389852"。
+        # 只补「以新人设名为前缀」的那一份，别的平台（大肥鱼等）的条目一条都不能丢——
+        # QQ 现在接在哪个平台上不由这里决定，删掉它就等于把她关在门外。
         if ($cfg.platform_settings -and $cfg.platform_settings.id_whitelist) {
             $new = @()
+            $seen = @{}
+            foreach ($e in $cfg.platform_settings.id_whitelist) {
+                $s = [string]$e
+                if ($s -and -not $seen.ContainsKey($s)) { $new += $s; $seen[$s] = $true }
+            }
             foreach ($e in $cfg.platform_settings.id_whitelist) {
                 $parts = ([string]$e) -split ":", 2
-                if ($parts.Count -eq 2) { $new += ($id + ":" + $parts[1]) } else { $new += $e }
+                if ($parts.Count -eq 2) {
+                    $cand = $id + ":" + $parts[1]
+                    if (-not $seen.ContainsKey($cand)) { $new += $cand; $seen[$cand] = $true }
+                }
             }
             $cfg.platform_settings.id_whitelist = $new
         }
-        Send-Json "Put" "$api/config-profiles/default" $cfg $h 60 | Out-Null
-        Say "已切成默认人设，白名单前缀一起改了"
+        Send-Json "Put" ("$api/config-profiles/" + $profId) $cfg $h 60 | Out-Null
+        Say ("已切成默认人设（档案 " + $profId + "），白名单只补不删")
     } catch {
         Say ("切默认人设没成（可以后台手动选）：" + $_.Exception.Message)
     }

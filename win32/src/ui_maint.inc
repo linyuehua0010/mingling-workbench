@@ -1,4 +1,4 @@
-﻿// ---------------------------------------------------------------- 维护页
+// ---------------------------------------------------------------- 维护页
 // 把「大肥鱼工作台」那套逻辑自己做了：八张卡、四个频率、十几个按钮，
 // 全部由 src\her 里的 C++ 直接查、直接改、直接启停进程。
 // 不经过旧网页工作台，也不再需要任何 python 桥。
@@ -384,17 +384,18 @@ static void PaintMaint(Graphics& g) {
         {L"求助信息", "op:diag", 0},
         {L"更新检查", "op:updates", 0},
     };
-    Btn rowB[8] = {
+    Btn rowB[9] = {
         {L"开语音 Breeze", "op:start_breeze", 0},
         {L"开本机 Ollama", "op:start_ollama", 0},
         {L"打开工作区", "doc:base", 0},
         {L"修开机自启", "op:autostart_fix", 0},
         {L"一键自动配置", "op:autosetup", 1},
+        {L"自设定", "op:selfsetup", 1},
         {L"导入冥零人设", "op:import_skill", 0},
         {L"更新技能", "op:skill_update", 0},
         {L"打开日志", "doc:logs", 0},
     };
-    const int rowN[2] = {6, 8};
+    const int rowN[2] = {6, 9};
     for (int row = 0; row < 2; row++) {
         Btn* btns = row == 0 ? rowA : rowB;
         float bwid = (w - S(10) * (rowN[row] - 1)) / (float)rowN[row];   // 两排按钮数不一样，各算各的宽度
@@ -433,19 +434,24 @@ static void StartAutoSetup() {
         TaskData* d = new TaskData();
         d->kind = TK_OP;
         d->opName = L"autosetup";
-        // 两段各占一半进度：先补齐 Node/ffmpeg/工作区，再把五个组件装进 <工作区>\bots
+        // 三段：补环境占 0-50%，装组件占 50-75%，自设定（DeepSeek/QQ/聊天/人设）占 75-100%
         her::SetupReport a = her::AutoSetup([](int pct, const std::wstring& s) {
             PostMessageW(g_hwnd, WM_APP_AUTOCFG, (WPARAM)(pct / 2), (LPARAM)new std::wstring(L"补环境：" + s));
         });
         her::SetupReport b = her::BotsSetup([](int pct, const std::wstring& s) {
-            PostMessageW(g_hwnd, WM_APP_AUTOCFG, (WPARAM)(50 + pct / 2), (LPARAM)new std::wstring(L"装组件：" + s));
+            PostMessageW(g_hwnd, WM_APP_AUTOCFG, (WPARAM)(50 + pct / 4), (LPARAM)new std::wstring(L"装组件：" + s));
         });
-        d->ok = a.ok && b.ok;
-        d->text = a.ok ? b.summary : a.summary;
+        her::SetupReport c = her::Configure([](int pct, const std::wstring& s) {
+            PostMessageW(g_hwnd, WM_APP_AUTOCFG, (WPARAM)(75 + pct / 4), (LPARAM)new std::wstring(L"自设定：" + s));
+        });
+        d->ok = a.ok && b.ok && c.ok;
+        d->text = !a.ok ? a.summary : (!b.ok ? b.summary : c.summary);
         wstring log = JoinPath(JoinPath(RootDir(), L"logs"), L"setup.log");
         for (auto& s : a.steps)
             WriteTextFile(log, (s.ok ? L"[ok] " : L"[!!] ") + s.name + L"  " + s.detail, true);
         for (auto& s : b.steps)
+            WriteTextFile(log, (s.ok ? L"[ok] " : L"[!!] ") + s.name + L"  " + s.detail, true);
+        for (auto& s : c.steps)
             WriteTextFile(log, (s.ok ? L"[ok] " : L"[!!] ") + s.name + L"  " + s.detail, true);
         PostTask(d);
     }).detach();

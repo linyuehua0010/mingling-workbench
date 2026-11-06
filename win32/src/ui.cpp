@@ -1,4 +1,4 @@
-﻿// 冥零工作台 · UI（Win32 + GDI+ 全自绘）
+// 冥零工作台 · UI（Win32 + GDI+ 全自绘）
 #include "ui.h"
 #include "version.h"
 #include "her/her.h"
@@ -53,7 +53,7 @@ static HDC g_mem = nullptr;
 static int g_bw = 0, g_bh = 0;
 
 static int g_tab = 0;   // 0 总览 1 B站 2 队列 3 日志 4 体检 5 维护 6 更新 7 求助 8 帮助
-static const wchar_t* TABS[] = {L"总览", L"B站", L"队列", L"日志", L"体检", L"维护", L"更新", L"求助", L"帮助"};
+static const wchar_t* TABS[] = {L"总览", L"B站", L"队列", L"日志", L"体检", L"维护", L"更新", L"功能", L"求助", L"帮助"};
 
 struct SvcDef { const wchar_t* id; const wchar_t* name; const wchar_t* port; const wchar_t* desc; };
 static const SvcDef SVCS[2] = {

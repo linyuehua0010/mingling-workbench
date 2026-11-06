@@ -975,6 +975,16 @@ ActionResult SkillUpdate() {
     return Ok(L"更新到 " + latest + L" 了。窗口会自己重开一次。");
 }
 
+// 路径参数的收尾引号问题：末尾 \ 会把 " 吃掉（"F:\x\" 传进去只剩 F:\x"），先削尾部斜杠，
+// 盘符根补回来，最后一个反斜杠再补一个（命令行里 \\" 才是字面反斜杠 + 收尾引号）
+static std::wstring ArgPath(const std::wstring& s) {
+    std::wstring t = s;
+    while (t.size() > 2 && (t.back() == L'\\' || t.back() == L'/')) t.pop_back();
+    if (t.size() == 2 && t[1] == L':') t += L'\\';
+    if (!t.empty() && t.back() == L'\\') t += L'\\';
+    return t;
+}
+
 ActionResult ImportMingling() {
     std::wstring ps = JoinPath(JoinPath(Root(), L"tools"), L"import-mingling.ps1");
     if (!FileExists(ps)) return Bad(L"没找到 tools\\import-mingling.ps1（这一版没带）");
@@ -984,7 +994,7 @@ ActionResult ImportMingling() {
         JoinPath(JoinPath(JoinPath(sysroot[0] ? sysroot : L"C:\\Windows", L"System32"), L"WindowsPowerShell"),
                  L"v1.0\\powershell.exe");
     CmdResult r = RunCapture(pwsh,
-                             L"-NoProfile -ExecutionPolicy Bypass -File \"" + ps + L"\" -Base \"" + Base() + L"\"",
+                             L"-NoProfile -ExecutionPolicy Bypass -File \"" + ps + L"\" -Base \"" + ArgPath(Base()) + L"\"",
                              Root(), EnvList(), 300000);
     std::wstring out = Trim(r.out);
     size_t p2 = out.rfind(L"RESULT ");
@@ -995,6 +1005,80 @@ ActionResult ImportMingling() {
     std::wstring last = out.substr(p2);
     if (last.find(L"ok=1") == std::wstring::npos) return Bad(L"导入没成：" + last);
     return Ok(L"冥零的人设已导入，默认人设也切过去了。");
+}
+
+// 自设定：跑 tools\self-setup.ps1，拿 pack\mingling-pack 把 DeepSeek、QQ 平台、聊天设置、
+// 人设都配成冥零。日志逐行落到 <Base>\logs\self-setup.log，别的地方要看进度就 tail 它。
+static std::wstring g_selfLogPath;
+static void OnSelfLine(const std::wstring& line, void*) {
+    if (g_selfLogPath.empty()) return;
+    WriteTextFile(g_selfLogPath, line + L"\r\n", true);
+}
+
+// 本地时间 "MM-dd HH:mm:ss"，日志开头用
+static std::wstring LocalStamp() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    wchar_t b[32];
+    swprintf(b, 32, L"%02d-%02d %02d:%02d:%02d", st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    return b;
+}
+
+// 从 RESULT 行里抠一个字段（why= 一路读到行尾，别的读到空格）
+static std::wstring ResultField(const std::wstring& line, const wchar_t* key) {
+    std::wstring k(key);
+    size_t p = line.find(k);
+    if (p == std::wstring::npos) return L"";
+    size_t s = p + k.size();
+    if (k == L"why=") {
+        // why= 是「读到行尾」，但行尾还挂着 next=…，得切掉
+        std::wstring v = Trim(line.substr(s));
+        size_t n = v.find(L" next=");
+        if (n != std::wstring::npos) v = Trim(v.substr(0, n));
+        return v;
+    }
+    size_t e = line.find(L' ', s);
+    return Trim(line.substr(s, e == std::wstring::npos ? std::wstring::npos : e - s));
+}
+
+ActionResult SelfSetup(const std::wstring& block) {
+    wchar_t sysroot[MAX_PATH * 2] = {0};
+    GetEnvironmentVariableW(L"SystemRoot", sysroot, MAX_PATH * 2);
+    std::wstring pwsh =
+        JoinPath(JoinPath(JoinPath(sysroot[0] ? sysroot : L"C:\\Windows", L"System32"), L"WindowsPowerShell"),
+                 L"v1.0\\powershell.exe");
+    // 新版本工作台自带引擎；老的安装包只有 import-mingling.ps1，那种就直接说清楚
+    std::wstring script = JoinPath(JoinPath(Root(), L"tools"), L"self-setup.ps1");
+    if (!FileExists(script)) {
+        std::wstring legacy = JoinPath(JoinPath(Root(), L"tools"), L"import-mingling.ps1");
+        if (!FileExists(legacy)) return Bad(L"没找到 tools\\self-setup.ps1（这一版没带）");
+        return Bad(L"这一版工作台还没有自设定引擎（缺 tools\\self-setup.ps1），"
+                   L"先用「导入冥零人设」把她说上话，再把工作台更新到带自设定的版本");
+    }
+    std::wstring args = L"-NoProfile -ExecutionPolicy Bypass -File \"" + script + L"\" -Base \"" + ArgPath(Base()) + L"\"";
+    if (block == L"dry") args += L" -DryRun";
+    else if (!block.empty() && block != L"all") args += L" -Only \"" + block + L"\"";
+
+    g_selfLogPath = JoinPath(JoinPath(Base(), L"logs"), L"self-setup.log");
+    WriteTextFile(g_selfLogPath, L"[自设定] " + block + L"  " + LocalStamp() + L"\r\n", false);
+
+    CmdResult r = RunCaptureStream(pwsh, args, Root(), EnvList(), 15 * 60 * 1000, OnSelfLine, nullptr);
+    std::wstring out = Trim(r.out);
+    size_t p2 = out.rfind(L"RESULT ");
+    if (r.timeout) return Bad(L"自设定跑了 15 分钟还没结束，先停了（后台卡住就先重启大脑再试）");
+    if (p2 == std::wstring::npos) {
+        std::wstring tail = TailText(out, 240);
+        return Bad(L"自设定没给出结果（退出码 " + std::to_wstring(r.code) + L"）：" +
+                   (tail.empty() ? L"脚本没输出" : tail));
+    }
+    std::wstring last = out.substr(p2, out.find(L'\n', p2) == std::wstring::npos ? std::wstring::npos
+                                                                            : out.find(L'\n', p2) - p2);
+    std::wstring why = ResultField(last, L"why=");
+    if (last.find(L"ok=1") == std::wstring::npos)
+        return Bad(L"自设定没全成：" + (why.empty() ? TailText(last, 200) : why) +
+                   L"（明细在 logs\\self-setup.log）");
+    return Ok(L"自设定完成：" + (why.empty() ? std::wstring(L"五个块都对了") : why) +
+              L"，现在可以私聊她了。");
 }
 
 }  // namespace
@@ -1049,6 +1133,8 @@ ActionResult RunAction(const wstring& op, const wstring& arg) {
     if (op == L"voice") return FreqVoice(arg.empty() ? L"mid" : arg);
     if (op == L"import") return Import(arg);
     if (op == L"import_skill") return ImportMingling();
+    if (op == L"selfsetup") return SelfSetup(arg);
+    if (op == L"feature") return SetFeature(arg);
     return Bad(L"没有这个动作：" + op);
 }
 

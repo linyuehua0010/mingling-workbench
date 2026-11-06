@@ -1,4 +1,4 @@
-﻿// 冥零工作台 · 页面 / 事件 / 后台任务（被 ui.cpp 文本包含）
+// 冥零工作台 · 页面 / 事件 / 后台任务（被 ui.cpp 文本包含）
 // 这里直接用 ui.cpp 里的静态状态和绘制助手。
 
 // ---------------------------------------------------------------- 动作声明
@@ -375,7 +375,7 @@ static void TabIcon(Graphics& g, float x, float y, int idx, ARGB c) {
             g.DrawLine(&p, x + s2 * 0.5f, y + S(3.5f), x + s2 * 0.5f, y + s2 - S(3.5f));
             break;
         }
-        case 7: {   // 问号
+        case 8: {   // 问号
             g.DrawEllipse(&p, x + S(1), y, s2 - S(3), s2 - S(4));
             g.DrawLine(&p, x + S(4), y + S(7.6f), x + S(5.2f), y + S(9.4f));
             g.DrawLine(&p, x + S(5.2f), y + S(9.4f), x + S(7), y + S(9.4f));
@@ -383,7 +383,7 @@ static void TabIcon(Graphics& g, float x, float y, int idx, ARGB c) {
             g.FillRectangle(&b, x + S(6.3f), y + S(12.6f), S(2.2f), S(2.2f));
             break;
         }
-        case 8: {   // 书
+        case 9: {   // 书
             g.DrawRectangle(&p, x + S(1), y + S(1), s2 - S(3), s2 - S(2));
             for (int i = 0; i < 3; i++) g.DrawLine(&p, x + S(3), y + S(4) + i * S(3), x + s2 - S(4), y + S(4) + i * S(3));
             break;
@@ -428,13 +428,17 @@ static void PaintSidebar(Graphics& g) {
 
     float y = S(96);
     int ntab = (int)(sizeof(TABS) / sizeof(TABS[0]));
+    // 页多了、窗口矮了就压一压行距，别压到底部「服务」那一块
+    float tabStep = S(44);
+    if (S(96) + ntab * tabStep > (float)g_h - S(196))
+        tabStep = std::max(S(34), ((float)g_h - S(96) - S(196)) / (float)ntab);
     for (int i = 0; i < ntab; i++) {
-        RectF r(S(12), y, W - S(24), S(42));
+        RectF r(S(12), y, W - S(24), std::min(S(42), tabStep - S(2)));
         std::string id = "tab:" + std::to_string(i);
         bool sel = (g_tab == i);
         if (sel) Round(g, r, S(11), C_ACCENT_S, 0x00000000);
         else if (Hov(id)) Round(g, r, S(11), 0xFFF1F5FD, 0x00000000);
-        TabIcon(g, r.X + S(16), r.Y + S(15), i, sel ? C_ACCENT : C_FAINT);
+        TabIcon(g, r.X + S(16), r.Y + (r.Height - S(13)) / 2, i, sel ? C_ACCENT : C_FAINT);
         Txt(g, TABS[i], RectF(r.X + S(42), r.Y, r.Width - S(50), r.Height), Fnt(NAV_SIZE, 0, 0), sel ? C_ACCENT : C_SUB, 0);
         if (sel) Round(g, RectF(r.X + S(1), r.Y + S(12), S(2.6f), S(18)), S(1.3f), C_ACCENT, 0);
         if (i == 6) {   // 「更新」有新版时挂个数字，别让人非得点进去才知道
@@ -444,7 +448,7 @@ static void PaintSidebar(Graphics& g) {
                      C_ACCENT);
         }
         AddHit(r, id);
-        y += S(44);
+        y += tabStep;
     }
 
     float fy = (float)g_h - S(176);
@@ -929,6 +933,7 @@ static void PaintCheck(Graphics& g) {
 
 // ---------------------------------------------------------------- 绘制入口
 #include "ui_maint.inc"
+#include "ui_setup.inc"
 #include "ui_update.inc"
 #include "ui_help.inc"
 
@@ -972,7 +977,9 @@ void UiPaint(HDC hdc, int w, int h) {
         case 4: PaintCheck(g); break;
         case 5: PaintMaint(g); break;
         case 6: PaintUpdates(g); break;
-        case 7: PaintAsk(g); break;
+        case 7: PaintSetup(g); break;
+        case 8: PaintAsk(g); break;
+        case 9: PaintHelp(g); break;
         default: PaintHelp(g); break;
     }
 
@@ -1193,6 +1200,7 @@ void UiOnClick(int x, int y) {
             return;
         }
         if (op == L"autosetup") { StartAutoSetup(); return; }
+        if (op == L"feat" && p.size() >= 3) { StartFeature(Utf8ToW(p[2])); return; }
         if (op == L"watch_test") { WatchTest(); return; }
         if (op == L"watch_on") StartWatchdog();      // 本地心跳；开关文件仍然由 RunHerOp 落盘
         if (op == L"watch_off") StopWatchdog();
@@ -1296,7 +1304,12 @@ bool UiOnWheel(int x, int y, int delta) {
         UiRequestRepaint();
         return true;
     }
-    if (g_tab == 8 && g_rcHelp.Contains(pt)) {
+    if (g_tab == 7 && g_rcSetup.Contains(pt)) {
+        g_setScroll = clampf(g_setScroll + step, g_setContentH, g_setViewH);
+        UiRequestRepaint();
+        return true;
+    }
+    if (g_tab == 9 && g_rcHelp.Contains(pt)) {
         g_helpScroll = clampf(g_helpScroll + step, g_helpH, g_rcHelp.Height);
         UiRequestRepaint();
         return true;
@@ -1350,6 +1363,11 @@ void UiOnKeyDown(int vk) {
     }
     if (vk == VK_ESCAPE) g_editFocus = 0;
     // 1..9 直接切页签，键盘党不用摸鼠标
+    if (!g_editFocus && (vk == '0')) {   // 0 = 最后一个页签（帮助）
+        g_tab = 9;
+        UiRequestRepaint();
+        return;
+    }
     if (!g_editFocus && vk >= '1' && vk <= '9') {
         g_tab = vk - '1';
         if (g_tab == 1 && g_feed.empty() && !g_feedBusy) RefreshFeed();
