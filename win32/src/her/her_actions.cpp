@@ -674,10 +674,21 @@ static wstring LatestAstrbot() {
 // GitHub 最新 release 的版本号：先问 API，不通就让加速站跳到 releases/latest 再从地址里抠。
 // url 出参是这一版 release 的网页地址（API 直接给 html_url；走加速站时按 tag 拼回来），
 // 更新页的「去 GitHub 下载」就点它，不再自己拼 /releases/latest。
+// 私有仓库的 releases 接口要 token 才看得见。约定：<base>\secrets\github-token.txt，一行一个 token。
+// 没有这个文件就照旧匿名查（公开仓库够用），401/404 一律当「没查到」，不打扰用户。
+static wstring GithubToken() {
+    wstring p = SecretFile(L"github-token.txt");
+    if (!FileExists(p)) return L"";
+    return Trim(ReadTextFile(p, 4096));
+}
+
 static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring* rawTagOut = nullptr) {
     if (url) url->clear();
     if (rawTagOut) rawTagOut->clear();
-    Http r = HttpGet(L"https://api.github.com/repos/" + repo + L"/releases/latest", 6000);
+    const wstring tok = GithubToken();
+    Http r = tok.empty()
+        ? HttpGet(L"https://api.github.com/repos/" + repo + L"/releases/latest", 6000)
+        : HttpGetJson(L"https://api.github.com/repos/" + repo + L"/releases/latest", tok, 6000);
     if (r.ok && r.code < 400) {
         bool ok = false;
         J j = J::Parse(r.body, &ok);

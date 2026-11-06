@@ -424,6 +424,8 @@ V3.0.0 是**预奏快照版**，走独立通道：界面与文件版本都是 `V
 | 未配通道 | `settings.json` 里没有 `repo_snapshot` | 「冥零工作台」行 Chip 显示`本机 / 没查到`，右侧 `V3.0.0-snapshot`，描述「快照通道还没配：在 settings.json 里写 repo_snapshot（owner/name），更新页就会去查那个仓库的 snapshot release。现在显示的是本机版本，不影响任何功能。」（`tmp\v2_upd2.png`） |
 | 配了但没 release | `repo_snapshot = linyuehua0010/mingling-workbench`，点「再查一遍」 | 该仓库 `releases/latest` 返回 404 → 仍显示`本机 / 没查到`，描述里写出正在查哪个仓库（`tmp\v2_upd3.png`）；页脚「有几项没查到最新版（多半是网络不通），过会儿再点「再查一遍」。」；进程存活、界面不卡 |
 | 只看快照 | 代码 | 只读 `repo_snapshot`；tag 里没有 `snapshot` 的 release 一律不认，正式版 exe 的下载按钮永远不会出现在这一行 |
+| 私有仓库（无凭据） | 仓库是 private，不带 token 查 `releases/latest` | 只有 404 → 页面仍显示`本机 / 没查到`，描述里点出正在查哪个仓库（`tmp\v3_upd_private.png`）；进程存活、不卡 |
+| 私有仓库（带凭据） | `<Base>\secrets\github-token.txt` 放一个无效 token 再点「再查一遍」 | 401 同样按「没查到」处理，不报错不崩（`tmp\v3_upd_faketoken.png`）；`EnsureSecrets()` 顺手在 `secrets\README.txt` 里补上 `github-token.txt` 那一行 |
 | 不自动更新 | 代码 | 没有任何下载/替换逻辑；有新版时按钮是「去 GitHub 下载」，点了只开浏览器 |
 
 ### 15.4 B 站页统合 + bili-whale 配置界面

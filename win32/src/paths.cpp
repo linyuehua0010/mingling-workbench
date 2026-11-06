@@ -317,15 +317,22 @@ bool EnsureSecrets() {
     EnsureDirTree(dir);
     wstring readme = JoinPath(dir, L"README.txt");
     const wstring kDshLine = L"dsh-api-key.txt     B 站页「对话 API」的 Key（不写 settings.json）\r\n";
+    const wstring kGhLine = L"github-token.txt    更新检查用的 GitHub token（只有私有仓库才需要）\r\n";
     if (!FileExists(readme))
         WriteTextFile(readme,
                       L"这个文件夹放密钥，重装/卸载都不会删。\r\n\r\n"
                       L"snowluma-webui.txt  SnowLuma 网页后台密码（password=…）\r\n"
                       L"backend.txt         AstrBot 后台账号（username=… / password=…）\r\n"
                       L"deepseek-key.txt    DeepSeek API Key（sk-…）\r\n"
-                      L"protocol.txt        QQ 协议端类型（napcat / snowluma）\r\n" + kDshLine);
-    else if (ReadTextFile(readme, 65536).find(L"dsh-api-key.txt") == wstring::npos)
-        WriteTextFile(readme, kDshLine, true);   // 老装机：只补这一行，别覆盖用户自己加的
+                      L"protocol.txt        QQ 协议端类型（napcat / snowluma）\r\n" + kDshLine + kGhLine);
+    else {
+        // 老装机：只补缺的那几行，别覆盖用户自己加的
+        wstring cur = ReadTextFile(readme, 65536);
+        bool addDsh = cur.find(L"dsh-api-key.txt") == wstring::npos;
+        bool addGh = cur.find(L"github-token.txt") == wstring::npos;
+        if (addDsh) WriteTextFile(readme, kDshLine, true);
+        if (addGh) WriteTextFile(readme, kGhLine, true);
+    }
     return true;
 }
 

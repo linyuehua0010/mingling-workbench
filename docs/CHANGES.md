@@ -549,4 +549,6 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 - `her_config.cpp` 的 `WhitelistOn()` 原来是 `const J* v = CmdConfig().Path(...)`：`CmdConfig()` 返回临时对象，这条语句一结束就析构，`v` 立刻悬垂，下一句读 `v->t` 是 use-after-free。表现是维护页 ↔ 更新页来回切的时候偶发 `0xc0000005`（V2.3.1 的 `0x60f51` 也是它，不是这次引入的）。改成先接住 `J cfg = CmdConfig()` 再取指针；3 轮 × 16 次快速切页不再崩。
 - 顺带：`her_probe.cpp` 的 `Net()` 改成按值返回（原来是函数内 static，被看门狗、维护页、更新检查几个线程一起读，而它自己会 `clear()`），`ImagePath()` 的静态缓存加锁。
 
+**私有仓库的更新检查**（2026-11-07 补）：仓库本身是私有的，未授权去查 `releases/latest` 只会拿到 404，更新页就永远显示「本机 / 没查到」。所以 `LatestGithub()` 现在会先看 `<base>\secrets\github-token.txt`：有这个文件就用它发 `Authorization: Bearer …` 查 API，没有就照旧匿名查。token 无效/过期仍按「没查到」处理，不报错、不打扰。`EnsureSecrets()` 的 README 里补了 `github-token.txt` 这一行（老装机只追加这一行，不动已有内容）。
+
 **验收**：见 `docs\ACCEPTANCE.md` 第 15 节（构建、版本一致、快照隔离、更新页降级、配置保存与备份、DSH API、剪贴板、链接读取、崩溃回归、安装包）。
