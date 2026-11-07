@@ -1,5 +1,6 @@
 // 冥零工作台 · UI（Win32 + GDI+ 全自绘）
 #include "ui.h"
+#include "webui.h"
 #include "version.h"
 #include "her/her.h"
 #include "biliapi.h"
@@ -65,8 +66,8 @@ static HBITMAP g_bmp = nullptr;
 static HDC g_mem = nullptr;
 static int g_bw = 0, g_bh = 0;
 
-static int g_tab = 0;   // 0 总览 1 B站 2 队列 3 日志 4 体检 5 维护 6 帮助中心（更新/求助/帮助三段）
-static const wchar_t* TABS[] = {L"总览", L"B站", L"队列", L"日志", L"体检", L"维护", L"帮助中心"};
+static int g_tab = 0;   // 0 总览 1 一起看看 2 做过的事 3 日志 4 哪儿卡了 5 照顾她 6 帮帮忙（更新/求助/教程三段）
+static const wchar_t* TABS[] = {L"总览", L"一起看看", L"做过的事", L"日志", L"哪儿卡了", L"照顾她", L"帮帮忙"};
 
 struct SvcDef { const wchar_t* id; const wchar_t* name; const wchar_t* port; const wchar_t* desc; };
 static const SvcDef SVCS[2] = {
@@ -492,3 +493,5 @@ static bool g_mGameOn = false, g_mGameCan = false;
 #include "ui_pages.inc"
 // 掉线提醒的本地心跳：MuteWatchdogFor / StartWatchdog 由前面的页面代码调用，所以放最后
 #include "ui_watch.inc"
+
+#include "ui_web.inc"

@@ -1,7 +1,8 @@
 // 冥零工作台 · Win32 入口
-// 一个可执行文件，没有浏览器内核、没有 HTTP 服务：界面全部 GDI+ 自绘，
+// Win32 宿主 + WebView2 内嵌 HTML，无本机 HTTP 服务；资源编进 exe，
 // B站 部分直接调 dsh-bili-whale 的命令行。
 #include "ui.h"
+#include "webui.h"
 #include "version.h"
 #include "her/her.h"
 #include "biliapi.h"
@@ -107,6 +108,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_CREATE:
             UiInit(hwnd);
+            WebUiInit(hwnd);
             TrayAdd(hwnd);
             SetTimer(hwnd, 1, 1000, nullptr);
             return 0;
@@ -133,6 +135,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 1;
 
         case WM_SIZE:
+            WebUiResize();
             // 最小化就把工作集还给系统，任务管理器里看着也小；恢复时按需再取回来
             if (wp == SIZE_MINIMIZED)
                 SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
@@ -555,7 +558,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
 
     GdiplusStartupInput gi;
     ULONG_PTR token = 0;
-    // 关掉扩展点注入（SetWindowsHookEx / AppInit）：既少一类被第三方输入层/加速器注入
+    // 关掉扩展点注入（SetWindowsHookEx / AppInit）：减少被第三方输入层/加速器注入
     // 干扰的崩溃面，也让启动环境更干净。自绘窗口不用钩子，不影响功能。
     {
         PROCESS_MITIGATION_EXTENSION_POINT_DISABLE_POLICY pol{};
@@ -603,6 +606,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     int sy = (GetSystemMetrics(SM_CYSCREEN) - wh) / 2 - 20;
     if (sy < 0) sy = 0;
 
+    HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(comResult)) return 1;
+
     HWND hwnd = CreateWindowExW(0, CLS_NAME, WIN_TITLE, WS_OVERLAPPEDWINDOW, sx, sy, ww, wh, nullptr, nullptr, inst,
                                 nullptr);
     if (!hwnd) {
@@ -627,5 +633,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
         DispatchMessageW(&msg);
     }
     GdiplusShutdown(token);
+    CoUninitialize();
     return 0;
 }

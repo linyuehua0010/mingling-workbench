@@ -75,7 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 
 ## 第 2 步：一键自动配置（装齐 bots）
 
-工作台「维护页 → 一键自动配置」做的事，命令行等价：
+工作台「照顾她 → 一键自动配置」做的事，命令行等价：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\auto-setup.ps1" -Workspace "<工作区>" -Bots "<工作区>\bots" -Base "<工作区>"
@@ -86,7 +86,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\auto-setu
 
 ## 第 3 步：自设定（八块）
 
-工作台功能页那些开关、维护页「自设定」按钮，背后都是同一个脚本：
+工作台「照顾她」页那些开关和「自设定」按钮，背后都是同一个脚本：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setup.ps1" -Base "<工作区>" -Only <块>
@@ -122,14 +122,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
 - **她不说话/答得慢**：`private\deepseek-key.txt` 的 key 还有没有钱；AstrBot 6185 通不通。
 - **她听不见语音、也看不懂视频里说什么**：`bots\asr\` 有没有模型，`bots\ffmpeg\bin\ffmpeg.exe` 在不在。
 - **换个角色**：改 `plugin\mingling_skill\persona\mingling.md` 里 `{user_persona}` / `{user_tone}` 两段，
-  再跑 `powershell -File "<工作区>\tools\import-mingling.ps1" -Base "<工作区>"`（维护页「导入冥零人设」是同一件事）。
+  再跑 `powershell -File "<工作区>\tools\import-mingling.ps1" -Base "<工作区>"`（「照顾她」→「导入冥零人设」是同一件事）。
 - **换个声音**：本机 Breeze 用 `pack\mingling-pack\voice\` 里那几条参考音；在线 Breeze 要密钥和音色 ID，
   按字扣积分，先跟他讲清楚再开。
-- **让她看视频**：`video-mode.txt=1`，再 `-Only plugins`；单个视频能不能看，去「队列」页看任务。
+- **让她看视频**：`video-mode.txt=1`，再 `-Only plugins`；单个视频能不能看，去「做过的事」页看任务。
 
 ## 第 5 步：搬、备份、还原、卸
 
-- 备份：`powershell -File "<工作区>\tools\backup.ps1"`（维护页「备份到桌面」同一个）。
+- 备份：`powershell -File "<工作区>\tools\backup.ps1"`（「照顾她」→「备份到桌面」同一个）。
 - 体检/求助信息：`tools\diag.ps1`，报告存桌面，能直接发给人看。
 - 搬云服务器：Windows 云主机（不支持 macOS），先把工作区整个搬过去，再跑第 2 步和第 3 步；
   账号类（QQ 登录）要在新机器上重新扫码。
@@ -138,7 +138,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
 
 ## 收尾：让工作台认这份 skill
 
-工作台的更新页/维护页靠两个文件认识这份 skill：
+工作台的「检查更新」和「照顾她」靠两个文件认识这份 skill：
 
 - `<工作区>\tools\skill-home.txt` —— 这个 skill 装在哪（一行绝对路径）
 - `<工作区>\tools\skill-version.json` —— 装的是哪一版（`version.json` 的拷贝）

@@ -1,15 +1,46 @@
-# v2 重构变更清单
+# 变更清单
 
-本文记录这次重构「为什么这么改」，以及改完之后的契约。README 只讲怎么用，这里讲取舍。
+本文记录每次改版「为什么这么改」，以及改完之后的契约。README 只讲怎么用，这里讲取舍。
+
+---
+
+## 0. V3-snapshot-3：界面重做（内嵌 HTML + 冥零人设）
+
+**选择**：保留 snapshot-2 的 C++ 后端，把七页界面整个换成内嵌 HTML（WebView2 渲染），
+并按 `冥零人设.md` 重写文案与视觉——深夜蓝的房间、冰蓝高光、她的立绘和头像、短句与括号动作。
+
+**理由**：
+
+- 人设本身（蓝发、深蓝眼睛、爱睡懒觉、嘴硬心软、QQ 打字腔）和上一版「冷白高调」的办公风对不上；
+  只换颜色救不回来，页名、语气、留白、密度都要重来。
+- HTML + CSS 改这种「气质」一次到位：布局、渐变、立绘遮罩、动效都能写细；C++ 自绘每调一次都要重编。
+- 页面、立绘、头像一起编进 exe，地址走 `https://mingling.local/` 内存资源，不开端口、不落临时文件。
+
+**没选的做法**：
+
+- 不换后端：状态、配置备份、台账、sidecar、体检命令全部沿用 snapshot-2，UI 只消费 JSON。
+- 不引前端框架：一个 `index.html` 里的原生 JS，没有构建步骤，`build.bat` 直接编资源。
+- 不把原生 UI 删掉：WebView2 Runtime 缺失时仍能退回旧界面（`ui.cpp` 那套还在编）。
+
+**契约定下来**：
+
+- 文案分两层：状态、数字、报错原因照实写（不许为语气吞掉），包在外面的句子用她的口吻；
+  页名固定为 总览 / 一起看看 / 做过的事 / 日志 / 哪儿卡了 / 照顾她 / 帮帮忙，`TABS[]` 与文档占位符同源。
+- 消息桥只认白名单动作（`tab` / `section` / `action` / `watch` / `configsave` / `asksave` / `feed` …），
+  所有动态文本先转义；CSP 禁外链、禁表单提交、禁框架。
+- 配置保存只提交改动过的字段，密码框留空 = 保留；状态推送不重建正在编辑的表单。
+- 外观检查用临时状态目录 + `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port`，
+  不碰真实配置（细节见 [ui-html.md](ui-html.md)）。
+
+> v2 里「不改用 WebView2」那一条（见 §1）是当时的取舍：干净机不保证 Runtime、v2 定位原生自绘。
+> 这一版明确改为「分发 WebView2Loader，运行时缺失就提示并退回原生」，所以那条不再适用。
 
 ---
 
 ## 1. 架构选择：内置 sidecar，而不是重写 C++，也不再依赖 DSH
 
 **选择**：把上游 `dsh-bili-whale` 0.4.6（MIT）作为私有 sidecar 随安装包分发，
-用 `sidecar
-ode
-ode.exe` 跑，ffmpeg 放在 sidecar 里，工作台只做 UI/编排/台账。
+用 `sidecar\node\node.exe` 跑，ffmpeg 放在 sidecar 里，工作台只做 UI/编排/台账。
 
 **理由**：
 
@@ -50,9 +81,7 @@ sidecar 的 `DSH_HOME` 变量名保留是为了少改上游代码，但值不再
 两边都调用同一个 CLI：
 
 ```
-<sidecar>
-ode
-ode.exe <sidecar>\bili-whale\tools\bili.mjs debrief <BV> --grid 3x3
+<sidecar>\node\node.exe <sidecar>\bili-whale\tools\bili.mjs debrief <BV> --grid 3x3
 ```
 
 - 工作台：`source=console`，`chat=工作台`，正文写 `logs\jobs\<BV>-<unix>.txt`。

@@ -442,7 +442,7 @@ bool CollectStatus(Status& st, wstring* err) {
                 c.name = L"记忆 · Ollama 在跑";
                 c.pill = L"记忆未开";
                 c.text = L"Ollama 在跑，记忆还没开——她记不住新的事（以前记住的还在）。"
-                         L"想让她记事，在「维护」页把记忆开关打开。";
+                         L"想让她记事，在「照顾她」页把记忆开关打开。";
             } else {
                 c.state = L"off";
                 c.text = L"没开。想要的话去「交给 Agent」。";
@@ -539,7 +539,7 @@ bool CollectStatus(Status& st, wstring* err) {
             c.state = L"ok";
             c.pill = L"语音未开";
             c.text = L"Breeze 开着，但语音没启用——她现在只打字。"
-                     L"想让她说话，在「维护」页把语音开关打开，或交给 Agent 选个声音。";
+                     L"想让她说话，在「照顾她」页把语音开关打开，或交给 Agent 选个声音。";
         } else {
             c.name = L"语音";
             c.state = L"off";

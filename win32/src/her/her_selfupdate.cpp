@@ -467,6 +467,11 @@ static bool CopyProgramOut(const std::wstring& destRoot, std::wstring* err,
             if (err) *err = L"备份工作台主程序失败：" + self;
             return false;
         }
+        const wstring loader = JoinPath(ParentDir(self), L"WebView2Loader.dll");
+        if (FileExists(loader) && !CopyFileW(loader.c_str(), JoinPath(keep, L"WebView2Loader.dll").c_str(), FALSE)) {
+            if (err) *err = L"备份界面加载器失败：" + loader;
+            return false;
+        }
     }
     return true;
 }
@@ -485,6 +490,11 @@ static bool CopyProgramBack(const std::wstring& bakRoot, std::wstring* err) {
     if (FileExists(selfBak)) {
         const wstring self = SelfExePath();
         CopyFileW(selfBak.c_str(), self.c_str(), FALSE);   // 正被占用时由 helper 之后的重启兜底
+    }
+    const wstring loaderBak = JoinPath(JoinPath(bakRoot, L"_self"), L"WebView2Loader.dll");
+    if (FileExists(loaderBak) && !CopyFileW(loaderBak.c_str(), JoinPath(ParentDir(SelfExePath()), L"WebView2Loader.dll").c_str(), FALSE)) {
+        if (err) *err = L"回滚界面加载器失败";
+        return false;
     }
     return true;
 }

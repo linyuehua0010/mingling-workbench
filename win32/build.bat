@@ -1,8 +1,11 @@
 @echo off
-rem Build Mingling Workbench (Win32 + GDI+, static, single exe)
+rem Build Mingling Workbench (Win32 + embedded HTML / WebView2)
 setlocal
 cd /d "%~dp0"
 set "OUTDIR=%~dp0..\bin"
+rem Optional output basename for side-by-side UI review (build.bat MinglingWorkbench-html.exe).
+set "OUTPUT_NAME=MinglingWorkbench.exe"
+if not "%~1"=="" set "OUTPUT_NAME=%~nx1"
 
 rem MinGW: prefer %MINGW_BIN%, then build.local.bat (git-ignored), then g++/windres from PATH
 if not "%MINGW_BIN%"=="" goto mingw_ready
@@ -32,20 +35,22 @@ rem 中文会变成「鍐ラ浂」这种乱码并被截成问号——属性对�
 if errorlevel 1 goto fail
 
 echo [2/3] compile
-"%GXX%" -std=c++17 -O2 -Wall -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -fno-ident -ffunction-sections -fdata-sections src\main.cpp src\util.cpp src\paths.cpp src\whale.cpp src\biliapi.cpp src\webfetch.cpp src\ui.cpp src\her\her_json.cpp src\her\her_probe.cpp src\her\her_sqlite.cpp src\her\her_config.cpp src\her\her_astr.cpp src\her\her_status.cpp src\her\her_actions.cpp src\her\her_setup.cpp src\her\her_selfupdate.cpp build\app.res.o -o build\MinglingWorkbench.exe -Wl,--gc-sections -static -static-libgcc -static-libstdc++ -s -mwindows -lgdiplus -lwinhttp -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -lcomdlg32 -lcomctl32 -lws2_32 -liphlpapi -lgdi32 -luser32 -ladvapi32
+"%GXX%" -std=c++17 -O2 -Wall -DUNICODE -D_UNICODE -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00 -fno-ident -ffunction-sections -fdata-sections src\main.cpp src\util.cpp src\paths.cpp src\whale.cpp src\biliapi.cpp src\webfetch.cpp src\ui.cpp src\webui.cpp src\her\her_json.cpp src\her\her_probe.cpp src\her\her_sqlite.cpp src\her\her_config.cpp src\her\her_astr.cpp src\her\her_status.cpp src\her\her_actions.cpp src\her\her_setup.cpp src\her\her_selfupdate.cpp build\app.res.o -o build\MinglingWorkbench.exe -Wl,--gc-sections -static -static-libgcc -static-libstdc++ -s -mwindows -lgdiplus -lwinhttp -lole32 -loleaut32 -luuid -lshell32 -lshlwapi -lcomdlg32 -lcomctl32 -lws2_32 -liphlpapi -lgdi32 -luser32 -ladvapi32
 if errorlevel 1 goto fail
 
 echo [3/3] copy
-copy /y build\MinglingWorkbench.exe "%OUTDIR%\MinglingWorkbench.exe" >nul
+copy /y vendor\webview2\WebView2Loader.dll "%OUTDIR%\WebView2Loader.dll" >nul
+if errorlevel 1 goto fail
+copy /y build\MinglingWorkbench.exe "%OUTDIR%\%OUTPUT_NAME%" >nul
 if errorlevel 1 goto copylocked
 echo.
-echo OK: %OUTDIR%\MinglingWorkbench.exe
-for %%F in ("%OUTDIR%\MinglingWorkbench.exe") do echo size: %%~zF bytes
+echo OK: %OUTDIR%\%OUTPUT_NAME%
+for %%F in ("%OUTDIR%\%OUTPUT_NAME%") do echo size: %%~zF bytes
 exit /b 0
 
 :copylocked
 echo.
-echo COPY FAILED: %OUTDIR%\MinglingWorkbench.exe is locked.
+echo COPY FAILED: %OUTDIR%\%OUTPUT_NAME% is locked.
 echo Close the running app (it is started from bin\) and run build.bat again.
 echo What is in bin\ right now is still the OLD exe.
 exit /b 1

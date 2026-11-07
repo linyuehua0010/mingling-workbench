@@ -69,6 +69,9 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 ; 密钥目录：和工作区同级（默认 <Base>\secrets），在 {app} 之外，卸载不删
 
 [Files]
+Source: "..\bin\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\win32\vendor\webview2\LICENSE.txt"; DestDir: "{app}\docs\webview2"; Flags: ignoreversion
+Source: "..\win32\vendor\webview2\NOTICE.txt"; DestDir: "{app}\docs\webview2"; Flags: ignoreversion
 Source: "..\bin\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\art\*"; DestDir: "{app}\art"; Flags: ignoreversion recursesubdirs createallsubdirs

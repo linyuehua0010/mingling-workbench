@@ -465,6 +465,8 @@ static void StartWatch() {
     if (isLink) {
         LinkCfg lc = LinkLoad();
         if (!lc.enabled) {
+            g_watchBusy = false;
+            g_watchStatus.clear();
             UiToast(L"读链接是关着的：B 站页 → 配置 → 链接与应用 → 打开「读取网页链接」");
             return;
         }
@@ -590,7 +592,7 @@ static void RefreshLogsNow() {
         wstring p = BiliLogPath();
         if (!FileExists(p)) {
             // bili-whale 没有常驻服务：拿最近一次任务的输出
-            g_logText = L"bili-whale 是命令行工具，没有常驻日志；最近一次任务见「队列」。";
+            g_logText = L"bili-whale 是命令行工具，没有常驻日志；最近一次任务见「做过的事」。";
             g_logStamp = GetTickCount();
             return;
         }
@@ -1412,6 +1414,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_center.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
+    if (WebUiActive()) return;
     if (!g_bmp || w != g_bw || h != g_bh) {
         if (g_bmp) DeleteObject(g_bmp);
         if (g_mem) DeleteDC(g_mem);
@@ -1469,7 +1472,7 @@ void UiPaint(HDC hdc, int w, int h) {
 
 // ---------------------------------------------------------------- 交互
 void UiRequestRepaint() {
-    if (g_hwnd) InvalidateRect(g_hwnd, nullptr, FALSE);
+    if (g_hwnd) { InvalidateRect(g_hwnd, nullptr, FALSE); WebUiPublish(); }
 }
 
 void UiToast(const wstring& msg) {
@@ -1506,8 +1509,9 @@ static void SwitchWorkspace() {
     UiRequestRepaint();
 }
 
-void UiOnClick(int x, int y) {
-    std::string id = HitAt(x, y);
+static void DispatchAction(const std::string& id);
+void UiOnClick(int x, int y) { DispatchAction(HitAt(x, y)); }
+static void DispatchAction(const std::string& id) {
     if (id.empty()) {
         if (g_askEditor) {   // 点空白等于「就这样」：存下来再收
             CloseAskEditor(true);
@@ -1624,7 +1628,7 @@ void UiOnClick(int x, int y) {
         RunCheck(std::atoi(p[1].c_str()));
         g_tab = 4;
         UiRequestRepaint();
-        UiToast(L"自检在跑，结果在体检页");
+        UiToast(L"自检在跑，结果在「哪儿卡了」");
         return;
     }
     if (p[0] == "bfiles") {
@@ -2174,12 +2178,12 @@ void UiOnTask(TaskData* d) {
             AppendJob(j);
             LoadJobs();
             if (isLink) {
-                if (d->ok) UiToast(L"读完了，记在队列里了");
+                if (d->ok) UiToast(L"读完了，记在本子上了");
                 else UiToast(L"没读成，原因在结果里");
             } else if (d->ok) {
-                UiToast(L"看完啦，记在队列里了");
+                UiToast(L"看完啦，记在本子上了");
             } else {
-                UiToast(L"没看成功，去体检页看看");
+                UiToast(L"没看成功，去「哪儿卡了」看看");
             }
             break;
         }
@@ -2297,8 +2301,8 @@ void UiInit(HWND hwnd) {
     // 首次启动：确认工作区（B站产物、日志、台账都放这里）
     if (!FileExists(SettingsFile())) {
         wstring def = DefaultWorkspaceDir();
-        wstring msg = L"冥零工作台需要一个工作区，用来放 B 站产物、日志和台账。\n\n默认：" + def +
-                      L"\n\n现在就选别的文件夹吗？以后也能在「B站」页右下角换。";
+        wstring msg = L"得先找个地方放东西：B 站产物、日志、台账都搁这儿。\n\n默认：" + def +
+                      L"\n\n要现在换个文件夹吗？以后想换，去「帮帮忙」页最下面那行。";
         if (MessageBoxW(hwnd, msg.c_str(), L"选择工作区", MB_YESNO | MB_ICONQUESTION) == IDYES) {
             wstring p = PickFolder(hwnd, L"选择冥零工作区", def);
             if (!p.empty()) SetWorkspaceDir(p);
@@ -2394,6 +2398,7 @@ void UiTick() {
 }
 
 void UiShutdown() {
+    WebUiClose();
     StopWatchdog();   // 必须在 PostQuitMessage 之前 join
     FreeNotifyState();   // 横幅、自定义头像图标、编辑浮层
     CloseAskEditor(false);
