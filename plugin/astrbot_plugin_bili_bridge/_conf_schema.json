@@ -1,0 +1,67 @@
+{
+  "require_at": {
+    "description": "强触发：必须 @ 机器人才一定看（关掉则群里任何 B 站链接都按软触发放给模型）",
+    "type": "bool",
+    "default": true
+  },
+  "soft_trigger": {
+    "description": "软触发：没被 @ 但消息里有 BV/链接（或明确在说 B 站）时，交给模型自己决定看不看",
+    "type": "bool",
+    "default": true
+  },
+  "soft_cooldown_min": {
+    "description": "同一个会话里，主动触发看视频的最小间隔（分钟）",
+    "type": "int",
+    "default": 10
+  },
+  "same_bv_per_day": {
+    "description": "同一个 BV 每天只主动触发一次（@ 强触发不受限）",
+    "type": "bool",
+    "default": true
+  },
+  "memory_write": {
+    "description": "将看过的视频、工作台链接与对话结果写入长期记忆；失败每 30 秒重试",
+    "type": "bool",
+    "default": true
+  },
+  "bili_root": {
+    "description": "产物根目录（工作区），留空自动找：config > 环境变量 > 工作台设置 > 文档\\冥零工作台",
+    "type": "string",
+    "default": ""
+  },
+  "grid": {
+    "description": "抽帧九宫格布局，列 x 行",
+    "type": "string",
+    "default": "3x3"
+  },
+  "timeout": {
+    "description": "单条视频最多看多少秒，超时就放弃",
+    "type": "int",
+    "default": 300
+  },
+  "reply_with_persona": {
+    "description": "用冥零的口气总结（关掉就直接念材料）",
+    "type": "bool",
+    "default": true
+  },
+  "persona_id": {
+    "description": "从 AstrBot 人设库里取哪个人设来当口气",
+    "type": "string",
+    "default": "冥零"
+  },
+  "whale_dir": {
+    "description": "内置 bili-whale 组件目录，留空自动找（工作台 sidecar\\bili-whale）",
+    "type": "string",
+    "default": ""
+  },
+  "node_exe": {
+    "description": "node.exe 路径，留空自动找（优先用工作台自带的 node）",
+    "type": "string",
+    "default": ""
+  },
+  "owner_session": {
+    "description": "工作台阅读记忆归属的主人完整会话 ID；留空从长期记忆白名单中唯一的 QQ 私聊会话推断",
+    "type": "string",
+    "default": ""
+  }
+}

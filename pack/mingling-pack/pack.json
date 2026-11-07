@@ -1,0 +1,157 @@
+{
+  "id": "mingling-pack",
+  "name": "冥零配置包",
+  "version": "2026.11.06",
+  "schema": 1,
+  "说明": "自设定用的清单：provider / 平台 / 聊天设置 / 插件 / 记忆 / 语音 / 人设。改这里的值再跑一次 tools\\self-setup.ps1 就生效，不用重装组件。key、QQ 号这些秘密一律放 private\\，这个文件里只写文件名。",
+
+  "blocks": ["provider", "platform", "chat", "plugins", "memory", "voice", "persona", "verify"],
+
+  "provider": {
+    "说明": "对话模型。key 从 key_file 读，找不到就看 answers.json 的 deepseek_key_file / deepseek_key。",
+    "source_id": "deepseek",
+    "provider": "deepseek",
+    "type": "openai_chat_completion",
+    "provider_type": "chat_completion",
+    "api_base": "https://api.deepseek.com/v1",
+    "prefer_models": ["deepseek-flash", "deepseek-chat", "deepseek-reasoner"],
+    "key_file": "private/deepseek-key.txt",
+    "timeout": 120,
+    "modalities": ["text", "image", "tool_use"],
+    "custom_extra_body": { "thinking": { "type": "disabled" } }
+  },
+
+  "platform": {
+    "说明": "QQ 平台（OneBot v11）。已经有 aiocqhttp 平台就沿用它，没有就按这里建一个，等 SnowLuma / NapCat 连上来。",
+    "id": "冥零",
+    "type": "aiocqhttp",
+    "ws_reverse_host": "127.0.0.1",
+    "ws_reverse_port": 6199,
+    "token_file": "private/napcat-ws-token.txt"
+  },
+
+  "owner_file": "private/owner-qq.txt",
+  "group_file": "private/group.txt",
+
+  "chat": {
+    "说明": "聊天行为。都是 AstrBot 配置里的点路径，值照原样写进去。",
+    "provider_settings.identifier": true,
+    "provider_settings.computer_use_runtime": "none",
+    "provider_settings.datetime_system_prompt": true,
+    "platform_settings.segmented_reply.enable": true,
+    "platform_settings.segmented_reply.only_llm_result": true,
+    "platform_settings.segmented_reply.split_mode": "regex",
+    "platform_settings.segmented_reply.regex": ".*?(?:\\r?\\n+|[。？！~…]+)|.+$",
+    "platform_settings.segmented_reply.split_words": ["。", "？", "！", "~", "…"],
+    "platform_settings.empty_mention_waiting": false,
+    "provider_ltm_settings.active_reply.enable": false,
+    "agent_runner.config.compression.max_turns": 30,
+    "agent_runner.config.persona.safety_mode": true,
+    "agent_runner.config.persona.safety_mode_strategy": "system_prompt"
+  },
+
+  "plugins": {
+    "说明": "沿用大肥鱼那 10 个插件，源码就放在 pack\\mingling-pack\\plugins\\ 下（MIT，见同目录 LICENSE-dafeiyu-config-pack.txt）。没装的打 zip 传上去，装过的只改设置。config 里的 {主人会话} / {ffmpeg} / {asr_dir} / {硅基流动key} 由引擎换成真值；换不到就跳过那一项，不会把你在后台已经填好的值冲成空的。enable=false 的只装不开，想开在后台点一下，或把这里改成 true 再跑 --only plugins。",
+    "items": [
+      { "name": "astrbot_plugin_dafeiyu_clean", "enable": true },
+      { "name": "astrbot_plugin_dafeiyu_memelog", "enable": true },
+      { "name": "astrbot_plugin_dafeiyu_groupimage", "enable": true },
+      { "name": "astrbot_plugin_dafeiyu_resetkeep", "enable": true },
+      { "name": "astrbot_plugin_dafeiyu_signature", "enable": true, "config": { "owner_session": "{主人会话}" } },
+      { "name": "astrbot_plugin_dafeiyu_video", "enable": true, "config": { "ffmpeg_path": "{ffmpeg}", "asr_dir": "{asr_dir}", "asr_key": "{硅基流动key}" } },
+      { "name": "astrbot_plugin_dafeiyu_petlink", "enable": false, "config": { "owner_session": "{主人会话}" } },
+      { "name": "astrbot_plugin_breeze_online_tts", "enable": false },
+      { "name": "astrbot_plugin_seed_audio_tts", "enable": false },
+      { "name": "astrbot_plugin_dafeiyu_sing", "enable": false, "config": { "backend": "doubao" } }
+    ]
+  },
+
+  "memory": {
+    "说明": "长期记忆。mode 从 answers.json 的 memory 读（0 不要 / 1 本机 Ollama bge-m3 / 2 硅基流动 BAAI/bge-m3），没有就写 private/memory-mode.txt。插件是插件市场的 LivingMemory，没装会先从市场装。",
+    "default_mode": "0",
+    "modes": {
+      "1": {
+        "说明": "本机 Ollama 的 bge-m3（要先装好 Ollama 并拉过 bge-m3）",
+        "id": "冥零记忆-本机",
+        "type": "openai_embedding",
+        "provider": "openai",
+        "provider_type": "embedding",
+        "api_base": "http://127.0.0.1:11434/v1",
+        "api_key": "ollama",
+        "model": "bge-m3"
+      },
+      "2": {
+        "说明": "硅基流动的 BAAI/bge-m3，key 从 key_file 读",
+        "id": "冥零记忆-硅基流动",
+        "type": "openai_embedding",
+        "provider": "openai",
+        "provider_type": "embedding",
+        "api_base": "https://api.siliconflow.cn/v1",
+        "model": "BAAI/bge-m3",
+        "key_file": "private/siliconflow-key.txt"
+      }
+    },
+    "embedding_dimensions": 1024,
+    "plugin": { "name": "astrbot_plugin_livingmemory", "market_id": "lxfight/astrbot_plugin_livingmemory", "what": "长期记忆" },
+    "plugin_config": { "agent_tools.enable_memorize_tool": true },
+    "scope": {
+      "mode": "global",
+      "include_pet": true,
+      "说明": "主人私聊和桌宠共用一份记忆，群里各记各的，没登记的群不记"
+    }
+  },
+
+  "voice": {
+    "说明": "语音。mode 从 answers.json 的 voice 读（0 不要 / 1 Edge / 3 豆包 / 4 本机 Breeze / 5 Breeze 在线），没有就写 private/voice-mode.txt。三条回复里大约一条发语音。",
+    "default_mode": "0",
+    "trigger_probability": 0.33,
+    "edge": {
+      "id": "冥零语音-Edge",
+      "voice": "zh-CN-XiaoyiNeural",
+      "pip": ["edge-tts==7.3.1", "pyffmpeg==2.5.2.3.2"]
+    },
+    "doubao": {
+      "id": "冥零语音-豆包",
+      "plugin": "astrbot_plugin_seed_audio_tts",
+      "api_base": "https://openspeech.bytedance.com/api/v3/tts/create",
+      "resource_id": "seed-audio-1.0",
+      "model": "seed-audio-1.0",
+      "persona": "一个十五六岁的少女，声音清亮偏冷，语速不快，句尾轻轻收住，偶尔带一点不服气的俏皮",
+      "prompt_template": "{persona}，在QQ上给熟悉的人发语音，语气自然，只说引号里的这句话，一字不差：“{text}”",
+      "format": "mp3",
+      "sample_rate": 24000,
+      "max_attempts": 2,
+      "whole_reply": true,
+      "timeout": 60,
+      "app_id_file": "private/volc-app-id.txt",
+      "token_file": "private/volc-token.txt"
+    },
+    "breeze": {
+      "id": "冥零语音-Breeze",
+      "api_base": "http://127.0.0.1:8137/v1",
+      "voice": "mingling",
+      "说明": "本机 Breeze：先起服务、先按冥零的声音捏一个同名音色（做声音.bat）；名字对不上就跳过，不动你现有的语音设置"
+    },
+    "breeze_online": {
+      "id": "冥零语音-Breeze在线",
+      "api_base": "https://api.breeze.blue/v1",
+      "model": "breeze-tts-2",
+      "voice_id": "voc_u3nxkd5578wc",
+      "max_chars": 120,
+      "timeout": 45,
+      "key_file": "private/breeze-key.txt"
+    }
+  },
+
+  "persona": {
+    "说明": "人设注入复用现成的那条链：plugin\\mingling_skill\\mingling_skill.json + tools\\import-mingling.ps1。这里只叫人设 id，正文不重复存一份。",
+    "id": "冥零",
+    "injector": "tools/import-mingling.ps1",
+    "manifest": "plugin/mingling_skill/mingling_skill.json"
+  },
+
+  "tools": {
+    "engine": "tools/self-setup.ps1",
+    "diag": "tools/diag-config.ps1"
+  }
+}

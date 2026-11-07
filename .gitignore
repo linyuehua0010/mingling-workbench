@@ -1,0 +1,117 @@
+ ============================================================
+#  冥零工作台 · Mingling Workbench
+#  仓库只放：源码、脚本、文档、小图、打包脚本。
+#  编译产物 / 大体积运行时 / 本机配置 / 凭据 / 日志 / 临时文件不进 Git。
+# ============================================================
+
+# ---------- 1. 编译产物 ----------
+bin/
+dist/
+build/
+win32/build/
+win32/setup/
+
+*.exe
+*.o
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.res.o
+
+# 打补丁留下的备份（patch-bili-whale.mjs / patch-sidecar.mjs 生成）
+*.orig
+
+# Inno Setup 的版本号片段：installer\build-installer.bat 每次从 version.h 重新生成
+installer/version_auto.iss
+
+# ---------- 2. 大体积运行时（由 tools\fetch-runtime.ps1 现场拉取） ----------
+sidecar/node/
+sidecar/bili-whale/bin/*.exe
+sidecar/bili-whale/bin/*.dll
+
+# ---------- 3. 本地配置与状态 ----------
+settings.json
+bili-whale.config.json
+bili-state/
+custom-help-texts.json
+
+logs/
+out/
+tmp/
+data/
+bots/
+temp/
+
+# 自设定/一键装填现场写进工作区根的东西：答案卡、各组件的启动脚本
+answers.json
+start-astrbot.cmd
+start-snowluma.cmd
+start-napcat.cmd
+start-breeze.cmd
+start-petbridge.cmd
+
+# 工作台自己写的老版本备份（点「一键修复」前会存一份）
+旧版/
+
+# 掉线提醒 / 桌宠那套运行时脚本：工作台自己跑活要用，属于源码（.gitignore 不再排除）
+tools/python/
+tools/pet-*.txt
+
+# ---------- 4. 隐私与凭据（绝对不要提交） ----------
+credentials.json
+secrets/
+private/
+.bili-ai/
+.env
+.env.*
+!.env.example
+
+# ---------- 5. 日志与临时文件 ----------
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+
+# ---------- 6. Python / Node ----------
+__pycache__/
+*.py[cod]
+.venv/
+.venv312/
+venv/
+.selftest/
+node_modules/
+.pytest_cache/
+
+# ---------- 7. 编辑器与系统文件 ----------
+.vscode/
+.idea/
+*.suo
+*.user
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------- 8. 打包工具链（体积大，用脚本装或手动下） ----------
+tools/dl/
+tools/innoextract/
+tools/innosetup6/
+tools/nsis/
+
+# ---------- 9. 本机私有覆盖（不进仓库，但本机照常生效） ----------
+# 编译器路径、个人工作区等只属于这台机器的设置写在这里
+win32/build.local.bat
+.local/
+.agents/
+
+# 装完 Skill 之后由它的收尾脚本写下的两个标记（每台机器各不相同，不进仓库）
+tools/skill-version.json
+tools/skill-home.txt
+# 公开仓库不收录的本机/内部文件
+冥零人设.md
+启动新版冥零工作台.lnk
+docs/ACCEPTANCE.md
+docs/plan-*.md
+win32/shots/

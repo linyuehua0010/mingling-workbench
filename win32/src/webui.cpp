@@ -1,0 +1,211 @@
+// 本地内存资源的 HTML 界面；只有这个源能调到 C++ 这边。
+#include "webui.h"
+#include "../vendor/webview2/WebView2.h"
+#include "webui_uuid.h"
+#include <shlwapi.h>
+#include <functional>
+
+template<class Interface, class... Args> class Callback final : public Interface {
+    ULONG refs = 1;
+    std::function<HRESULT(Args...)> fn;
+public:
+    explicit Callback(std::function<HRESULT(Args...)> f) : fn(std::move(f)) {}
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+        if (!out) return E_POINTER;
+        *out = nullptr;
+        if (IsEqualIID(id, IID_IUnknown) || IsEqualIID(id, __uuidof(Interface))) {
+            *out = static_cast<Interface*>(this); AddRef(); return S_OK;
+        }
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+    ULONG STDMETHODCALLTYPE Release() override { ULONG n = --refs; if (!n) delete this; return n; }
+    HRESULT STDMETHODCALLTYPE Invoke(Args... args) override { return fn(args...); }
+};
+template<class I, class... A, class F> static auto Handler(F fn) {
+    return new Callback<I, A...>(fn);
+}
+static HWND host;
+static HMODULE loader;
+static ICoreWebView2Environment* environment;
+static ICoreWebView2Controller* controller;
+static ICoreWebView2* view;
+static bool closing = false;
+static bool fallback = false;
+static const wchar_t* origin = L"https://mingling.local/";
+static void Fail(HRESULT hr) {
+    fallback = true;
+    if (controller) controller->put_IsVisible(FALSE);
+    // The native fallback needs its own close/move controls when HTML cannot load.
+    SetWindowLongPtrW(host, GWL_STYLE, GetWindowLongPtrW(host, GWL_STYLE) | WS_CAPTION);
+    SetWindowPos(host, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    InvalidateRect(host, nullptr, FALSE);
+    wchar_t code[32]; swprintf(code, 32, L"0x%08lX", (unsigned long)hr);
+    wstring msg = L"内嵌界面没能启动（" + wstring(code) + L"）。\n请安装 Microsoft Edge WebView2 Runtime，并确认 WebView2Loader.dll 与工作台在同一目录。";
+    MessageBoxW(host, msg.c_str(), L"冥零 · 界面启动失败", MB_OK | MB_ICONERROR);
+}
+bool WebUiActive() { return view != nullptr; }
+bool WebUiFallback() { return fallback; }
+static COLORREF ThemeColor(const wstring& key, COLORREF fallbackColor) {
+    wstring value = SettingGet(key);
+    if (value.size() != 7 || value[0] != L'#' || value.find_first_not_of(L"0123456789abcdefABCDEF", 1) != wstring::npos) return fallbackColor;
+    unsigned long rgb = wcstoul(value.c_str() + 1, nullptr, 16);
+    return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+}
+static COLORREF ThemeBackground() {
+    wstring theme = SettingGet(L"theme");
+    if (theme == L"light") return RGB(0xee, 0xf3, 0xfb);
+    if (theme == L"custom") return ThemeColor(L"theme_bg", RGB(0x10, 0x18, 0x27));
+    return RGB(0x07, 0x0d, 0x18);
+}
+void WebUiPaintLoading(HDC dc, int width, int height) {
+    RECT bounds{0, 0, width, height};
+    HBRUSH brush = CreateSolidBrush(ThemeBackground());
+    FillRect(dc, &bounds, brush); DeleteObject(brush);
+    if (view || closing) return;
+    COLORREF ink = SettingGet(L"theme") == L"light" ? RGB(32,48,74) : RGB(233,239,252);
+    if (SettingGet(L"theme") == L"custom") ink = ThemeColor(L"theme_ink", ink);
+    int oldMode = SetBkMode(dc, TRANSPARENT);
+    COLORREF oldInk = SetTextColor(dc, ink);
+    HGDIOBJ oldFont = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    DrawTextW(dc, L"正在打开工作台…", -1, &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, oldFont); SetTextColor(dc, oldInk); SetBkMode(dc, oldMode);
+}
+// 界面是深夜蓝，系统默认的白色标题栏会像在画上贴了块膏药，所以把边框也刷成同一个色。
+static void PaintFrameTheme(HWND hwnd) {
+    using DwmSet = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    static DwmSet dwm = [] {
+        HMODULE m = LoadLibraryW(L"dwmapi.dll");
+        return m ? reinterpret_cast<DwmSet>(GetProcAddress(m, "DwmSetWindowAttribute")) : (DwmSet) nullptr;
+    }();
+    if (!dwm) return;
+    wstring mode = SettingGet(L"theme"), base = SettingGet(L"theme_base");
+    auto color = [](const wstring& key, COLORREF fallback) {
+        wstring v = SettingGet(key);
+        if (v.size() != 7 || v[0] != L'#' || v.find_first_not_of(L"0123456789abcdefABCDEF", 1) != wstring::npos) return fallback;
+        unsigned long rgb = wcstoul(v.c_str() + 1, nullptr, 16);
+        return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+    };
+    BOOL on = !(mode == L"light" || (mode == L"custom" && base == L"light"));
+    // 20 是 Win10 20H1+ 的编号，19 是 1809 之前的，认哪个用哪个。
+    if (FAILED(dwm(hwnd, 20, &on, sizeof(on)))) dwm(hwnd, 19, &on, sizeof(on));
+    COLORREF caption = RGB(0x08, 0x0e, 0x1a), text = RGB(0xe9, 0xef, 0xfc), border = RGB(0x17, 0x24, 0x40);
+    if (mode == L"light") { caption = RGB(255,255,255); text = RGB(32,48,74); border = RGB(219,226,236); }
+    if (mode == L"custom") { caption = color(L"theme_panel", caption); text = color(L"theme_ink", text); border = color(L"theme_bg", border); }
+    // 下面三条是 Win11 才认；Win10 返回失败，标题栏还是靠上面那条变深。
+    dwm(hwnd, 35, &caption, sizeof(caption));
+    dwm(hwnd, 36, &text, sizeof(text));
+    dwm(hwnd, 34, &border, sizeof(border));
+}
+void WebUiResize() {
+    if (controller) { RECT rc; GetClientRect(host, &rc); controller->put_Bounds(rc); }
+}
+void WebUiPublish() {
+    if (view && !closing) {
+        static wstring lastTheme;
+        wstring theme = SettingGet(L"theme") + SettingGet(L"theme_base") + SettingGet(L"theme_panel") + SettingGet(L"theme_ink") + SettingGet(L"theme_bg");
+        if (theme != lastTheme) { PaintFrameTheme(host); lastTheme = theme; }
+        view->PostWebMessageAsJson(WebUiState().c_str());
+    }
+}
+void WebUiClose() {
+    closing = true;
+    if (controller) { controller->Close(); controller->Release(); controller = nullptr; }
+    if (view) { view->Release(); view = nullptr; }
+    if (environment) { environment->Release(); environment = nullptr; }
+    // Keep the loader mapped until process exit: asynchronous COM callbacks may still unwind.
+}
+void WebUiInit(HWND hwnd) {
+    host = hwnd;
+    fallback = false;
+    loader = LoadLibraryExW(JoinPath(ExeDir(), L"WebView2Loader.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!loader) { Fail(HRESULT_FROM_WIN32(GetLastError())); return; }
+    using Create = HRESULT(STDAPICALLTYPE*)(PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions*, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
+    auto create = reinterpret_cast<Create>(GetProcAddress(loader, "CreateCoreWebView2EnvironmentWithOptions"));
+    if (!create) { Fail(E_NOINTERFACE); return; }
+    auto envHandler = Handler<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler, HRESULT, ICoreWebView2Environment*>(
+        [](HRESULT hr, ICoreWebView2Environment* env) -> HRESULT {
+            if (closing) return S_OK;
+            if (FAILED(hr) || !env) { Fail(hr); return S_OK; }
+            environment = env; env->AddRef();
+            auto ctlHandler = Handler<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler, HRESULT, ICoreWebView2Controller*>(
+                [](HRESULT result, ICoreWebView2Controller* ctl) -> HRESULT {
+                    if (closing) return S_OK;
+                    if (FAILED(result) || !ctl) { Fail(result); return S_OK; }
+                    controller = ctl; ctl->AddRef(); ctl->get_CoreWebView2(&view);
+                    PaintFrameTheme(host);
+                    // 页面第一次绘制前先把底色压成深夜蓝，免得一闪白。
+                    ICoreWebView2Controller2* ctl2 = nullptr;
+                    if (SUCCEEDED(ctl->QueryInterface(IID_ICoreWebView2Controller2, (void**)&ctl2)) && ctl2) {
+                        COLORREF color = ThemeBackground();
+                        COREWEBVIEW2_COLOR bg{255, GetRValue(color), GetGValue(color), GetBValue(color)};
+                        ctl2->put_DefaultBackgroundColor(bg);
+                        ctl2->Release();
+                    }
+                    ICoreWebView2Settings* settings = nullptr;
+                    if (SUCCEEDED(view->get_Settings(&settings))) {
+                        settings->put_AreDefaultContextMenusEnabled(FALSE);
+                        settings->put_AreDevToolsEnabled(FALSE);
+                        settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+                        settings->put_IsStatusBarEnabled(FALSE);
+                        settings->Release();
+                    }
+                    EventRegistrationToken token{};
+                    auto resource = Handler<ICoreWebView2WebResourceRequestedEventHandler, ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2WebResourceRequestedEventArgs* args) -> HRESULT {
+                            ICoreWebView2WebResourceRequest* request = nullptr;
+                            args->get_Request(&request); LPWSTR uri = nullptr; request->get_Uri(&uri); request->Release();
+                            wstring url = uri ? uri : L""; CoTaskMemFree(uri);
+                            int id = url == origin ? 200 : url == wstring(origin) + L"hero.png" ? 201 : url == wstring(origin) + L"avatar.png" ? 202 : 0;
+                            HRSRC res = id ? FindResourceW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(id), RT_RCDATA) : nullptr;
+                            IStream* stream = nullptr;
+                            if (res) stream = SHCreateMemStream((const BYTE*)LockResource(LoadResource(GetModuleHandleW(nullptr), res)), SizeofResource(GetModuleHandleW(nullptr), res));
+                            ICoreWebView2WebResourceResponse* response = nullptr;
+                            environment->CreateWebResourceResponse(stream, res ? 200 : 404, res ? L"OK" : L"Not Found",
+                                id == 200 ? L"Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store" : L"Content-Type: image/png\r\nCache-Control: no-store", &response);
+                            if (response) { args->put_Response(response); response->Release(); }
+                            if (stream) stream->Release();
+                            return S_OK;
+                        });
+                    view->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                    view->add_WebResourceRequested(resource, &token); resource->Release();
+                    auto navigation = Handler<ICoreWebView2NavigationStartingEventHandler, ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+                            LPWSTR uri = nullptr; args->get_Uri(&uri);
+                            if (!uri || wstring(uri) != origin) args->put_Cancel(TRUE);
+                            CoTaskMemFree(uri); return S_OK;
+                        });
+                    view->add_NavigationStarting(navigation, &token); navigation->Release();
+                    auto completed = Handler<ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                            if (closing) return S_OK;
+                            BOOL success = FALSE; args->get_IsSuccess(&success);
+                            if (!success) Fail(E_FAIL);
+                            return S_OK;
+                        });
+                    view->add_NavigationCompleted(completed, &token); completed->Release();
+                    auto popup = Handler<ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT { args->put_Handled(TRUE); return S_OK; });
+                    view->add_NewWindowRequested(popup, &token); popup->Release();
+                    auto message = Handler<ICoreWebView2WebMessageReceivedEventHandler, ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2WebMessageReceivedEventArgs* args) -> HRESULT {
+                            LPWSTR source = nullptr; args->get_Source(&source);
+                            bool trusted = source && wstring(source) == origin; CoTaskMemFree(source);
+                            if (!trusted) return S_OK;
+                            LPWSTR json = nullptr; args->get_WebMessageAsJson(&json);
+                            if (json) { WebUiCommand(json); CoTaskMemFree(json); WebUiPublish(); }
+                            return S_OK;
+                        });
+                    view->add_WebMessageReceived(message, &token); message->Release();
+                    WebUiResize(); controller->put_IsVisible(TRUE);
+                    view->Navigate(origin);
+                    return S_OK;
+                });
+            HRESULT result = env->CreateCoreWebView2Controller(host, ctlHandler); ctlHandler->Release();
+            if (FAILED(result)) Fail(result);
+            return S_OK;
+        });
+    HRESULT hr = create(nullptr, JoinPath(StateDir(), L"webview2").c_str(), nullptr, envHandler);
+    envHandler->Release();
+    if (FAILED(hr)) Fail(hr);
+}
