@@ -85,6 +85,8 @@ std::wstring ReadKv(const std::wstring& path, const std::wstring& key);
 std::wstring MaskQQ(const std::wstring& qq);
 std::wstring PrettyDur(long long sec);
 std::wstring NowLocal(const wchar_t* fmt);       // wcsftime
+// 把安装包自带的那份安装 Skill 铺到 %USERPROFILE%\.agents\skills，并记下装在哪、哪一版
+void EnsureBundledSkill();
 long long BootUnix();
 
 J ReadJson(const std::wstring& path, bool* ok = nullptr);

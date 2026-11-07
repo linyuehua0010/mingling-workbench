@@ -68,6 +68,10 @@ Source: "..\art\*"; DestDir: "{app}\art"; Flags: ignoreversion recursesubdirs cr
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\plugin\astrbot_plugin_bili_bridge\*"; DestDir: "{app}\plugin\astrbot_plugin_bili_bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\sidecar\*"; DestDir: "{app}\sidecar"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 安装 Skill（冥零自己的那份）：装在 {app}\skill 下，工作台第一次启动时铺到
+; %USERPROFILE%\.agents\skills\mingling-install，并写下 tools\skill-home.txt / skill-version.json。
+; 没有它，Agent 就只会照大肥鱼那份说明书干活。
+Source: "..\skill\mingling-install\*"; DestDir: "{app}\skill\mingling-install"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
 
 [Icons]

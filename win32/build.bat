@@ -26,7 +26,9 @@ if errorlevel 1 ( echo [ERROR] version.h 的数字和字符串对不上，先修
 :version_ok
 
 echo [1/3] resources
-"%WINDRES%" -I res -I src -O coff -o build\app.res.o res\app.rc
+rem -c 65001：res\app.rc 是 UTF-8（带 BOM），windres 默认按系统 ANSI 代码页(936)读，
+rem 中文会变成「鍐ラ浂」这种乱码并被截成问号——属性对话框的「文件说明 / 产品名称」就是那里来的。
+"%WINDRES%" -c 65001 -I res -I src -O coff -o build\app.res.o res\app.rc
 if errorlevel 1 goto fail
 
 echo [2/3] compile

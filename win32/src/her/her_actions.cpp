@@ -685,6 +685,64 @@ wstring SkillHome() {
     return L"";
 }
 
+// 只认冥零自己那份（不带大肥鱼的兜底）：内置 Skill 要不要铺，先得知道「我们那份」装没装、哪一版
+static wstring MinglingSkillDir() {
+    wchar_t up[MAX_PATH * 2] = {0};
+    if (!GetEnvironmentVariableW(L"USERPROFILE", up, MAX_PATH * 2) || !up[0]) return L"";
+    static const wchar_t* kSub[] = {L"\\.agents\\skills\\mingling-install", L"\\.dsh\\skills\\mingling-install",
+                                    L"\\.workbuddy\\skills\\mingling-install"};
+    for (const wchar_t* s : kSub) {
+        wstring d = wstring(up) + s;
+        if (DirExists(d)) return d;
+    }
+    return L"";
+}
+
+// 安装包自带 <exe 目录>\skill\mingling-install（开发树里是 <仓库>\skill\mingling-install）。
+// 第一次启动、或者包里那份比装着的更新时，铺到 %USERPROFILE%\.agents\skills 下，再把
+// 「装在哪、哪一版」写给工作台（tools\skill-home.txt / tools\skill-version.json）。
+// 平时只探几次路径；用户自己从更新页升到更新版本时不会往回退。
+// 铺 Skill 的实活（只在本文件里用，对外由下面的 EnsureBundledSkill 转一手）
+static void ApplyBundledSkill() {
+    wstring src;
+    for (const wstring& r : {ExeDir(), Root()}) {
+        wstring d = JoinPath(JoinPath(r, L"skill"), kSkillDir);
+        if (DirExists(d)) {
+            src = d;
+            break;
+        }
+    }
+    if (src.empty()) return;
+    wstring bver = ReadJson(JoinPath(src, L"version.json")).Str(L"version");
+    if (bver.empty()) return;
+
+    wstring inst = MinglingSkillDir();
+    wstring iver = inst.empty() ? L"" : ReadJson(JoinPath(inst, L"version.json")).Str(L"version");
+    bool need = inst.empty() || (!iver.empty() && VerCmp(bver, iver) > 0);
+    if (need) {
+        wchar_t up[MAX_PATH * 2] = {0};
+        if (GetEnvironmentVariableW(L"USERPROFILE", up, MAX_PATH * 2) && up[0]) {
+            wstring target = JoinPath(JoinPath(JoinPath(wstring(up), L".agents"), L"skills"), kSkillDir);
+            // 装包里的 Skill 是「说明书」：换掉它不影响她的设置、记忆和登录，但还是先留一份旧的
+            if (!inst.empty()) {
+                wstring bk = JoinPath(JoinPath(Base(), L"旧版"),
+                                      NowLocal(L"%m%d-%H%M") + L"-Skill" + (iver.empty() ? L"" : iver));
+                CopyDirTree(inst, bk);
+            }
+            if (CopyDirTree(src, target)) inst = target;
+        }
+    }
+    if (inst.empty()) return;
+    wstring tools = JoinPath(Base(), L"tools");
+    if (!DirExists(tools)) CreateDirectoryW(tools.c_str(), nullptr);
+    if (Trim(ReadTextFile(JoinPath(tools, L"skill-home.txt"), 4096)) != inst)
+        WriteTextFile(JoinPath(tools, L"skill-home.txt"), inst, false);
+    wstring nowv = ReadJson(JoinPath(inst, L"version.json")).Str(L"version");
+    if (!nowv.empty() && ReadJson(JoinPath(tools, L"skill-version.json")).Str(L"version") != nowv)
+        WriteTextFile(JoinPath(tools, L"skill-version.json"), ReadTextFile(JoinPath(inst, L"version.json"), 65536),
+                      false);
+}
+
 wstring SkillVersionLocal() {
     J j = ReadJson(JoinPath(JoinPath(Base(), L"tools"), L"skill-version.json"));
     wstring v = j.Str(L"version");
@@ -1258,6 +1316,10 @@ ActionResult SelfSetup(const std::wstring& block) {
 
 }  // namespace
 
+// 对外的入口：安装包带的那份 Skill 先铺好，界面和 --her-op 查到的才是真版本。
+// 真正干活的 ApplyBundledSkill 留在上面那个匿名命名空间里，只给这个文件用。
+void EnsureBundledSkill() { ApplyBundledSkill(); }
+
 // 更新页用：先看缓存（6 小时 / 失败 30 分钟），force 就重新联网查一轮
 UpdatesInfo CheckUpdates(bool force) {
     J up = UpdateCache();
@@ -1314,6 +1376,7 @@ ActionResult RunAction(const wstring& op, const wstring& arg) {
 }
 
 int CliMain(const std::vector<std::wstring>& args) {
+    EnsureBundledSkill();   // 安装包带的那份 Skill 先铺好，--her-op 查到的版本才是真版本
     bool status = false, gameOff = false;
     for (auto& a : args) {
         if (a == L"--her-status" || a == L"--status") status = true;

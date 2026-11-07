@@ -30,6 +30,8 @@ using std::map;
 wstring ExeDir();
 wstring UserProfile();
 wstring JoinPath(const wstring& a, const wstring& b);
+// 递归复制目录（目标已有的同名文件覆盖；用于迁移工作区、铺 Skill）
+bool CopyDirTree(const wstring& from, const wstring& to);
 bool FileExists(const wstring& p);
 bool DirExists(const wstring& p);
 wstring ReadTextFile(const wstring& path, size_t maxBytes = 0);

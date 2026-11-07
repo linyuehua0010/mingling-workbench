@@ -20,30 +20,30 @@
 //    tools\check-version.ps1，或者直接 build.bat（它会先跑一遍，走散就停）。
 // ─────────────────────────────────────────────────────────────────────────────
 
-#define APP_VERSION_MAJOR 3
-#define APP_VERSION_MINOR 0
+#define APP_VERSION_MAJOR 2
+#define APP_VERSION_MINOR 4
 #define APP_VERSION_PATCH 0
 #define APP_VERSION_BUILD 0
 
 // 渠道后缀：正式版是空串，预奏快照版写 "-snapshot"。
 // 显示用的版本串（TAG / APP_VERSION / STR / FULL_W）都带它；比较和文件版本的数字部
 // 仍然只来自上面四个数字。tools\check-version.ps1 会核对这三者有没有走散。
-#define APP_VERSION_SUFFIX "-snapshot"
+#define APP_VERSION_SUFFIX ""
 
 // 快照通道：1 = 和正式版并存（独立状态目录 / 窗口类 / AppUserModelID / 卸载项），
 // 0 = 正式通道。必须与 APP_VERSION_SUFFIX 是否为空保持一致。
-#define APP_SNAPSHOT 1
+#define APP_SNAPSHOT 0
 
 // 资源文件用：FILEVERSION / PRODUCTVERSION
 #define APP_VERSION_NUM APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
 
 // 窄字符串：.rc / Inno Setup / NSIS / 脚本
-#define APP_VERSION_STR   "3.0.0.0-snapshot"
-#define APP_VERSION_PLAIN "3.0.0"
-#define APP_VERSION_TAG   "V3.0.0-snapshot"
+#define APP_VERSION_STR   "2.4.0.0"
+#define APP_VERSION_PLAIN "2.4.0"
+#define APP_VERSION_TAG   "V2.4.0"
 
 // 宽字符串：C++ / GDI+ 绘制
-#define APP_VERSION         L"V3.0.0-snapshot"
-#define APP_VERSION_PLAIN_W L"3.0.0"
-#define APP_VERSION_FULL_W  L"3.0.0.0-snapshot"
+#define APP_VERSION         L"V2.4.0"
+#define APP_VERSION_PLAIN_W L"2.4.0"
+#define APP_VERSION_FULL_W  L"2.4.0.0"
 #define APP_NAME            L"冥零工作台"

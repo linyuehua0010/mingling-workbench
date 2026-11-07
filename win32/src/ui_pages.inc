@@ -1993,6 +1993,7 @@ void UiInit(HWND hwnd) {
     }
     EnsureWorkspaceLayout(WorkspaceDir());
     EnsureSecrets();   // <Base>\secrets 建出来 + README（幂等，只在缺的时候写）
+    her::EnsureBundledSkill();   // 安装包自带的那份安装 Skill 铺到 %USERPROFILE%\.agents\skills（幂等）
     // 安装版（同目录有 unins000.exe）自己登记卸载项：安装器的进程写这条键会被系统拒，
     // 改由应用首次启动时补上，控制面板/设置的「应用」里就能看到并卸载。
     RegisterUninstallEntry();

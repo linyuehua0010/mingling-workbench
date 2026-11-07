@@ -413,8 +413,7 @@ wstring PickFolder(HWND owner, const wstring& title, const wstring& initial) {
 }
 
 // ---------------------------------------------------------------- 迁移（复制 out\tmp\logs）
-static void CopyTree(const wstring& from, const wstring& to) {
-    if (!DirExists(from)) return;
+static void CopyTree(const wstring& from, const wstring& to) {    if (!DirExists(from)) return;
     EnsureDirTree(to);
     WIN32_FIND_DATAW fd{};
     HANDLE h = FindFirstFileW(JoinPath(from, L"*").c_str(), &fd);
@@ -429,8 +428,13 @@ static void CopyTree(const wstring& from, const wstring& to) {
     FindClose(h);
 }
 
-void MigrateWorkspaceData(const wstring& from, const wstring& to) {
-    if (from.empty() || to.empty() || from == to) return;
+bool CopyDirTree(const wstring& from, const wstring& to) {
+    if (to.empty() || !DirExists(from)) return false;
+    CopyTree(from, to);
+    return true;
+}
+
+void MigrateWorkspaceData(const wstring& from, const wstring& to) {    if (from.empty() || to.empty() || from == to) return;
     const wchar_t* sub[] = {L"out", L"tmp", L"logs"};
     for (auto s : sub) CopyTree(JoinPath(from, s), JoinPath(to, s));
 }
