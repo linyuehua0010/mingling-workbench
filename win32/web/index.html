@@ -338,7 +338,7 @@ const NAV=[
   {label:'照顾她',hint:'维护和设置',icon:ICON.care},
   {label:'帮帮忙',hint:'教程和更新',icon:ICON.help}
 ];
-let state=null,sec=0,helpSec=0,cfgSec=0,editing=-1,signature='',tabBefore=-1,force=false;
+let state=null,sec=0,helpSec=0,cfgSec=0,maintSec=0,editing=-1,signature='',tabBefore=-1,force=false;
 const tplus=(sec2)=>new Date(Date.now()+sec2*1000);
 
 function send(cmd,extra={}){if(bridge)bridge.postMessage({cmd,...extra});else toast('现在是界面预览，从工作台打开才能真的动手')}
@@ -394,8 +394,8 @@ function configForm(){
 }
 function jobs(){
   return head('03','做过的事','<span class="act">（翻本子）</span>都记着呢，一条没落。',btn('刷新','btn:jobs_refresh'))
-    +card('本子',state.jobs.length?`<div class="meta" style="margin-bottom:8px">最近 ${state.jobs.length} 条</div>${jobRows()}`:empty('本子还是空的','从一条视频或一个链接开始','（摊手）','<button data-nav="1" data-section-go="1">去丢个链接</button>'))
-    +(state.jobDetail?card('这一次',`<pre>${esc(state.jobDetail)}</pre><div class="quick">${btn('复制记录','btn:copy_job')}${btn('打开产物','btn:open_shotdir')}</div>`):'');
+    +`<div class="cols jobs-cols">`+card('本子',state.jobs.length?`<div class="meta" style="margin-bottom:8px">最近 ${state.jobs.length} 条</div>${jobRows()}`:empty('本子还是空的','从一条视频或一个链接开始','（摊手）','<button data-nav="1" data-section-go="1">去丢个链接</button>'))
+    +card('这一次',state.jobDetail?`<pre>${esc(state.jobDetail)}</pre><div class="quick">${btn('复制记录','btn:copy_job')}${btn('打开产物','btn:open_shotdir')}</div>`:empty('挑一条，展开看看','点左边本子上的记录，详情会显示在这里','（翻页）'))+`</div>`;
 }
 function logs(){
   const src=['B站 / bili-whale','AstrBot','SnowLuma'];
@@ -444,16 +444,19 @@ function saveTheme(mode){
 }
 
 function maintenance(){
+  const tabs=['外观主题','组件状态','一键操作','相处的习惯','她会做的事'];
   let html=head('06','照顾她','<span class="act">（把工具箱推过来）</span>要动哪儿，先跟我说一声。',btn('再查一遍','mref',false,state.maintBusy),state.note||'')
-    +themeSettings()+`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`;
+    +`<nav class="seg" aria-label="照顾她分类">${tabs.map((n,i)=>`<button data-maint="${i}" class="${maintSec===i?'selected':''}" aria-current="${maintSec===i?'page':'false'}">${n}</button>`).join('')}</nav>`;
+  if(maintSec===0)return html+themeSettings();
+  if(maintSec===1)return html+card('组件状态',`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`);
   const ops=[['日常',[['重启大脑','restart_brain'],['重登 QQ','relogin'],['重启 QQ','restart_qq'],['自设定','selfsetup'],['一键自动配置','autosetup'],['导入人设','import_skill'],['修开机自启','autostart_fix']]],['组件',[['启动 Breeze','start_breeze'],['启动 Ollama','start_ollama'],['更新技能','skill_update']]],['兜底',[['备份到桌面','backup'],['生成求助信息','diag']]]];
-  html+=card('一键操作',ops.map(([g,list])=>`<div class="group-label">${g}</div><div class="quick" style="margin-top:0">${list.map(([n,a])=>btn(n,'op:'+a,false,state.maintBusy)).join('')}</div>`).join('')+`<p class="dim" style="margin-top:12px">${esc(state.lastOp)||'动过什么，会写在这里。'}</p>`);
+  if(maintSec===2)return html+card('一键操作',ops.map(([g,list])=>`<div class="group-label">${g}</div><div class="quick" style="margin-top:0">${list.map(([n,a])=>btn(n,'op:'+a,false,state.maintBusy)).join('')}</div>`).join('')+`<p class="dim" style="margin-top:12px">${esc(state.lastOp)||'动过什么，会写在这里。'}</p>`);
   let rows=optRow('群里怎么回复','@ 不 @ 引用，随你',[['不 @','freq:group:off','off'],['@ 对方','freq:group:mention','mention'],['引用','freq:group:quote','quote'],['都加','freq:group:both','both']],state.group,state.maintBusy);
   rows+=optRow('表情包','发多少',[['少','freq:meme:few','few'],['适中','freq:meme:mid','mid'],['多','freq:meme:many','many']],state.meme,state.maintBusy);
   rows+=optRow('语音','多久说一次',[['少','freq:voice:few','few'],['适中','freq:voice:mid','mid'],['多','freq:voice:many','many']],state.voiceFreq,state.maintBusy);
   rows+=optRow('掉线提醒','断了就吱一声',[['开','op:watch_on',true],['关','op:watch_off',false],['改间隔','op:watch_every',null],['试一条','op:watch_test',null]],state.watchOn,state.maintBusy);
   rows+=optRow('打游戏模式','打的时候，先让她安静会儿',[[state.gameOn?'打完了，恢复':'开启',state.gameOn?'op:game_off':state.gameCan?'op:game_on':'op:game_hint',true]],state.gameOn,state.maintBusy);
-  html+=card('相处的习惯',rows);
+  if(maintSec===3)return html+card('相处的习惯',rows);
   const plugins=['astrbot_plugin_dafeiyu_petlink','astrbot_plugin_dafeiyu_sing','astrbot_plugin_seed_audio_tts','astrbot_plugin_breeze_online_tts'];
   const pn=[['桌宠','让桌宠也用她的人设'],['唱歌','想听什么，点一首'],['豆包语音','用豆包的声音'],['在线 Breeze','用在线 Breeze 音色']];
   let rows2=pn.map((p,i)=>optRow(p[0],p[1],[['开','plugin/'+plugins[i]+'/1',true],['关','plugin/'+plugins[i]+'/0',false]],state.features[i],state.maintBusy)).join('');
@@ -511,7 +514,7 @@ function render(s){
   const changed=tabBefore!==s.tab; if(changed){signature='';tabBefore=s.tab;window.scrollTo(0,0)}
   if(changed||!$('nav').children.length)nav();
   const comparable=Object.assign({},s,{clock:'',toast:'',notify:null});
-  const sig=JSON.stringify([comparable,helpSec,cfgSec]);
+  const sig=JSON.stringify([comparable,helpSec,cfgSec,maintSec]);
   if(sig===signature&&!force)return;
   const focused=document.activeElement,form=$('config-form');
   if(!changed&&!force&&(form||(themeDirty&&$('theme-form'))||(focused&&focused.matches('input,textarea,select'))||$('editor').open))return;
@@ -523,6 +526,7 @@ function render(s){
 document.addEventListener('click',e=>{
   const b=e.target.closest('button,[data-job]');if(!b)return;
   const d=b.dataset;
+  if('maint'in d){maintSec=+d.maint;themeDirty=false;force=true;render(state);return}
   if('theme'in d){saveTheme(d.theme);return}
   if('nav'in d){force=true;const i=+d.nav;if(d.sectionGo!==undefined){send('tab',{index:i});send('section',{index:+d.sectionGo})}else send('tab',{index:i});return}
   if('action'in d){act(d.action);return}
