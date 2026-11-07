@@ -632,10 +632,32 @@ wstring FetchText(const wstring& url, int timeoutMs = 8000, size_t limit = 0) {
 const wchar_t* kProxies[] = {L"https://gh.dpik.top/", L"https://edgeone.gh-proxy.com/", L"https://gh-proxy.org/", L""};
 const wchar_t* kSkillRepo = L"zexuanw958-svg/dafeiyu-config-pack";
 
+// 技能装在哪：先看 <Base>\tools\skill-home.txt（装的时候记下来的），没记就按几个
+// 常见家目录找。技能是单独装到 %USERPROFILE%\.agents\skills 下的机器上，工作区里那份
+// tools\skill-version.json 可能根本没有——不能因为没这个文件就说「没装」。
+wstring SkillHome() {
+    wstring home = Trim(ReadTextFile(JoinPath(JoinPath(Base(), L"tools"), L"skill-home.txt"), 4096));
+    if (!home.empty() && DirExists(home)) return home;
+    wchar_t up[MAX_PATH * 2] = {0};
+    if (!GetEnvironmentVariableW(L"USERPROFILE", up, MAX_PATH * 2) || !up[0]) return L"";
+    static const wchar_t* kSub[] = {L"\\.agents\\skills\\dafeiyu-install",
+                                    L"\\.dsh\\skills\\dafeiyu-install",
+                                    L"\\.workbuddy\\skills\\dafeiyu-install"};
+    for (const wchar_t* s : kSub) {
+        wstring d = wstring(up) + s;
+        if (DirExists(d)) return d;
+    }
+    return L"";
+}
+
 wstring SkillVersionLocal() {
     J j = ReadJson(JoinPath(JoinPath(Base(), L"tools"), L"skill-version.json"));
     wstring v = j.Str(L"version");
-    return v;
+    if (!v.empty()) return v;
+    // 工作区里那份没写下来（老安装器铺的技能、或者换过机器人根）：去技能自己的目录问
+    wstring home = SkillHome();
+    if (home.empty()) return L"";
+    return ReadJson(JoinPath(home, L"version.json")).Str(L"version");
 }
 
 // 更新检查的缓存（工作台自己的 logs\cache.json：成功 6 小时内不再联网）
@@ -1058,8 +1080,8 @@ ActionResult SkillUpdate() {
     env.push_back({L"DFY_VER", latest});
     env.push_back({L"DFY_REPO", kSkillRepo});
     env.push_back({L"DFY_CUR", sl});
-    wstring home = ReadTextFile(JoinPath(JoinPath(Base(), L"tools"), L"skill-home.txt"));
-    env.push_back({L"DFY_HOME", Trim(home)});
+    wstring home = SkillHome();
+    env.push_back({L"DFY_HOME", home});
     CmdResult r = PsEncoded(ps, env, 600000);
     if (r.out.find(L"DONE") == wstring::npos)
         return Bad(L"更新没成：" + TailText(Trim(r.out), 200));

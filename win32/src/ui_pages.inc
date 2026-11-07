@@ -225,9 +225,56 @@ static void InputSelectAll() {
 }
 
 // ---------------------------------------------------------------- 服务 / 任务
+// 组件目录：新布局在 <工作区>\bots\<名字> 下，老机器散在 <Base>\<名字> 下。
+// 页面上所有「找组件」的地方都走这里，别再各自拼 BaseDir()——拼错那一年就是这么来的。
+static wstring CompDir(const wchar_t* name) {
+    wstring n = BotDir(name);
+    if (DirExists(n)) return n;
+    wstring o = JoinPath(BaseDir(), name);
+    if (DirExists(o)) return o;
+    return n;
+}
+
 static wstring LogPath(int i) {
-    if (i == 0) return JoinPath(JoinPath(BaseDir(), L"SnowLuma"), L"snowluma-run.log");
-    return JoinPath(JoinPath(BaseDir(), L"astrbot"), L"run.log");
+    if (i == 0) return JoinPath(CompDir(L"SnowLuma"), L"snowluma-run.log");
+    return JoinPath(CompDir(L"AstrBot"), L"run.log");
+}
+
+// 看日志时读哪个：规范位置没有就退回老位置（老机器升级上来的日志还在 <Base> 下）
+static wstring ReadLogPath(int i) {
+    wstring p = LogPath(i);
+    if (FileExists(p)) return p;
+    const wchar_t* file = i == 0 ? L"snowluma-run.log" : L"run.log";
+    wstring legacy = JoinPath(JoinPath(BaseDir(), i == 0 ? L"SnowLuma" : L"AstrBot"), file);
+    if (FileExists(legacy)) return legacy;
+    return p;
+}
+
+// B站那条标签背后是 bili-whale 命令行工具（现在一条消息一个子进程，没有常驻服务）。
+// 老版本留过 logs\bili-service.log，有就拿来给用户看一眼——真看到内容总比一句空话强。
+static wstring BiliLogPath() {
+    wstring d = JoinPath(RootDir(), L"logs");
+    const wchar_t* names[] = {L"bili-whale.log", L"bili-service.log"};
+    for (const wchar_t* n : names) {
+        wstring p = JoinPath(d, n);
+        if (FileExists(p)) return p;
+    }
+    return JoinPath(d, L"bili-whale.log");
+}
+
+// 文件最后写进去是多少秒前；读不到返回 -1
+static long long SecondsSinceWrite(const wstring& p) {
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (!GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &fad)) return -1;
+    ULARGE_INTEGER w, n;
+    w.LowPart = fad.ftLastWriteTime.dwLowDateTime;
+    w.HighPart = fad.ftLastWriteTime.dwHighDateTime;
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    n.LowPart = now.dwLowDateTime;
+    n.HighPart = now.dwHighDateTime;
+    if (n.QuadPart <= w.QuadPart) return 0;
+    return (long long)((n.QuadPart - w.QuadPart) / 10000000ULL);
 }
 
 static void StartService(int idx) {
@@ -244,11 +291,16 @@ static void StartService(int idx) {
             // AstrBot 的启动器可能在不同布局里：uv 工具目录用 bin，venv 用 Scripts，
             // 也接受用户把 astrbot.exe 放进 PATH。挨个找，找不到就把提示写清楚。
             wstring exe;
-            const wchar_t* cand[] = {L"uv\\bin\\astrbot.exe", L"uv\\Scripts\\astrbot.exe",
-                                     L"astrbot\\astrbot.exe"};
+            const wchar_t* cand[] = {L"uv\\bin\\astrbot.exe", L"uv\\tools\\astrbot\\Scripts\\astrbot.exe",
+                                     L"uv\\Scripts\\astrbot.exe", L"astrbot\\astrbot.exe"};
             for (const wchar_t* rel : cand) {
-                wstring p = JoinPath(BaseDir(), rel);
+                wstring p = JoinPath(BotRoot(), rel);
                 if (FileExists(p)) { exe = p; break; }
+            }
+            for (const wchar_t* rel : cand) {
+                if (!exe.empty()) break;
+                wstring p = JoinPath(BaseDir(), rel);
+                if (FileExists(p)) exe = p;
             }
             if (exe.empty()) {
                 wchar_t found[MAX_PATH] = {0};
@@ -257,16 +309,16 @@ static void StartService(int idx) {
             wchar_t pathBuf[8192] = {0};
             GetEnvironmentVariableW(L"PATH", pathBuf, 8192);
             EnvList env;
-            env.emplace_back(L"PATH", JoinPath(JoinPath(BaseDir(), L"ffmpeg"), L"bin") + L";" + pathBuf);
+            env.emplace_back(L"PATH", JoinPath(CompDir(L"ffmpeg"), L"bin") + L";" + pathBuf);
             env.emplace_back(L"PYTHONUTF8", L"1");
             DWORD pid = 0;
-            if (!exe.empty()) pid = SpawnDetached(exe, L"run", JoinPath(BaseDir(), L"astrbot"), env, LogPath(1));
+            if (!exe.empty()) pid = SpawnDetached(exe, L"run", CompDir(L"AstrBot"), env, LogPath(1));
             d->ok = pid != 0;
             d->text = pid ? L"AstrBot 启动了（pid " + Num(pid) + L"）"
-                          : L"没找到 AstrBot：请把 AstrBot 放到 " + JoinPath(BaseDir(), L"uv\\bin") +
-                            L" 或用 PATH 里的 astrbot.exe；日志见 astrbot\\run.log";
+                          : L"没找到 AstrBot：请把 AstrBot 放到 " + JoinPath(BotRoot(), L"uv\\bin") +
+                            L" 或用 PATH 里的 astrbot.exe；日志见 " + LogPath(1);
         } else {
-            wstring cwd = JoinPath(BaseDir(), L"SnowLuma");
+            wstring cwd = CompDir(L"SnowLuma");
             wstring exe = JoinPath(cwd, L"node.exe");
             EnvList env;
             env.emplace_back(L"SNOWLUMA_HOOK_AUTOLOAD", L"1");
@@ -277,7 +329,7 @@ static void StartService(int idx) {
             if (!pw.empty()) env.emplace_back(L"SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD", pw);
             DWORD pid = SpawnDetached(exe, L"index.mjs", cwd, env, LogPath(0));
             d->ok = pid != 0;
-            d->text = pid ? L"SnowLuma 启动了（pid " + Num(pid) + L"）" : L"SnowLuma 起不来，看看 snowluma-run.log";
+            d->text = pid ? L"SnowLuma 启动了（pid " + Num(pid) + L"）" : L"SnowLuma 起不来，看看 " + LogPath(0);
         }
         PostTask(d);
     }).detach();
@@ -510,14 +562,31 @@ static void LoadJobDetail(int idx) {
 }
 
 static void RefreshLogsNow() {
-    wstring p = g_logSrc == 0 ? JoinPath(JoinPath(RootDir(), L"logs"), L"bili-whale.log") : LogPath(g_logSrc - 1);
-    if (g_logSrc == 0 && !FileExists(p)) {
-        // bili-whale 没有常驻服务：拿最近一次任务的输出
-        g_logText = L"bili-whale 是命令行工具，没有常驻日志；最近一次任务见「队列」。";
-        return;
+    // 标签顺序是 B站 / AstrBot / SnowLuma，而 LogPath(0)=SnowLuma、LogPath(1)=AstrBot。
+    if (g_logSrc == 0) {
+        wstring p = BiliLogPath();
+        if (!FileExists(p)) {
+            // bili-whale 没有常驻服务：拿最近一次任务的输出
+            g_logText = L"bili-whale 是命令行工具，没有常驻日志；最近一次任务见「队列」。";
+            g_logStamp = GetTickCount();
+            return;
+        }
+        g_logText = TailFile(p, 240, 260000);
+        if (g_logText.empty()) g_logText = L"（" + p + L" 还是空的：它还没写过东西）";
+        else if (p.size() > 16 && p.substr(p.size() - 16) == L"bili-service.log") {
+            long long age = SecondsSinceWrite(p);
+            if (age >= 86400)
+                g_logText = L"（这是旧版服务留下的 logs\\bili-service.log，已经 " + Num((int)(age / 86400)) +
+                            L" 天没动过；bili-whale 现在一条消息一个子进程，不写常驻日志。下面只是历史内容）\n\n" +
+                            g_logText;
+        }
+    } else {
+        wstring p = ReadLogPath(g_logSrc == 1 ? 1 : 0);
+        g_logText = TailFile(p, 240, 260000);
+        if (g_logText.empty())
+            g_logText = FileExists(p) ? L"（" + p + L" 还是空的：服务刚起来，或者还没写过东西）"
+                                      : L"（日志是空的：服务可能还没启动过。找不到 " + p + L"）";
     }
-    g_logText = TailFile(p, 240, 260000);
-    if (g_logText.empty()) g_logText = L"（日志是空的：服务可能还没启动过）";
     g_logStamp = GetTickCount();
 }
 
