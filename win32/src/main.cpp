@@ -43,6 +43,7 @@ static void AttachConsoleIfAsked() {
                 wcscmp(argv[i], L"--bili") == 0 || wcscmp(argv[i], L"--link") == 0 || wcscmp(argv[i], L"--autosetup") == 0 ||
                 wcscmp(argv[i], L"--bots-setup") == 0 ||
                 wcscmp(argv[i], L"--selfsetup") == 0 ||
+                wcscmp(argv[i], L"--wb-update") == 0 ||
                 wcscmp(argv[i], L"--version") == 0) want = true;
         LocalFree(argv);
     }
@@ -442,11 +443,44 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
                     wcscmp(argv[i], L"--link") == 0 ||
                     wcscmp(argv[i], L"--autosetup") == 0 || wcscmp(argv[i], L"--bots-setup") == 0 ||
                     wcscmp(argv[i], L"--selfsetup") == 0 ||
+                    wcscmp(argv[i], L"--wb-update") == 0 || wcscmp(argv[i], L"--wb-update-run") == 0 ||
                     wcscmp(argv[i], L"--version") == 0) cli = true;
             }
             LocalFree(argv);
         }
         if (cli) {
+            // 覆盖更新的两个入口最先处理：它们要在任何 UI 起来之前拿到话事权
+            for (int i = 0; i < (int)args.size(); i++) {
+                if (args[i] == L"--wb-update-run") {
+                    if (i + 5 >= (int)args.size()) return 2;
+                    unsigned long pid = (unsigned long)_wtoi64(args[i + 4].c_str());
+                    return her::RunUpdateHelper(args[i + 1], args[i + 2], args[i + 3], pid, args[i + 5]);
+                }
+            }
+            for (int i = 0; i < (int)args.size(); i++) {
+                if (args[i] == L"--wb-update") {
+                    if (i + 1 >= (int)args.size()) {
+                        Out(L"用法：--wb-update <安装包.exe> [tag]");
+                        return 2;
+                    }
+                    wstring tag = (i + 2 < (int)args.size()) ? args[i + 2] : wstring(L"sync");
+                    her::UpdatePlan p = her::PlanUpdate(args[i + 1], tag);
+                    if (!p.ok) {
+                        Out(L"[更新] 没准备好：" + p.err);
+                        return 3;
+                    }
+                    Out(L"[更新] 备份到 " + p.backupDir);
+                    int code = -1;
+                    wstring err;
+                    bool ok = her::ApplyUpdateSync(p, &code, &err);
+                    if (!ok) {
+                        Out(L"[更新] 失败：" + (err.empty() ? wstring(L"未知原因") : err));
+                        return 4;
+                    }
+                    Out(L"[更新] 好了（安装器退出码 " + Num(code) + L"）");
+                    return 0;
+                }
+            }
             for (int i = 0; i < (int)args.size(); i++) {
                 if (args[i] == L"--version" || args[i] == L"--paths" || args[i] == L"--feed" || args[i] == L"--debrief" ||
                     args[i] == L"--watch" || args[i] == L"--bili" || args[i] == L"--link" ||

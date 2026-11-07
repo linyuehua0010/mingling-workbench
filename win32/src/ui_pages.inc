@@ -1661,6 +1661,7 @@ void UiOnClick(int x, int y) {
     if (p[0] == "up" && p.size() >= 2) {
         wstring k = Utf8ToW(p[1]);
         if (k == L"refresh") { RefreshUpdates(true); return; }
+        if (k == L"wbgo") { StartSelfUpdate(); return; }
         if (k == L"wbdl") {
             // 优先点这一轮查到的 release 网页（可能是具体某个 tag）；
             // 没查到就退回快照通道仓库的 releases 列表，再不行才提示去配 repo_snapshot。
@@ -2182,6 +2183,35 @@ void UiOnTask(TaskData* d) {
                 UiRequestRepaint();
             }
             if (!d->ok) UiToast(d->action == 1 ? L"对话 API 没答上来（不影响看片）" : L"对话 API 没连上（不影响看片）");
+            UiRequestRepaint();
+            break;
+        }
+        case TK_SELFUPD: {   // 工作台一键更新：安装包备好后最后确认一次，再自己关掉
+            her::UpdatePlan* plan = (her::UpdatePlan*)d->ptr;
+            g_upProg = -1;
+            if (!d->ok || !plan) {
+                g_upMsg = d->text.empty() ? wstring(L"更新没成") : d->text;
+                g_upMsgAt = NowUnix();
+                UiToast(g_upMsg);
+            } else {
+                wstring msg = L"安装包已经下好、校验过，程序文件也备份到了：\n" + plan->backupDir +
+                              L"\n\n点确定就关掉工作台开始装，装完它自己会开回来。";
+                if (MessageBoxW(g_hwnd, msg.c_str(), L"冥零工作台 · 更新", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK) {
+                    wstring err;
+                    if (her::LaunchUpdateDetached(*plan, &err)) {
+                        DestroyWindow(g_hwnd);
+                    } else {
+                        g_upMsg = L"升级程序起不来：" + err;
+                        g_upMsgAt = NowUnix();
+                        UiToast(g_upMsg);
+                    }
+                } else {
+                    g_upMsg = L"先不装：安装包留在 " + plan->setup;
+                    g_upMsgAt = NowUnix();
+                }
+            }
+            delete plan;
+            d->ptr = nullptr;
             UiRequestRepaint();
             break;
         }

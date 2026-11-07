@@ -174,6 +174,43 @@ bool WbIsSnapshotTag(const std::wstring& tag);
 // 旧接口：给 --her 命令行 / 别处要一句话摘要时用
 std::wstring UpdatesSummary(const UpdatesInfo& u);
 
+// ================================================================ 覆盖更新（只换程序文件）
+// 更新只碰工作台自己的程序目录（bin / sidecar / tools / pack / plugin / skill / docs / art），
+// 绝不进 bots、out、logs、private、secrets，也不动 settings 和状态。
+struct SetupAsset {
+    bool ok = false;
+    std::wstring tag;      // 原始 tag，比如 V3-snapshot-2
+    std::wstring name;     // 安装包文件名
+    std::wstring url;      // 下载地址
+    std::wstring shaUrl;   // 同名 .sha256（release 没挂就空）
+    unsigned long long size = 0;   // 字节（release 没给就是 0）
+    std::wstring err;
+};
+SetupAsset FindSetupAsset(const std::wstring& repo, const std::wstring& version);
+
+bool DownloadFile(const std::wstring& url, const std::wstring& path, unsigned long long* got, std::wstring* err,
+                  const std::function<void(int)>& prog = nullptr);
+std::wstring Sha256File(const std::wstring& path, std::wstring* err);
+
+// 备份 + 生成计划：把程序文件拷到 <机器人根>\旧版\workbench-<tag>-<时间> 下
+struct UpdatePlan {
+    bool ok = false;
+    std::wstring setup;       // 安装包
+    std::wstring log;         // 安装器日志
+    std::wstring backupDir;   // 备份目录
+    std::wstring exePath;     // 装完后要重启的 exe
+    std::wstring helper;      // 临时目录里的 updater 副本
+    std::wstring err;
+};
+UpdatePlan PlanUpdate(const std::wstring& setupPath, const std::wstring& tag);
+bool LaunchUpdateDetached(const UpdatePlan& p, std::wstring* err);
+// 命令行 / 演练用：同步跑一遍（备份 → 安装 → 失败回滚），返回安装器退出码
+bool ApplyUpdateSync(const UpdatePlan& p, int* code, std::wstring* err);
+// updater 副本的入口：等父进程退出 → 静默安装 → 失败回滚 → 重启
+int RunUpdateHelper(const std::wstring& backupDir, const std::wstring& setup, const std::wstring& logPath,
+                    unsigned long parentPid, const std::wstring& exePath);
+std::vector<std::wstring> UpdateProgramDirs();
+
 // ================================================================ 系统 / 端口 / 进程
 struct Est { int lport = 0, rport = 0; DWORD pid = 0; };
 struct NetSnap {

@@ -48,6 +48,9 @@ static wstring UpAskText(const her::UpdateItem& it) {
 // 在查哪个仓库：快照通道（settings.json 的 repo_snapshot）。没配就是空字符串，
 // 界面据此说「还没配」，而不是假装在查一个不存在的仓库。
 static wstring UpWbRepo() { return g_up.wbRepo; }
+static wstring g_upMsg;          // 一键更新的进度 / 结果（一行话）
+static long long g_upMsgAt = 0;
+static int g_upProg = -1;        // 下载百分比；-1 = 没在下载
 
 static wstring UpStateWord(const her::UpdateItem& it) {
     const wstring& st = it.state;
@@ -98,8 +101,16 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
         if (it.id == L"skill")
             Button(g, RectF(rx + rightW - S(104), c.Y + S(44), S(104), S(28)), g_mBusy ? L"在做…" : L"一键更新",
                    "upact:skill", 1, true, !g_mBusy);
-        else if (it.id == L"wb")
-            Button(g, RectF(rx + rightW - S(136), c.Y + S(44), S(136), S(28)), L"去 GitHub 下载", "up:wbdl", 0, true, true);
+        else if (it.id == L"wb") {
+            // 工作台自己能覆盖自己：下载 → 校验 → 备份 → 静默安装 → 重启
+            Button(g, RectF(rx + rightW - S(136), c.Y + S(44), S(136), S(28)),
+                   g_upProg >= 0 ? (L"下载 " + Num(g_upProg) + L"%") : L"一键更新", "up:wbgo", 1, true,
+                   g_upProg < 0);
+            RectF rl(rx + rightW - S(136), c.Y + S(76), S(136), S(16));
+            Txt(g, L"也可以去 Releases 手动下", rl, Fnt(MICRO_SIZE, Hov("up:wbdl") ? 0 : 1, 0),
+                Hov("up:wbdl") ? C_ACCENT : C_FAINT, 2);
+            AddHit(rl, "up:wbdl");
+        }
         else
             Button(g, RectF(rx + rightW - S(136), c.Y + S(44), S(136), S(28)), L"复制给 Agent 的话", "upact:" + WToUtf8(it.id),
                    0, true, true);
@@ -111,7 +122,8 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
         desc = L"有新版，点一下就换上，大约半分钟，她照常聊天。" + wstring(UpSkillNotes(it) ? L"这一版改了：" : L"");
     else if (it.state == L"new" && it.id == L"wb")
         desc = L"GitHub 上（" + UpWbRepo() +
-               L"）有新版本了。点右边去 Releases 下载，覆盖安装即可：设置、台账和看过的视频都在工作区里，不会被换掉。";
+               L"）有新版本了。点「一键更新」：先把她自己的程序文件备份到 <机器人根>\\旧版\\，"
+               L"再静默装上新版，装完自己开回来。bots、out、logs、secrets 和你的设置都不动。";
     else if (it.id == L"wb" && it.state == L"latest")
         desc = L"已经是最新（" + UpWbRepo() + L"）。换机器时从 Releases 页面下载安装包覆盖安装就行。";
     else if (it.id == L"wb" && UpWbRepo().empty())
@@ -174,6 +186,7 @@ static void PaintUpdates(Graphics& g) {
     else
         for (auto& it : g_up.items) fullH += UpRowH(it) + gap;
     fullH += S(30);
+    if (!g_upMsg.empty()) fullH += S(22);
 
     g_upContentH = fullH;
     g_upViewH = h;
@@ -235,6 +248,11 @@ static void PaintUpdates(Graphics& g) {
     // ---- 页脚
     Txt(g, g_up.ok ? L"都查到了。" : L"有几项没查到最新版（多半是网络不通），过会儿再点「再查一遍」。",
         RectF(x0, y + S(2), w, S(18)), Fnt(MICRO_SIZE, 1, 0), g_up.ok ? C_FAINT : C_WARN, 0, true);
+    if (!g_upMsg.empty()) {
+        wstring line = g_upMsg;
+        if (g_upProg >= 0) line += L"  " + Num(g_upProg) + L"%";
+        Txt(g, line, RectF(x0, y + S(24), w, S(18)), Fnt(MICRO_SIZE, 0, 0), C_ACCENT, 0, true);
+    }
 
     if (scrolls) {
         g.ResetTransform();
@@ -242,4 +260,131 @@ static void PaintUpdates(Graphics& g) {
         ScrollBar(g, RectF(x0, y0, w, h), g_upScroll, fullH);
         g_drawOffY = 0;
     }
+}
+
+// ---------------------------------------------------------------- 工作台一键更新
+// 只换程序：下载 → 校验 → 备份到 <机器人根>\旧版\ → 静默安装 → 重启。
+// bots、out、logs、private、secrets 和 settings 一律不碰。
+static void UpMsgSet(const wstring& s) {
+    g_upMsg = s;
+    g_upMsgAt = NowUnix();
+    UiRequestRepaint();
+}
+
+static bool OtherWorkbenchRunning() {
+    // 自己算一个；还有别的（比如命令行 --her-op 正在跑）就先别动，免得文件被占
+    auto pids = her::PidsNamed(L"minglingworkbench.exe");
+    return pids.size() > 1;
+}
+
+static void SelfUpdateWorker(her::SetupAsset a) {
+    TaskData* d = new TaskData();
+    d->kind = TK_SELFUPD;
+    her::UpdatePlan* plan = new her::UpdatePlan();
+    wstring err;
+
+    wstring dir = JoinPath(StateDir(), L"updates");
+    CreateDirectoryW(StateDir().c_str(), nullptr);
+    CreateDirectoryW(dir.c_str(), nullptr);
+    wstring dest = JoinPath(dir, a.name);
+
+    UpMsgSet(L"正在下载 " + a.name);
+    g_upProg = 0;
+    unsigned long long got = 0;
+    bool ok = her::DownloadFile(a.url, dest, &got, &err, [](int p) {
+        g_upProg = p;
+        UiRequestRepaint();
+    });
+    g_upProg = -1;
+    if (!ok) {
+        d->ok = false;
+        d->text = L"下载没成：" + (err.empty() ? wstring(L"网络问题") : err);
+        delete plan;
+        PostTask(d);
+        return;
+    }
+    // 大小对不上就不装：宁可说「没成」，也别装半个包
+    if (a.size > 0 && got != a.size) {
+        d->ok = false;
+        d->text = L"下载的大小对不上（要 " + Num((long long)a.size) + L"，拿到 " + Num((long long)got) + L"），没装";
+        delete plan;
+        PostTask(d);
+        return;
+    }
+    // release 上挂了 .sha256 就核对；没挂就只能信大小
+    if (!a.shaUrl.empty()) {
+        wstring shaPath = dest + L".sha256";
+        unsigned long long sgot = 0;
+        wstring serr;
+        if (her::DownloadFile(a.shaUrl, shaPath, &sgot, &serr, nullptr)) {
+            wstring want = Trim(ReadTextFile(shaPath));
+            size_t sp = want.find_first_of(L" \t\r\n");
+            if (sp != wstring::npos) want = want.substr(0, sp);
+            wstring have = her::Sha256File(dest, nullptr);
+            if (!want.empty() && !have.empty() && !IContains(want, have)) {
+                d->ok = false;
+                d->text = L"校验没通过（哈希对不上），已经放弃安装";
+                delete plan;
+                PostTask(d);
+                return;
+            }
+        }
+    }
+
+    UpMsgSet(L"正在备份程序文件到 <机器人根>\\旧版\\");
+    *plan = her::PlanUpdate(dest, a.tag);
+    if (!plan->ok) {
+        d->ok = false;
+        d->text = L"备份没成：" + plan->err;
+        delete plan;
+        PostTask(d);
+        return;
+    }
+    d->ok = true;
+    d->text = plan->backupDir;
+    d->ptr = plan;   // 交给 UiOnTask 消费
+    PostTask(d);
+}
+
+static void StartSelfUpdate() {
+    if (g_upProg >= 0) return;
+    const her::UpdateItem* wb = UpItem(L"wb");
+    if (!wb) return;
+    if (wb->state != L"new" || wb->latest.empty()) {
+        UiToast(L"还没查到新版：先点「再查一遍」");
+        return;
+    }
+    if (UpWbRepo().empty()) {
+        UiToast(L"还没配更新源（repo_snapshot），不知道去哪儿下");
+        return;
+    }
+    if (OtherWorkbenchRunning()) {
+        MessageBoxW(g_hwnd, L"还有一份工作台在跑（可能是命令行自检）。\n先把它关掉，再点一键更新。",
+                    L"冥零工作台 · 更新", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    wstring bak = JoinPath(BotRoot(), L"旧版");
+    wstring ask = L"把工作台从 " + wb->local + L" 换到 " + wb->latest + L"？\n\n" +
+                  L"· 只会换她自己的程序文件（bin / sidecar / tools / pack / plugin / skill / docs / art）\n" +
+                  L"· 换之前先备份到 " + bak + L"\n" +
+                  L"· bots、out、logs、secrets 和你的设置都不动\n" +
+                  L"· 装的时候窗口会自己关掉，装完自己开回来\n\n" +
+                  L"现在开始？";
+    if (MessageBoxW(g_hwnd, ask.c_str(), L"冥零工作台 · 更新", MB_OKCANCEL | MB_ICONQUESTION) != IDOK) return;
+
+    UpMsgSet(L"正在问 GitHub 要安装包地址");
+    wstring repo = UpWbRepo();
+    wstring ver = wb->latest;
+    std::thread([repo, ver]() {
+        her::SetupAsset a = her::FindSetupAsset(repo, ver);
+        if (!a.ok) {
+            TaskData* d = new TaskData();
+            d->kind = TK_SELFUPD;
+            d->ok = false;
+            d->text = a.err;
+            PostTask(d);
+            return;
+        }
+        SelfUpdateWorker(a);
+    }).detach();
 }
