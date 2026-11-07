@@ -1552,23 +1552,7 @@ void UiOnClick(int x, int y) {
         UiRequestRepaint();
         return;
     }
-    if (g_tab == 1 && g_bSec == 3) {   // 配置分区里，行和按钮都归配置自己
-        if (g_bCfgSub == 0) BiliCfgClick(id);
-        else LinkCfgClick(id);
-        return;
-    }
-    if (g_tab == 1 && g_bSec == 2 && p[0] == "dsh") {   // 「问一句」长在结果分区里
-        DshClick(id);
-        return;
-    }
-
-    if (p[0] == "hsec" && p.size() > 1) {
-        g_hSec = std::atoi(p[1].c_str());
-        if (g_hSec == 0) RefreshUpdates(false);
-        g_editFocus = 0;
-        UiRequestRepaint();
-        return;
-    }
+    // ---- 侧栏页签和帮助中心的分段：任何时候都认，配置分区里也得能走人
     if (p[0] == "tab") {
         g_tab = std::atoi(p[1].c_str());
         if (g_tab == 1 && g_feed.empty() && !g_feedBusy) RefreshFeed();
@@ -1580,6 +1564,23 @@ void UiOnClick(int x, int y) {
         UiRequestRepaint();
         return;
     }
+    if (p[0] == "hsec" && p.size() > 1) {
+        g_hSec = std::atoi(p[1].c_str());
+        if (g_hSec == 0) RefreshUpdates(false);
+        g_editFocus = 0;
+        UiRequestRepaint();
+        return;
+    }
+    if (g_tab == 1 && g_bSec == 3) {   // 配置分区里，行和按钮都归配置自己
+        if (g_bCfgSub == 0) BiliCfgClick(id);
+        else LinkCfgClick(id);
+        return;
+    }
+    if (g_tab == 1 && g_bSec == 2 && p[0] == "dsh") {   // 「问一句」长在结果分区里
+        DshClick(id);
+        return;
+    }
+
     if (p[0] == "svc") {
         int idx = std::atoi(p[1].c_str());
         if (p.size() > 2 && p[2] == "start") StartService(idx);
