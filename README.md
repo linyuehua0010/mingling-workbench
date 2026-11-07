@@ -3,16 +3,16 @@
 # 冥零工作台 v2
 
 一个 `MinglingWorkbench.exe`，把「QQ 聊天机器人」和「B 站看片」收进同一个窗口：
-起停 SnowLuma / AstrBot、看今天的选题、丢一个 BV 进去让它自己看完、翻任务台账和日志。
+起停 SnowLuma / AstrBot、跑八块自设定、看今天的选题、丢一个 BV 进去让它自己看完、翻任务台账和日志。
 
 原生 **Win32 + GDI+** 自绘，**不挂 Chromium / WebView2 / Electron**。一个进程、一个窗口，
 重复双击只会把已有窗口提到前面。
 
-![Version](https://img.shields.io/badge/version-V2.3.1-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-V2.4.0-2563eb?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0ea5e9?style=flat-square)
 ![GUI](https://img.shields.io/badge/GUI-Win32%20%2B%20GDI%2B-7c3aed?style=flat-square)
 ![No Electron](https://img.shields.io/badge/no-Electron%20%2F%20WebView2-16a34a?style=flat-square)
-![Size](https://img.shields.io/badge/installer-~51%20MB-64748b?style=flat-square)
+![Size](https://img.shields.io/badge/installer-~61%20MB-64748b?style=flat-square)
 
 [下载安装包](#-下载与使用) · [从源码编译](#-从源码编译) · [使用说明](docs/使用说明.md) · [变更记录](docs/CHANGES.md)
 
@@ -36,12 +36,22 @@
 
 ## ✨ 核心特性
 
+### V2.4.0 新增（正式版）
+
+| 功能 | 说明 |
+| --- | --- |
+| **安装包自带安装 Skill** | `skill\mingling-install\` 跟着安装包走（SKILL.md、版本号、`scripts\probe.ps1` 体检脚本、`scripts\finish.ps1` 收尾、两份 references）。第一次启动会自动铺到 `%USERPROFILE%\.agents\skills\mingling-install`，并写下 `<机器人根>\tools\skill-home.txt`（装在哪一份）和 `tools\skill-version.json`（哪一版）。本机已经装过更新的一版就不覆盖；确实要替换时先把旧的备份到 `<机器人根>\旧版\`。 |
+| **更新页认冥零自己的 Skill** | 第四项从 `dafeiyu-install` 换成 `mingling-install`：本地版本读 `tools\skill-version.json`（没写就读 `skill-home.txt` 指的那份 `version.json`）；私有仓库的版本清单走 `api.github.com/…/contents/…` 带 token 查，连不上时只说「查不到」，不再误报「还没发布」。正式版只查正式通道、快照版才查快照通道；点「更新技能」会带 token 从 release 资产下 `mingling-install.zip`，失败再退回加速站。 |
+| **安装包补齐运行时要用的东西** | 以前的包只打了 exe / sidecar / art / docs，干净机器装完点「自设定」只会说「没找到 tools\self-setup.ps1」。V2.4.0 补上 `tools\`（自设定、一键配置、体检、备份、重登、掉线提醒的脚本，以及 `tools\python\` 运行时）、`pack\mingling-pack\`（八块配置清单）、`plugin\mingling_skill\`（人设注入要读的清单）。装完不求人，直接跑八块自设定。 |
+| **组件路径全面认 `<工作区>\bots\`** | 起停服务、日志页（AstrBot / SnowLuma 两路）、体检脚本（`tools\diag.ps1` + `common.ps1`）、备份、重登 QQ、掉线提醒，全都先找 `<工作区>\bots\<名字>`，找不到才退回老平铺目录；B 站那页只剩旧版留下的 `logs\bili-service.log` 时会明说「这是旧版的历史内容，bili-whale 现在不写常驻日志」。 |
+| **exe 属性不再是乱码** | `windres` 补上 `-c 65001`，版本资源里的中文按 UTF-8 读，属性页看到的「冥零工作台」不再是 `鍐ラ浂宸ヤ綔鍙?`。 |
+
 ### V2.2.0 新增
 
 | 功能 | 说明 |
 | --- | --- |
 | **一键配置环境** | 维护页「一键自动配置」（或 `MinglingWorkbench.exe --bots-setup`）自动补 Node / ffmpeg / Python / Ollama，并把 AstrBot、SnowLuma、Breeze、Ollama、bili-whale **五个组件**装进 `<组件根>\<名字>\`，生成 `start-all.cmd` 与 `.setup.json` 安装报告。也可以脱离界面跑 `tools\auto-setup.ps1 -Workspace … -Bots … -Base …`。 |
-| **冥零专属 Skill** | `plugin\mingling_skill\` 带人设模板与 AstrBot Skill 描述；维护页「导入冥零人设」把人设写进 AstrBot 的 `personas` 表、切好 `persona_id`、顺手改白名单前缀，并同步给桌宠。想换成自己的角色，只改 `{user_persona}` / `{user_tone}` 两段。 |
+| **冥零的人设模板** | `plugin\mingling_skill\` 带人设正文与 AstrBot Skill 描述（**不是**上面那个「安装 Skill」，那是给 Agent 装/修工作台用的说明书）；维护页「导入冥零人设」把人设写进 AstrBot 的 `personas` 表、切好 `persona_id`、顺手改白名单前缀，并同步给桌宠。想换成自己的角色，只改 `{user_persona}` / `{user_tone}` 两段。 |
 | **掉线提醒** | 后台心跳默认每分钟探一次 SnowLuma（5099）、AstrBot（6199）、Breeze（8137）；连**续两次**失败才算掉线，同一条 10 分钟内只提醒一次。提醒是右上角滑动横幅（带「重启一下」按钮）+ 托盘气泡，标题/正文/头像/频率都能在 `settings.json` 里改。 |
 | **帮助页组件路径** | 帮助页直接列出工作区、台账、状态目录、组件根、AstrBot、SnowLuma、Breeze、Ollama 的绝对路径，配一个「组件目录」按钮，排错不用再猜装哪了。 |
 | **求助页可改字** | 十一张求助卡每张都能「改文字」，改过的内容存进 `settings.json` 的 `custom_help_texts`，重装不丢。 |
@@ -57,6 +67,8 @@
 
 > **V2.3.1 是补丁版**：组件目录统一认 `<工作区>\bots`——修掉「功能」页语音卡一直红、打游戏模式里 Breeze 关不掉也起不来、开机自启快捷方式还指老路径这几个问题。装过 V2.3.0 的覆盖装一遍就好，配置和记忆都不动。
 
+> **V2.4.0 是正式版**：安装包第一次把 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` 和冥零自己的安装 Skill 一起打进去——新机器装完就能直接「自设定」，不用先手动铺脚本、也不用联网抓配置包。装过 V2.3.x 的覆盖装一遍就好，设置、记忆、密钥都不动。
+
 > **V2.2.1 是补丁版**：修掉双击安装包报「错误 5：拒绝访问」的问题（根因是文件被标了低完整性，不是安装脚本），总览页不再放「打游戏模式」入口——它在维护页照样能用。
 
 ### 一直都有
@@ -66,7 +78,7 @@
 - **任务台账**：工作台、QQ 群、模型工具调用写的是同一份 `logs\jobs.jsonl`，从哪看都是同一段历史。
 - **维护页**：八张状态卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包）+ 一排一键动作（自动配置 / 重启大脑 / 重登 QQ / 导入人设 / 备份 / 求助 / 打开工作区 / 修自启 …）。
 - **体检五连**：登录 → 依赖 → 限额 → 风控 → 自检，就是排错顺序本身。
-- **更新页**：AstrBot / SnowLuma / 安装 Skill / 工作台四项版本对比；前三项给的是「复制给 Agent 的话」。
+- **更新页**：AstrBot / SnowLuma / 安装 Skill（`mingling-install`）/ 工作台四项版本对比；前三项给的是「复制给 Agent 的话」，Skill 那行可以直接「一键更新」。
 - **GUI 子系统但带 CLI**：`--paths`、`--feed`、`--watch BV…`、`--debrief`、`--bili <子命令>`、`--her-status` 都能在无桌面环境里跑。
 
 ---
@@ -115,7 +127,7 @@ build.bat
 
 ```bat
 installer\build-installer.bat
-:: 产物：dist\MinglingWorkbench-2.2.1-setup.exe
+:: 产物：dist\MinglingWorkbench-2.4.0-setup.exe
 ```
 
 需要 **Inno Setup 6**（`ISCC.exe`）。仓库自带 `tools\innosetup6\app\ISCC.exe` 时直接用它，
@@ -134,10 +146,15 @@ installer\build-installer.bat
 到 [Releases](https://github.com/linyuehua0010/mingling-workbench/releases) 页面下载：
 
 ```
-MinglingWorkbench-2.2.1-setup.exe      Windows 10/11 x64，约 51 MB
+MinglingWorkbench-2.4.0-setup.exe      Windows 10/11 x64，约 61 MB
 ```
 
-安装包**自带** `node.exe`、`ffmpeg.exe` 和 bili-whale，干净机器不用再装 Node / ffmpeg / Python / DSH。
+安装包**自带** `node.exe`、`ffmpeg.exe`、bili-whale、自设定脚本与配置包（`tools\` / `pack\mingling-pack\`）、
+以及冥零自己的安装 Skill（`skill\mingling-install\`，第一次启动自动铺到 `%USERPROFILE%\.agents\skills\`）。
+干净机器不用再装 Node / ffmpeg / Python / DSH。
+
+同一个 Release 里还挂着两样给 Agent 用的东西：`mingling-install.zip`（Skill 本体）和
+`skill-version.json`（它的版本号，更新页就查这个）。
 
 ### 安装
 
@@ -155,7 +172,7 @@ MinglingWorkbench-2.2.1-setup.exe      Windows 10/11 x64，约 51 MB
 MinglingWorkbench.exe --paths
 ```
 
-先核对这六行绝对路径（工作区 / 机器人根 / 组件根 / AstrBot / SnowLuma / Breeze / Ollama）。
+先核对这几个绝对路径（工作区 / 机器人根 / 组件根 / AstrBot / SnowLuma / Breeze / Ollama / 状态目录 / 密钥目录）。
 机器人已经装在别处的，把 `%APPDATA%\MinglingWorkbench\settings.json` 里的 `base` 指过去即可：
 
 ```json
@@ -316,10 +333,20 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 │   ├── jobs.jsonl                          台账（工作台 + QQ 插件共用）
 │   └── jobs\
 │       └── BV1…-<unix>.txt                 每次任务的正文
-└── bots\                                   v2.2.0：一键配置默认把组件装这里
+└── bots\                                  组件根：一键配置默认把组件装这里
     ├── AstrBot\  SnowLuma\  Breeze\  Ollama\  bili-whale\
+    ├── uv\  ffmpeg\  asr\                   Python 运行时、抽帧与字幕用的 ffmpeg、识别模型
     ├── start-all.cmd                       一键全起
     └── .setup.json                         这次装了什么、成没成功
+
+另外三样跟着机器人根走的：
+
+<机器人根>\
+├── tools\                                  自设定 / 体检 / 备份 / 掉线提醒用的脚本 + python 运行时
+│   ├── skill-home.txt                      安装 Skill 装在哪一份（启动时自动写）
+│   └── skill-version.json                  那份 Skill 的版本号（更新页拿它比）
+├── pack\mingling-pack\pack.json            自设定的八块配置清单
+└── private\                                开关、口令文件、快照（backend.txt、features.txt、snapshots\ …）
 ```
 
 状态与凭据（可以备份、可以随机器迁移）：
@@ -349,7 +376,12 @@ MinglingWorkbench.exe --debrief BV1xxxxxxxxx  :: 只看 sidecar 的 debrief 输�
 MinglingWorkbench.exe --bili session          :: 把任意 bili-whale 子命令原样转发
 MinglingWorkbench.exe --her-status            :: 机器人状态（维护页同款）
 MinglingWorkbench.exe --bots-setup            :: 一键配置环境（维护页同款）
+MinglingWorkbench.exe --selfsetup             :: 跑一遍八块自设定（加 --dry 只干跑、不落地）
+MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup / updates / diag / feature …），结果写 <机器人根>\logs\her-op.txt
 ```
+
+`--her-op` 是排错和脚本化的入口：`selfsetup` 会先存快照再改，`updates` 只查版本，`diag` 出一份打了码的体检报告，
+`feature plugin/<插件名>/0|1` 改功能页的开关。它和界面点按钮走的是同一条代码路径。
 
 `--watch` 与界面走完全相同的契约：同一套环境变量、同一个 `out\<BV>\`、同一份 `jobs.jsonl`。
 
@@ -364,8 +396,11 @@ MinglingWorkbench.exe --bots-setup            :: 一键配置环境（维护页�
 | 九宫格出不来 / 抽帧失败 | 体检页 `deps` | 确认安装目录里 `sidecar\bili-whale\bin\ffmpeg.exe` 在；重装可恢复 |
 | 产物跑到别处 | B 站页底部的工作区路径 | 用「换工作区」改回来；`--paths` 复核 |
 | 群里能看、工作台不能看 | `--paths` 的凭据与配置 | 两边必须指向同一个工作区和同一份凭据 |
-| 服务起不来 | 日志页对应日志 | AstrBot 需要 `<机器人根>\astrbot` 与 `astrbot.exe`；SnowLuma 需要 `<机器人根>\SnowLuma\node.exe` |
-| 维护页全红 | `--paths` 的机器人根 | `base` 指错了，组件是在 `<base>\bots\` 和老平铺目录里找的 |
+| 服务起不来 | 日志页对应日志 | AstrBot 在 `<组件根>\AstrBot`（老布局 `<机器人根>\astrbot`）；SnowLuma 在 `<组件根>\SnowLuma\node.exe`。日志页现在两路都认 `bots\`，读不到会直接告诉你它找的是哪个路径 |
+| 维护页全红 | `--paths` 的机器人根 | `base` 指错了。组件在 `<组件根>`（默认 `<工作区>\bots\`）里，会先找 bots 再看老平铺目录 |
+| 自设定说「没找到 tools\self-setup.ps1」 | 安装目录里有没有 `tools\` | 装的是 V2.3.x 以前的包。换 V2.4.0：包自带 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` |
+| 更新页 / 维护页说「没找到安装（Skill）」 | `<机器人根>\tools\skill-home.txt` | V2.4.0 第一次启动会自动铺一份并写这个文件；手工装过的 Skill 想让它认，跑一次 `skill\mingling-install\scripts\finish.ps1 -Dir <机器人根>` |
+| 更新页 Skill 那行说「查不到新版」 | `logs\skill-check.log` | 私有仓库要 `secrets\github-token.txt` 才查得到；里面记了每次请求的 url / 状态码 / 有没有带 token |
 | 一键配置装到一半失败 | `<组件根>\.setup.json` | 里面记了每个组件的成功/失败与原因 |
 | 窗口不出现 | 任务管理器 | 已有实例被最小化到托盘区？再双击 exe 会置前；单实例靠窗口类名 |
 
@@ -378,14 +413,17 @@ MinglingWorkbench.exe --bots-setup            :: 一键配置环境（维护页�
 
 ```
 win32\src\             C++ 源码（main / ui / whale / paths / util / her）
-win32\res\             图标、manifest、rc
+win32\res\             图标、manifest、rc（UTF-8，windres 带 -c 65001 编）
 win32\build.bat        编译主程序（产物到 bin\）
+skill\mingling-install\  冥零的安装 Skill：SKILL.md + version.json + scripts\probe.ps1 / finish.ps1 + references\
+pack\mingling-pack\    配置包：pack.json（自设定八块）+ plugins\ + persona\ + voice\ 参考音色
+tools\                 自设定与运维脚本（self-setup / auto-setup / diag / backup / relogin / 掉线提醒）、
+                       python\ 运行时、check-version.ps1、fetch-runtime.ps1
 sidecar\               node.exe + bili-whale + ffmpeg（不提交，fetch-runtime.ps1 拉取）
 plugin\astrbot_plugin_bili_bridge\   AstrBot 插件（群里看 B 站）
-plugin\mingling_skill\ 冥零的人设模板与 Skill 描述
+plugin\mingling_skill\ 冥零的人设模板与 Skill 描述（人设注入读这个）
 installer\             Inno Setup 脚本与打包脚本
 docs\                  部署教程、第三方声明、验收记录、变更清单、截图
-tools\                 sidecar 补丁、运行时抓取、一键配置、版本自检
 art\                   avatar.png / hero.png
 ```
 

@@ -554,3 +554,43 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 **预发布不在 latest 里**（2026-11-07 再补）：GitHub 的 `/releases/latest` 只认正式版，快照按约定发成 prerelease，所以配了 `repo_snapshot`、放好 token 之后还是显示「没查到」——问 latest 拿到的永远是正式版 V2.3.1，tag 里没有 `snapshot` 就被判成「别的通道」。改成带通道标记时问 `/releases?per_page=100`、挑 tag 里带 `snapshot` 的第一条；列表里没有就老实说没查到，绝不退回正式版的版本号。
 
 **验收**：见 `docs\ACCEPTANCE.md` 第 15 节（构建、版本一致、快照隔离、更新页降级、配置保存与备份、DSH API、剪贴板、链接读取、崩溃回归、安装包）。
+
+## 15. V2.4.0 正式版：安装包补全 + 冥零自己的安装 Skill（2026-11-07）
+
+**为什么升正式版**：V3.0.0-snapshot 这条线把工作台做成了「一个 exe + bots\ 组件 + pack\ 配置包」的产品形态，
+但安装包一直只打 exe / sidecar / art / docs——干净机器装完点「自设定」只会得到「没找到 tools\self-setup.ps1」，
+自设定引擎、配置包、人设清单三样全不在包里。V2.4.0 把这些补齐，并把「安装 Skill」换成冥零自己的那一份。
+
+**安装包补全**（`installer\mingling.iss`）
+
+- 新增 `tools\*.ps1 / *.py / *.cmd / *.txt`（self-setup、auto-setup、common、diag、backup、import-pack、import-mingling、relogin、qq_watch、qq-toast、autostart、setup-pet 等），排除本机私有的 `skill-home.txt`、`pet-*-mine.txt`。
+- 新增 `tools\python\*`：掉线提醒按 `tools\python\pythonw.exe` 找解释器，包里没它就开不起来。
+- 新增 `pack\mingling-pack\*`：`tools\self-setup.ps1` 默认从 `<根>\pack\mingling-pack\pack.json` 读八块清单。
+- 新增 `plugin\mingling_skill\*`：人设注入要读 `plugin\mingling_skill\mingling_skill.json`。
+- 这 15 个运行时脚本原来在 `.gitignore` 里（注释写着「工作区里现场带着，不属于仓库」），这次改为**纳入源码**——否则从干净 clone 打出来的包是残的。`tools\python\`、`tools\innosetup6\` 仍忽略。
+
+**内置安装 Skill**（`skill\mingling-install\`）
+
+- 新写的一套 Skill（SKILL.md 10 KB + version.json 0.1.0 + `scripts\probe.ps1` 体检 + `scripts\finish.ps1` 收尾 + `references\自设定八块.md`、`references\发布.md`），和观众那份 `dafeiyu-install` 彻底分开。
+- `her_actions.cpp` 新增 `ApplyBundledSkill()` / `EnsureBundledSkill()`：启动（或任何 `--her-op`）时把 `skill\mingling-install` 铺到 `%USERPROFILE%\.agents\skills\mingling-install`，本机版本更高就不覆盖，覆盖前先备份到 `<机器人根>\旧版\<MMdd-HHmm>-Skill<版本>`，最后写 `tools\skill-home.txt` 与 `tools\skill-version.json`。
+- 踩坑：把这个函数放进匿名命名空间会报 `call of overloaded 'EnsureBundledSkill()' is ambiguous`，必须定义在匿名段之外。
+
+**更新页认自己的 Skill**
+
+- `kSkillRepo` 从 `zexuanw958-svg/dafeiyu-config-pack` 改成 `linyuehua0010/mingling-workbench`，`kSkillDir` = `mingling-install`；`SkillHome()` 优先找 `mingling-install`（`.agents` / `.dsh` / `.workbuddy`），`dafeiyu-install` 只作兜底。
+- 私有仓库的版本清单改走 `api.github.com/…/contents/skill/mingling-install/version.json?ref=main`（`Accept: application/vnd.github.raw` + token）。原来是查 `raw.githubusercontent.com`：curl 和 WinHTTP COM 都 200，但 exe 里的 `HttpCall` 连响应都拿不到（`logs\skill-check.log` 记 `ok=0 code=0`），所以放弃那条路。
+- 正式版只查正式通道：`#if APP_SNAPSHOT` 之外用 `LatestGithub(kSkillRepo, …, L"")`，不再把 `V3.0.0-snapshot` 当成「有新版」。
+- 「一键更新」脚本：先问 `releases?per_page=30` 找 `mingling-install.zip` 资产，带 token + `Accept: application/octet-stream` 下（GitHub 会 302 到签名地址，第二跳不需要 token），失败再走加速站。
+
+**其它一起修的**
+
+- `windres` 加 `-c 65001`：`res\app.rc` 是 UTF-8 带 BOM，原来按系统 ANSI 读，exe 属性里的中文变成「鍐ラ浂宸ヤ綔鍙?」（有损，问号救不回来）。
+- 日志页、起停服务、体检脚本全部认 `<工作区>\bots\`：`ui_pages.inc` 新增 `CompDir()` / `ReadLogPath()` / `BiliLogPath()` / `SecondsSinceWrite()`，标签映射错位（AstrBot 取到 SnowLuma 的日志）一并修掉；`tools\common.ps1` 新增 `Get-BotsDir` / `Join-Bot`，`diag.ps1` 12 处路径改走它——「SnowLuma 没在运行」「记忆插件没装上」两条误报消失。
+- B 站日志只剩旧版 `logs\bili-service.log` 时，页面上会前置一行说明「这是旧版留下的，已经 N 天没动过」。
+
+**验收**
+
+- `dist\MinglingWorkbench-2.4.0-setup.exe` 61,260,277 B；静默装到临时目录后，`{装好的}\tools\self-setup.ps1 -Base <机器人根> -DryRun` → `##RESULT ok=1 done=8 fail=0`（八块全 OK），而 V2.4.0 之前的包装出来这一步只会「没找到 tools\self-setup.ps1」。
+- `--her-op updates` → AstrBot 4.29.4（最新）/ SnowLuma 2.4.0（最新）/ 冥零的安装 Skill 0.1.0（最新）/ 冥零工作台 V2.4.0（最新）。
+- 卸载干净（`unins000.exe /VERYSILENT`，目录与 `MinglingWorkbench_is1` 注册项都不留），工作区外面的 `~\.agents\skills\mingling-install` 按设计保留。
+- Release V2.4.0 三个资产：`MinglingWorkbench-2.4.0-setup.exe`（61,260,277 B）、`mingling-install.zip`（14,811 B）、`skill-version.json`（450 B）。
