@@ -629,8 +629,40 @@ wstring FetchText(const wstring& url, int timeoutMs = 8000, size_t limit = 0) {
     return limit && r.body.size() > limit ? r.body.substr(0, limit) : r.body;
 }
 
+// 拿 Skill 的发布清单（releases/latest/download/skill-version.json），顺便说清为什么没拿到：
+//   notpublished = 404（这个仓库还没发过 skill 包）／net = 连不上／bad = 拿到了但不是那份 JSON。
+// 「没发布」和「没连上」要分开说：前者不该催用户去点更新，后者过会儿再看就好。
+static wstring FetchManifest(const wstring& url, wstring* why, J* out = nullptr) {
+    if (why) *why = L"net";
+    Http r = HttpGet(url, 10000);
+    if (!r.ok) return L"";
+    if (r.code == 404) {
+        if (why) *why = L"notpublished";
+        return L"";
+    }
+    if (r.code >= 400) return L"";
+    bool ok = false;
+    J j = J::Parse(r.body, &ok);
+    if (!ok) {
+        if (why) *why = L"bad";
+        return L"";
+    }
+    wstring v = j.Str(L"version");
+    if (v.empty()) {
+        if (why) *why = L"bad";
+        return L"";
+    }
+    if (out) *out = j;
+    if (why) why->clear();
+    return v;
+}
+
 const wchar_t* kProxies[] = {L"https://gh.dpik.top/", L"https://edgeone.gh-proxy.com/", L"https://gh-proxy.org/", L""};
-const wchar_t* kSkillRepo = L"zexuanw958-svg/dafeiyu-config-pack";
+// 冥零自己的安装 Skill：跟工作台同一个仓库，发在 releases 里（tag skill-v<版本>，资产
+// mingling-install.zip + skill-version.json）。这是 2026-11-07 换掉的：之前指向的是观众装
+// 大肥鱼用的 zexuanw958-svg/dafeiyu-config-pack，那份 SKILL.md 通篇是大肥鱼，不是冥零的。
+const wchar_t* kSkillRepo = L"linyuehua0010/mingling-workbench";
+const wchar_t* kSkillDir = L"mingling-install";
 
 // 技能装在哪：先看 <Base>\tools\skill-home.txt（装的时候记下来的），没记就按几个
 // 常见家目录找。技能是单独装到 %USERPROFILE%\.agents\skills 下的机器上，工作区里那份
@@ -640,9 +672,12 @@ wstring SkillHome() {
     if (!home.empty() && DirExists(home)) return home;
     wchar_t up[MAX_PATH * 2] = {0};
     if (!GetEnvironmentVariableW(L"USERPROFILE", up, MAX_PATH * 2) || !up[0]) return L"";
-    static const wchar_t* kSub[] = {L"\\.agents\\skills\\dafeiyu-install",
-                                    L"\\.dsh\\skills\\dafeiyu-install",
-                                    L"\\.workbuddy\\skills\\dafeiyu-install"};
+    static const wchar_t* kSub[] = {L"\\.agents\\skills\\mingling-install",
+                                    L"\\.dsh\\skills\\mingling-install",
+                                    L"\\.workbuddy\\skills\\mingling-install",
+                                    // 老机器上只装过观众那份（大肥鱼），留个兜底：认不出冥零那份时还能显示版本
+                                    L"\\.agents\\skills\\dafeiyu-install",
+                                    L"\\.dsh\\skills\\dafeiyu-install"};
     for (const wchar_t* s : kSub) {
         wstring d = wstring(up) + s;
         if (DirExists(d)) return d;
@@ -830,14 +865,14 @@ static bool QqUpgradeSuspect() {
 static const wchar_t* ItemName(const wstring& id) {
     if (id == L"astrbot") return L"AstrBot";
     if (id == L"snowluma") return L"SnowLuma";
-    if (id == L"skill") return L"安装 Skill 和工作台";
+    if (id == L"skill") return L"冥零的安装 Skill";
     return L"冥零工作台";
 }
 
 static const wchar_t* ItemWhat(const wstring& id) {
     if (id == L"astrbot") return L"她的大脑。";
     if (id == L"snowluma") return L"帮她登 QQ 的程序。";
-    if (id == L"skill") return L"帮你装、帮你修的那套说明书，还有这个窗口。";
+    if (id == L"skill") return L"帮你装、帮你修的那套说明书：装在工作台外面的技能目录里，Agent 照着它动手。";
     return L"这个窗口。跟着安装 Skill 走：Skill 更新了，让 Agent 重跑一次收尾那步就会换上新的。";
 }
 
@@ -869,8 +904,11 @@ static UpdatesInfo ParseUpdates(const J& up) {
         if (notes && notes->Arr())
             for (const J& n : notes->a)
                 if (x.notes.size() < 6) x.notes.push_back(n.t == J::STR ? n.s : n.NumText());
-        if (x.latest.empty()) x.state = L"unknown";
-        else if (VerCmp(x.latest, x.local) > 0) x.state = L"new";
+        if (x.latest.empty()) {
+            // skill 多一种说法：远端 404＝这一版还没发到 GitHub，不是网络问题，别催人去点更新
+            wstring rem = it->Str(L"remote");
+            x.state = (x.id == L"skill" && rem == L"notpublished") ? L"local" : L"unknown";
+        } else if (VerCmp(x.latest, x.local) > 0) x.state = L"new";
         else x.state = L"latest";
         u.items.push_back(x);
     }
@@ -954,16 +992,21 @@ static UpdatesInfo FetchUpdates() {
     wstring sl = SkillVersionLocal();
     if (!sl.empty()) {
         wstring lv;
+        bool saw404 = false, sawNet = false, sawBad = false;
         std::vector<wstring> notes, reimport;
         for (const wchar_t* p : kProxies) {
-            wstring t = FetchText(wstring(p) + L"https://github.com/" + kSkillRepo +
-                                      L"/releases/latest/download/skill-version.json",
-                                  10000, 64000);
-            if (t.empty()) continue;
-            bool ok = false;
-            J j = J::Parse(t, &ok);
-            if (!ok) continue;
-            lv = j.Str(L"version");
+            wstring w;
+            J j;
+            wstring got = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
+                                            L"/releases/latest/download/skill-version.json",
+                                        &w, &j);
+            if (got.empty()) {
+                if (w == L"notpublished") saw404 = true;
+                else if (w == L"bad") sawBad = true;
+                else sawNet = true;
+                continue;
+            }
+            lv = got;
             const J* nn = j.Get(L"notes");
             if (nn && nn->Arr())
                 for (const J& n : nn->a)
@@ -974,7 +1017,10 @@ static UpdatesInfo FetchUpdates() {
                     if (reimport.size() < 6) reimport.push_back(n.t == J::STR ? n.s : n.NumText());
             break;
         }
-        okAll = okAll && !lv.empty();
+        // 「还没发布」不算网络故障：只有真连不上、拿到坏数据时，才算这一轮没查全
+        // 「还没发布」不算网络故障：只要有一个入口明确给了 404、又没有入口给出坏数据，就算没发布；
+        // 只有从头到尾都没拿到确定答复（代理挂了、断网）才算这一轮没查全
+        if (lv.empty() && !(saw404 && !sawBad)) okAll = false;
         // 本机比 GitHub 上还新（没发布的版本）：别提示「更新」，免得换回旧的
         if (!lv.empty() && VerCmp(lv, sl) < 0) lv = sl;
         J it = JObj();
@@ -990,6 +1036,8 @@ static UpdatesInfo FetchUpdates() {
             for (auto& n : reimport) a.Push(JStr(n));
             it.Set(L"reimport", a);
         }
+        // 远端为什么没有版本：界面据此说「本机（这一版还没发布）」还是「查不到（网络不通）」
+        if (lv.empty()) it.Set(L"remote", JStr((saw404 && !sawBad) ? L"notpublished" : L"net"));
         items.Set(L"skill", it);
     }
 
@@ -1031,46 +1079,60 @@ static UpdatesInfo FetchUpdates() {
 
 ActionResult SkillUpdate() {
     wstring sl = SkillVersionLocal();
-    if (sl.empty()) return Bad(L"找不到已装的技能版本（tools\\skill-version.json）。");
+    if (sl.empty())
+        return Bad(L"这台机器上还没装这份 Skill（mingling-install）：让 Agent 装一次，"
+                   L"或用「求助页」那段话让它去装，装完这行就有版本号了。");
     for (const wchar_t* blk : {L"core", L"plugins", L"video", L"memory", L"voice", L"memes"})
         if (ImportLogState(blk) == L"running") return Bad(L"正在补装东西，等它装完再更新。");
-    wstring latest, via;
+    wstring latest;
+    wstring why;
+    bool saw404 = false, sawNet = false, sawBad = false;
     for (const wchar_t* p : kProxies) {
-        wstring t = FetchText(wstring(p) + L"https://github.com/" + kSkillRepo + L"/releases/latest/download/skill-version.json",
-                              10000, 64000);
-        if (t.empty()) continue;
-        bool ok = false;
-        J j = J::Parse(t, &ok);
-        if (!ok) continue;
-        latest = j.Str(L"version");
-        if (!latest.empty()) {
-            via = p;
-            break;
+        wstring w;
+        J j;
+        wstring got = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
+                                        L"/releases/latest/download/skill-version.json",
+                                    &w, &j);
+        if (got.empty()) {
+            if (w == L"notpublished") saw404 = true;
+            else if (w == L"bad") sawBad = true;
+            else sawNet = true;
+            continue;
         }
+        latest = got;
+        break;
     }
-    if (latest.empty()) return Bad(L"查不到新版（GitHub 和加速站都没连上），过会儿再点。");
+    if (latest.empty()) {
+        if (saw404 && !sawBad)
+            return Bad(L"这一版还没发到 GitHub（" + wstring(kSkillRepo) + L" 的 releases 里要有 mingling-install.zip；"
+                       L"仓库还得是公开的，私有仓库别人查不到），本机是 " + sl + L"，先这么用着。");
+        return Bad(L"查不到新版（GitHub 和加速站都没连上），过会儿再点。");
+    }
     if (VerCmp(latest, sl) <= 0) return Ok(L"已经是最新（" + sl + L"）。");
     // 下载 + 校验 + 备份 + 换 Skill + 跑收尾：整段交给 powershell
     wstring ps =
         L"$ErrorActionPreference='Stop';"
         L"$Dir=$env:DFY_DIR;$ver=$env:DFY_VER;$repo=$env:DFY_REPO;"
         L"$dl=Join-Path $Dir 'downloads';New-Item -ItemType Directory -Force -Path $dl|Out-Null;"
-        L"$zp=Join-Path $dl ('dafeiyu-install-' + $ver + '.zip');"
-        L"$base='https://github.com/' + $repo + '/releases/latest/download/dafeiyu-install.zip';"
+        L"$zp=Join-Path $dl ('mingling-install-' + $ver + '.zip');"
+        L"$base='https://github.com/' + $repo + '/releases/latest/download/mingling-install.zip';"
         L"$got=$false;"
         L"foreach($p in @('https://gh.dpik.top/','https://edgeone.gh-proxy.com/','https://gh-proxy.org/','')){"
         L"  try{Invoke-WebRequest -Uri ($p+$base) -OutFile $zp -UseBasicParsing -TimeoutSec 120;if((Get-Item $zp).Length -gt 10000){$got=$true;break}}catch{}"
         L"};"
         L"if(-not $got){throw '没下下来'};"
         L"$ext=Join-Path $dl ('skill-' + [guid]::NewGuid().ToString('N'));Expand-Archive -Path $zp -DestinationPath $ext -Force;"
-        L"$src=Join-Path $ext 'dafeiyu-install';"
+        L"$src=Join-Path $ext 'mingling-install';"
         L"foreach($need in @('SKILL.md','version.json','scripts\\finish.ps1')){if(-not (Test-Path (Join-Path $src $need))){throw ('包里缺 '+$need)}};"
         L"$bk=Join-Path $Dir ('旧版\\' + (Get-Date -Format 'MMdd-HHmm') + '-Skill' + $env:DFY_CUR);New-Item -ItemType Directory -Force -Path $bk|Out-Null;"
         L"$dirs=@();if($env:DFY_HOME){$dirs+=$env:DFY_HOME};"
-        L"foreach($d in @((Join-Path $env:USERPROFILE '.agents\\skills\\dafeiyu-install'),(Join-Path $env:USERPROFILE '.dsh\\skills\\dafeiyu-install'),(Join-Path $env:USERPROFILE '.workbuddy\\skills\\dafeiyu-install'))){if((Test-Path $d) -and ($dirs -notcontains $d)){$dirs+=$d}};"
+        L"foreach($d in @((Join-Path $env:USERPROFILE '.agents\\skills\\mingling-install'),(Join-Path $env:USERPROFILE '.dsh\\skills\\mingling-install'),(Join-Path $env:USERPROFILE '.workbuddy\\skills\\mingling-install'))){if((Test-Path $d) -and ($dirs -notcontains $d)){$dirs+=$d}};"
+        // 一份都没找到就装到 .agents\skills 下：收尾脚本要认「装在哪」，不能因为没装过就什么都不做
+        L"if($dirs.Count -eq 0){$dirs=@((Join-Path $env:USERPROFILE '.agents\\skills\\mingling-install'))};"
         L"$n=0;"
-        L"foreach($d in $dirs){Copy-Item -Path $d -Destination (Join-Path $bk ('skill-' + $n)) -Recurse -Force -ErrorAction SilentlyContinue;"
-        L"  Remove-Item -Path $d -Recurse -Force -ErrorAction SilentlyContinue;Copy-Item -Path $src -Destination $d -Recurse -Force;$n++};"
+        L"foreach($d in $dirs){if(Test-Path $d){Copy-Item -Path $d -Destination (Join-Path $bk ('skill-' + $n)) -Recurse -Force -ErrorAction SilentlyContinue;"
+        L"  Remove-Item -Path $d -Recurse -Force -ErrorAction SilentlyContinue};"
+        L"  New-Item -ItemType Directory -Force -Path (Split-Path $d -Parent)|Out-Null;Copy-Item -Path $src -Destination $d -Recurse -Force;$n++};"
         L"$fin=Join-Path $src 'scripts\\finish.ps1';"
         L"if(Test-Path $fin){& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fin -Dir $Dir};"
         L"Remove-Item $ext -Recurse -Force -ErrorAction SilentlyContinue;Remove-Item $zp -Force -ErrorAction SilentlyContinue;"
@@ -1085,7 +1147,7 @@ ActionResult SkillUpdate() {
     CmdResult r = PsEncoded(ps, env, 600000);
     if (r.out.find(L"DONE") == wstring::npos)
         return Bad(L"更新没成：" + TailText(Trim(r.out), 200));
-    return Ok(L"更新到 " + latest + L" 了。窗口会自己重开一次。");
+    return Ok(L"更新到 " + latest + L" 了，收尾（记下装在哪儿、哪一版）也做完了。");
 }
 
 // 路径参数的收尾引号问题：末尾 \ 会把 " 吃掉（"F:\x\" 传进去只剩 F:\x"），先削尾部斜杠，

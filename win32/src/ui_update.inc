@@ -41,7 +41,7 @@ static const her::UpdateItem* UpItem(const wstring& id) {
 }
 
 static wstring UpAskText(const her::UpdateItem& it) {
-    return L"用冥零的安装 Skill（dafeiyu-install），帮我把 " + it.name + L" 从 " + it.local + L" 更新到 " + it.latest +
+    return L"用冥零的安装 Skill（mingling-install），帮我把 " + it.name + L" 从 " + it.local + L" 更新到 " + it.latest +
            L"：先备份，只换程序，我的设置、记忆和登录都别动。";
 }
 
@@ -124,6 +124,11 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
         desc = it.what + L"有新版。升级前 Agent 会先备份，升级时她会下线一两分钟。";
     else if (it.state == L"latest")
         desc = it.what + L"已经是最新。";
+    else if (it.id == L"skill" && it.state == L"local")
+        desc = it.what + L"GitHub 上还没发这一版（releases 里要有 mingling-install.zip），本机是 " + it.local +
+               L"；发布之后这里会变成「有新版」。";
+    else if (it.state == L"missing" && it.id == L"skill")
+        desc = it.what + L"这台机器上还没装这份 Skill，让 Agent 装一次就行，装完这里会显示版本号。";
     else if (it.state == L"missing")
         desc = it.what + L"这台机器上没找到它的安装目录。机器人根设置对不对、有没有装过，都能在这里看出来。";
     else if (it.state == L"unknown")

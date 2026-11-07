@@ -761,6 +761,17 @@ std::vector<std::pair<std::wstring, std::wstring>> Versions() {
         if (!hit.empty()) slv = ReadJson(hit).Str(L"version");
     }
     if (!slv.empty()) v.push_back({L"SnowLuma", slv});
+    // 冥零的安装 Skill：先看 tools\skill-version.json，没有就顺着 tools\skill-home.txt 指的目录找
+    {
+        std::wstring tools = JoinPath(Base(), L"tools");
+        std::wstring sv = ReadJson(JoinPath(tools, L"skill-version.json")).Str(L"version");
+        if (sv.empty()) {
+            std::wstring home = Trim(ReadTextFile(JoinPath(tools, L"skill-home.txt"), 2048));
+            if (!home.empty() && home[0] == 0xFEFF) home = Trim(home.substr(1));
+            if (!home.empty()) sv = ReadJson(JoinPath(home, L"version.json")).Str(L"version");
+        }
+        if (!sv.empty()) v.push_back({L"技能", sv});
+    }
     // Breeze：bin 里那个带 -v0.1.3 的目录
     {
         WIN32_FIND_DATAW fd;

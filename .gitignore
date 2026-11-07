@@ -119,3 +119,7 @@ tools/nsis/
 win32/build.local.bat
 .local/
 .agents/
+
+# 装完 Skill 之后由它的收尾脚本写下的两个标记（每台机器各不相同，不进仓库）
+tools/skill-version.json
+tools/skill-home.txt

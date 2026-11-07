@@ -12,31 +12,31 @@ struct AskDef {
 
 static const AskDef ASKS[] = {
     {"role", L"换成我自己的角色",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我把冥零换成我自己的角色：名字叫……，性格是……，说话像……。"},
+     L"用冥零的安装 Skill（mingling-install），帮我把冥零换成我自己的角色：名字叫……，性格是……，说话像……。"},
     {"voice", L"换个声音",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我给冥零换个更温柔的声音，先出三个让我听了再挑。"},
+     L"用冥零的安装 Skill（mingling-install），帮我给冥零换个更温柔的声音，先出三个让我听了再挑。"},
     {"breeze", L"换成 Breeze 在线版",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我把语音换成 Breeze 在线版：先讲清楚按字扣积分，带我注册、把 API 密钥存进 private 文件，"
+     L"用冥零的安装 Skill（mingling-install），帮我把语音换成 Breeze 在线版：先讲清楚按字扣积分，带我注册、把 API 密钥存进 private 文件，"
      L"再挑机灵版或迷糊版；关掉原来的语音，验到能播放。"},
     {"dialect", L"听懂更多方言",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我给冥零装上语音识别的增强版，湖南话这类方言、歌词能认得更准："
+     L"用冥零的安装 Skill（mingling-install），帮我给冥零装上语音识别的增强版，湖南话这类方言、歌词能认得更准："
      L"先告诉我要多下多大、会慢多少，我同意了再装。"},
     {"group", L"让她进我的 QQ 群",
-     L"用冥零的安装 Skill（dafeiyu-install），让冥零也在我的 QQ 群里聊，群号是……。"},
+     L"用冥零的安装 Skill（mingling-install），让冥零也在我的 QQ 群里聊，群号是……。"},
     {"silent", L"她不回话了",
-     L"冥零不回话了。用冥零的安装 Skill（dafeiyu-install） 帮我查查是哪出了问题，先只看不改，查完告诉我打算怎么修。"
+     L"冥零不回话了。用冥零的安装 Skill（mingling-install） 帮我查查是哪出了问题，先只看不改，查完告诉我打算怎么修。"
      L"（工作台「求助信息」存在桌面的 txt 我一起发给你）"},
     {"always", L"电脑关机她也在线",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我把这台电脑上的冥零搬到云服务器上（记忆、人设、表情包一起搬）："
+     L"用冥零的安装 Skill（mingling-install），帮我把这台电脑上的冥零搬到云服务器上（记忆、人设、表情包一起搬）："
      L"先讲清楚利弊和要花多少钱，我还没买的话帮我挑，我回「搬」了再动。"},
     {"napcat", L"QQ 升级后先换成 NapCat",
-     L"用冥零的安装 Skill（dafeiyu-install），QQ 升级后 SnowLuma 暂时用不了，帮我先换成 NapCat；等 SnowLuma 跟上了再告诉我怎么换回来。"},
+     L"用冥零的安装 Skill（mingling-install），QQ 升级后 SnowLuma 暂时用不了，帮我先换成 NapCat；等 SnowLuma 跟上了再告诉我怎么换回来。"},
     {"backup", L"用备份还原",
-     L"用冥零的安装 Skill（dafeiyu-install），用桌面上的备份……还原冥零：先列出要动哪些东西，我确认了再动。"},
+     L"用冥零的安装 Skill（mingling-install），用桌面上的备份……还原冥零：先列出要动哪些东西，我确认了再动。"},
     {"uninstall", L"卸载她",
-     L"用冥零的安装 Skill（dafeiyu-install），帮我把冥零卸干净：先列清单给我看，问我要不要先备份，我回「确认」了再删。"},
+     L"用冥零的安装 Skill（mingling-install），帮我把冥零卸干净：先列清单给我看，问我要不要先备份，我回「确认」了再删。"},
     {"memory", L"记忆没接上",
-     L"工作台说记忆没接好，她记不住事。用冥零的安装 Skill（dafeiyu-install） 帮我看看是缺硅基流动的密钥、还是本机记忆模型没下；"
+     L"工作台说记忆没接好，她记不住事。用冥零的安装 Skill（mingling-install） 帮我看看是缺硅基流动的密钥、还是本机记忆模型没下；"
      L"要花钱或下大文件先问我，不想弄就帮我把记忆关掉。"},
 };
 
