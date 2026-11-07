@@ -177,13 +177,17 @@ struct WebPage {
     int code = 0;       // HTTP 状态码
     wstring url;        // 跟随重定向后的最终地址
     wstring title;      // <title>
+    wstring desc;       // 站点自己写的摘要（meta description / og:description），可能为空
     wstring text;       // 去掉标签后的可读正文（已截断）
     wstring err;        // 失败原因（超时 / 连不上 / 不是网页 / 编码看不懂 …）
+    wstring note;       // 读到了但不完美（页面太大只读了前一段 / 编码没认出来）
     size_t bytes = 0;   // 实际读到的字节数
 };
 
 // 只做一次 GET：跟重定向、限时、限大小、抽标题和正文；不执行 JS、不登录。
-WebPage FetchWebPage(const wstring& url, int timeoutMs = 15000, size_t maxBytes = 512 * 1024);
+// ua 为空就用内置 UA（MinglingWorkbench/3.0）；配置页可以换成自己的。
+WebPage FetchWebPage(const wstring& url, int timeoutMs = 15000, size_t maxBytes = 512 * 1024,
+                     const wstring& ua = L"");
 
 // ---------------------------------------------------------------- 任务记录（和 QQ 插件共用一份）
 struct JobRec {

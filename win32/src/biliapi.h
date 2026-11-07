@@ -7,6 +7,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "her/her.h"
@@ -67,3 +68,29 @@ std::wstring DshApiUrl(const DshApiCfg& cfg);
 // 问一句。成功回 reply（模型原文），失败回 err（中文，能直接显示）。
 // 调用方负责放到工作线程里跑——它会等网络。
 bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* reply, std::wstring* err);
+
+// ---------------------------------------------------------------- 读链接
+// 默认就是 15 秒 / 512 KB。这两个数是**上限**：配置里只能调小，不能放宽
+// （读一条链接只做一次 GET，不下载整站、不跑脚本）。
+struct LinkCfg {
+    bool enabled = true;
+    int timeoutSec = 15;  // 5–15
+    int maxKB = 512;      // 64–512
+    std::wstring ua;      // 空 = 内置 UA
+};
+
+int LinkClampTimeout(int sec);
+int LinkClampKB(int kb);
+
+// settings.json 的 link_read_* 键；读链接失败不影响别的功能
+LinkCfg LinkLoad();
+bool LinkSave(const LinkCfg& cfg, std::wstring* err);
+
+// 真正发给服务器的 User-Agent（空配置回内置那句）
+std::wstring LinkUserAgent(const LinkCfg& cfg);
+
+// ---------------------------------------------------------------- settings.json 安全写入
+// kv 的 second 是**原始 JSON 值**（字符串要自己带引号，用 her::JStr(x).Dump(0)）：
+// 先备份 <文件>.bak-<时间> → 逐个改键（没列出来的键原样保留）→ 整份重新解析校验 →
+// 不是合法 JSON 就把备份拷回去。任何一步失败都不会留下半截文件。
+bool SettingsGuardApply(const std::vector<std::pair<std::wstring, std::wstring>>& kv, std::wstring* err);

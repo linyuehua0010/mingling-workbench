@@ -44,6 +44,13 @@ static void BiliCfgEndEdit(bool apply);
 static bool BiliCfgClick(const std::string& id);
 static bool BiliCfgWheel(int delta);
 static void PaintBiliCfg(Graphics& g);
+// 「链接与应用」面板（读链接的设置 + 对话 API，实现在 ui_link_cfg.inc）
+static bool g_lcOpen = false;
+static void LinkCfgOpen();
+static void LinkCfgClosePanel();
+static bool LinkCfgClick(const std::string& id);
+static bool LinkCfgWheel(int delta);
+static void PaintLinkCfg(Graphics& g);
 // 「问一句」浮层（对话 API，实现在 ui_dsh.inc）
 static bool g_dshOpen = false;
 static void DshAsk();
@@ -382,14 +389,19 @@ static wstring UrlHost(const wstring& url) {
     return u;
 }
 
-// 把一次网页读取的结果拼成结果区能画的文本（DrawRich 认 ══════ 标题行）
-static wstring LinkReport(const wstring& url, const wstring& title, const WebPage& p) {
+// 把一次网页读取的结果拼成结果区能画的文本（DrawRich 认 ══════ 标题行）。
+// 标题 / 来源 / 耗时 / 摘要四样都在头部，复制出去也能直接看懂。
+static wstring LinkReport(const wstring& url, const wstring& title, const WebPage& p, const wstring& secs) {
     wstring s;
     s += L"══════════ 读到的链接 ══════════\n";
     s += L"标题: " + title + L"\n";
+    s += L"来源: " + UrlHost(p.url.empty() ? url : p.url) + L"\n";
     s += L"地址: " + (p.url.empty() ? url : p.url) + L"\n";
+    if (!secs.empty()) s += L"耗时: " + secs + L"\n";
     if (p.code > 0) s += L"状态: HTTP " + Num(p.code) + L" · 读到 " + PrettyBytes(p.bytes) + L"\n";
+    if (!p.note.empty()) s += L"注意: " + p.note + L"\n";
     if (p.ok) {
+        if (!p.desc.empty()) s += L"\n══════════ 摘要 ══════════\n" + p.desc + L"\n";
         s += L"\n══════════ 正文摘要 ══════════\n";
         s += p.text;
     } else {
@@ -448,20 +460,28 @@ static void StartWatch() {
     g_watchScroll = 0;
 
     if (isLink) {
-        // 别的链接：一次 GET，读完把标题和正文摘要丢回结果区。
-        // 这条链路完全不碰 bili-whale，也就不会影响看片。
-        std::thread([url]() {
+        LinkCfg lc = LinkLoad();
+        if (!lc.enabled) {
+            UiToast(L"读链接是关着的：B 站页 → 配置 → 链接与应用 → 打开「读取网页链接」");
+            return;
+        }
+        // 一次 GET，超时和大小上限都按「链接与应用」里的设置走（上限本身不可放宽）。
+        const int ms = lc.timeoutSec * 1000;
+        const size_t cap = (size_t)lc.maxKB * 1024;
+        const wstring ua = lc.ua;
+        std::thread([url, ms, cap, ua]() {
             TaskData* d = new TaskData();
             d->kind = TK_WATCH;
             d->type = L"link";
             long long t0 = NowUnix();
-            WebPage p = FetchWebPage(url, 15000, 512 * 1024);
+            WebPage p = FetchWebPage(url, ms, cap, ua);
+            long long secs = NowUnix() - t0;
             d->bv = url;
             d->up = UrlHost(p.url.empty() ? url : p.url);
             d->ok = p.ok;
             d->title = p.ok ? p.title : L"没读到";
-            d->text = LinkReport(url, p.ok ? p.title : wstring(L"（没读到）"), p);
-            d->seconds = Num((long long)(NowUnix() - t0)) + L"s";
+            d->text = LinkReport(url, p.ok ? p.title : wstring(L"（没读到）"), p, Num(secs) + L"s");
+            d->seconds = Num(secs) + L"s";
             PostTask(d);
         }).detach();
         UiRequestRepaint();
@@ -1021,6 +1041,8 @@ static void PaintBili(Graphics& g) {
         float sy = y0 + S(86), bh = S(28), sx = rx;
         Button(g, RectF(sx, sy, S(120), bh), L"bili-whale 配置", "bcfg", 0, true);
         sx += S(128);
+        Button(g, RectF(sx, sy, S(108), bh), L"链接与应用", "lcfg", 0, true);
+        sx += S(116);
         const wchar_t* diag[] = {L"登录", L"配额", L"风控", L"自检"};
         const int dact[] = {0, 2, 3, 4};
         for (int i = 0; i < 4; i++) {
@@ -1095,6 +1117,7 @@ static void PaintBili(Graphics& g) {
         }
     }
     if (g_bcfgOpen) PaintBiliCfg(g);   // 配置浮层最后画，命中区盖在最上面
+    if (g_lcOpen) PaintLinkCfg(g);
     if (g_dshOpen) PaintDshAsk(g);
 }
 
@@ -1231,6 +1254,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_update.inc"
 #include "ui_help.inc"
 #include "ui_bili_cfg.inc"
+#include "ui_link_cfg.inc"
 #include "ui_dsh.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
@@ -1337,6 +1361,11 @@ void UiOnClick(int x, int y) {
         DshClick(id);
         return;
     }
+    if (g_lcOpen) {   // 「链接与应用」开着：点哪儿都先归它
+        if (id.empty()) LinkCfgClick(id);
+        LinkCfgClick(id);
+        return;
+    }
     if (g_bcfgOpen) {   // 配置浮层开着：点哪儿都先归它，别让下面的页签偷偷响应
         if (id.empty()) BiliCfgEndEdit(true);   // 点空白 = 这一格就这样
         BiliCfgClick(id);
@@ -1385,6 +1414,11 @@ void UiOnClick(int x, int y) {
     }
     if (p[0] == "bcfg") {
         BiliCfgOpen();
+        g_editFocus = 0;
+        return;
+    }
+    if (p[0] == "lcfg") {
+        LinkCfgOpen();
         g_editFocus = 0;
         return;
     }
@@ -1602,7 +1636,7 @@ void UiOnClick(int x, int y) {
 // 输入框上的右键菜单。自绘输入框没有原生 EDIT 的默认菜单，这里补一个：
 // 粘贴 / 复制 / 剪切 / 全选，快捷键提示直接写在菜单项里。
 void UiOnRClick(int x, int y) {
-    if (g_bcfgOpen || g_dshOpen) return;
+    if (g_bcfgOpen || g_lcOpen || g_dshOpen) return;
     if (g_tab != 1) return;
     if (!g_rcInput.Contains(PointF((float)x, (float)y))) return;
 
@@ -1653,6 +1687,7 @@ void UiOnMove(int x, int y) {
                                     id.rfind("up:", 0) == 0 || id.rfind("upact:", 0) == 0 ||
                                     id.rfind("bcfg", 0) == 0 || id.rfind("bfiles", 0) == 0 ||
                                     id.rfind("bcfgrow:", 0) == 0 || id.rfind("bdsh", 0) == 0 ||
+                                    id.rfind("lc:", 0) == 0 || id.rfind("lcrow:", 0) == 0 ||
                                     id.rfind("askedit:", 0) == 0 || id.rfind("askeditor:", 0) == 0 ||
                                     id.rfind("notify:", 0) == 0);
         SetCursor(LoadCursorW(nullptr, hand ? IDC_HAND : IDC_ARROW));
@@ -1662,6 +1697,7 @@ void UiOnMove(int x, int y) {
 
 bool UiOnWheel(int x, int y, int delta) {
     if (g_dshOpen) return DshWheel(delta);
+    if (g_lcOpen) return LinkCfgWheel(delta);
     if (g_bcfgOpen) return BiliCfgWheel(delta);
     float step = -delta / 120.0f * S(52);
     auto clampf = [](float v, float content, float view) {
@@ -1725,6 +1761,7 @@ bool UiOnWheel(int x, int y, int delta) {
 void UiOnChar(unsigned int ch) {
     if (g_askEditor) return;   // 正在输入框里打字
     if (g_bcfgOpen) return;    // 配置浮层：字符归它自己的 EDIT
+    if (g_lcOpen) return;      // 「链接与应用」：同上
     if (g_dshOpen) return;     // 「问一句」浮层：不接受输入
     if (!g_editFocus) return;
     if (ch == 8) {
@@ -1757,6 +1794,10 @@ void UiOnKeyDown(int vk) {
     if (g_askEditor) return;   // 编辑卡片时按键归输入框
     if (g_dshOpen) {           // 「问一句」浮层：Esc 关掉，1–9 不切页
         if (vk == VK_ESCAPE) DshClose();
+        return;
+    }
+    if (g_lcOpen) {            // 「链接与应用」：Esc 关掉，1–9 不切页
+        if (vk == VK_ESCAPE) LinkCfgClose(false);
         return;
     }
     if (g_bcfgOpen) {          // 配置浮层：Esc 关掉，1–9 照样不切页
@@ -1928,7 +1969,7 @@ void UiOnTask(TaskData* d) {
             }
             break;
         }
-        case TK_DSHTEST: {   // DSH 对话 API：action 0=测连接（配置浮层） 1=问一句（看片结果）
+        case TK_DSHTEST: {   // 对话 API：action 1=问一句（结果浮层） 2=测试连接（链接与应用）
             wstring text = d->text;
             if (text.size() > 400) text = text.substr(0, 400) + L"…";
             if (d->action == 1) {
@@ -1936,10 +1977,11 @@ void UiOnTask(TaskData* d) {
                 g_dshText = d->ok ? d->text : (L"没问到：" + d->text);
                 g_dshAt = GetTickCount();
                 if (d->ok) g_dshScroll = 0;
-            } else {
-                g_bcfgTestBusy = false;
-                g_bcfgMsg = d->ok ? (L"连上了：" + text) : (L"没连上：" + text);
-                g_bcfgMsgAt = GetTickCount();
+            } else if (d->action == 2) {
+                g_lcTestBusy = false;
+                g_lcMsg = d->ok ? (L"连上了：" + text) : (L"没连上：" + text);
+                g_lcMsgAt = GetTickCount();
+                UiRequestRepaint();
             }
             if (!d->ok) UiToast(d->action == 1 ? L"对话 API 没答上来（不影响看片）" : L"对话 API 没连上（不影响看片）");
             UiRequestRepaint();

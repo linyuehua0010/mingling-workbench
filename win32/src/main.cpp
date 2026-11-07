@@ -4,6 +4,7 @@
 #include "ui.h"
 #include "version.h"
 #include "her/her.h"
+#include "biliapi.h"
 
 #include <objidl.h>
 #include <shellapi.h>
@@ -39,7 +40,7 @@ static void AttachConsoleIfAsked() {
             if (wcscmp(argv[i], L"--console") == 0 || wcscmp(argv[i], L"--her-status") == 0 ||
                 wcscmp(argv[i], L"--her-op") == 0 || wcscmp(argv[i], L"--paths") == 0 ||
                 wcscmp(argv[i], L"--feed") == 0 || wcscmp(argv[i], L"--debrief") == 0 ||
-                wcscmp(argv[i], L"--bili") == 0 || wcscmp(argv[i], L"--autosetup") == 0 ||
+                wcscmp(argv[i], L"--bili") == 0 || wcscmp(argv[i], L"--link") == 0 || wcscmp(argv[i], L"--autosetup") == 0 ||
                 wcscmp(argv[i], L"--bots-setup") == 0 ||
                 wcscmp(argv[i], L"--selfsetup") == 0 ||
                 wcscmp(argv[i], L"--version") == 0) want = true;
@@ -324,6 +325,55 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
         Out(L"[自检] " + wstring(d.ok ? L"OK" : L"FAIL") + L" | " + d.title + L" | 九宫格 " + d.sheet + L" | 正文 " + sink);
         return d.ok ? 0 : 3;
     }
+    if (has(L"--link") && from + 1 < (int)args.size()) {
+        // 读链接的命令行入口（界面之外的自检路径）：验收脚本用它跑 UTF-8 / GBK /
+        // 分享文本 / 非法链接 / 超大页面。行为跟界面完全一致：一次 GET、限时、限大小。
+        InputAction act = ClassifyInput(args[from + 1]);
+        if (act.url.empty()) {
+            Out(args[from + 1].find(L"://") != wstring::npos
+                    ? L"只认 http:// 和 https:// 的链接（别的协议读不了）：" + args[from + 1]
+                    : L"这里面没有链接：" + args[from + 1]);
+            return 4;
+        }
+        LinkCfg lc = LinkLoad();
+        if (!lc.enabled) {
+            Out(L"读链接是关着的（settings.json 里 link_read_enabled=0）");
+            return 5;
+        }
+        long long t0 = NowUnix();
+        WebPage p = FetchWebPage(act.url, lc.timeoutSec * 1000, (size_t)lc.maxKB * 1024, lc.ua);
+        long long secs = NowUnix() - t0;
+        Out(wstring(L"[读链接] 分类=") + (act.kind == IN_SHARE ? L"分享文本" : L"链接") +
+            L" | 结果=" + (p.ok ? L"OK" : L"FAIL"));
+        Out(L"标题: " + (p.title.empty() ? wstring(L"（无）") : p.title));
+        Out(L"来源: " + (p.url.empty() ? act.url : p.url));
+        Out(L"状态: HTTP " + Num(p.code) + L" | 字节 " + Num((long long)p.bytes) + L" | 耗时 " +
+            Num(secs) + L"s");
+        if (!p.note.empty()) Out(L"注意: " + p.note);
+        if (!p.desc.empty()) Out(L"摘要: " + p.desc);
+        if (!p.ok) Out(L"原因: " + p.err);
+        if (!p.text.empty()) Out(p.text);
+        // 台账照样写一条（type=link），跟界面里读完写的那条字段一致
+        wstring sink;
+        EnsureWorkspaceLayout(WorkspaceDir());
+        wstring stamp = Num(t0);
+        sink = JoinPath(JoinPath(JoinPath(WorkspaceDir(), L"logs"), L"jobs"), L"link-" + stamp + L".txt");
+        WriteTextFile(sink, p.ok ? p.text : p.err);
+        JobRec j;
+        j.t = t0;
+        j.bv = act.url;
+        j.title = p.ok ? p.title : L"没读到";
+        j.up = p.url;
+        j.source = L"console";
+        j.chat = L"工作台";
+        j.status = p.ok ? L"ok" : L"fail";
+        j.sink = sink;
+        j.seconds = Num(secs) + L"s";
+        j.type = L"link";
+        AppendJob(j);
+        Out(L"[台账] " + JobsFile() + L"（type=link, source=console）");
+        return p.ok ? 0 : 3;
+    }
     if (has(L"--bili")) {
         wstring rest;
         for (int i = from + 1; i < (int)args.size(); i++) rest += L" " + args[i];
@@ -389,6 +439,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
                     wcscmp(argv[i], L"--her-op") == 0 || wcscmp(argv[i], L"--paths") == 0 ||
                     wcscmp(argv[i], L"--feed") == 0 || wcscmp(argv[i], L"--debrief") == 0 ||
                     wcscmp(argv[i], L"--watch") == 0 || wcscmp(argv[i], L"--bili") == 0 ||
+                    wcscmp(argv[i], L"--link") == 0 ||
                     wcscmp(argv[i], L"--autosetup") == 0 || wcscmp(argv[i], L"--bots-setup") == 0 ||
                     wcscmp(argv[i], L"--selfsetup") == 0 ||
                     wcscmp(argv[i], L"--version") == 0) cli = true;
@@ -398,7 +449,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
         if (cli) {
             for (int i = 0; i < (int)args.size(); i++) {
                 if (args[i] == L"--version" || args[i] == L"--paths" || args[i] == L"--feed" || args[i] == L"--debrief" ||
-                    args[i] == L"--watch" || args[i] == L"--bili" || args[i] == L"--autosetup" ||
+                    args[i] == L"--watch" || args[i] == L"--bili" || args[i] == L"--link" ||
+                    args[i] == L"--autosetup" ||
                     args[i] == L"--bots-setup" || args[i] == L"--selfsetup")
                     return BiliCli(args, i);
             }

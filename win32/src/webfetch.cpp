@@ -198,8 +198,28 @@ static wstring DecodePage(const std::string& raw, bool gbkHint) {
 
 // ---------------------------------------------------------------- HTML 抽取
 
-static wstring StripHtml(const wstring& html, wstring* titleOut) {
+// 从 <meta ...> 里抠 content 的值（够了：只认带引号的写法）
+static wstring MetaContent(const wstring& tag) {
+    wstring low = LowerAscii(tag);
+    size_t c = low.find(L"content=");
+    if (c == wstring::npos) return wstring();
+    size_t v = c + 8;
+    while (v < tag.size() && (tag[v] == L' ' || tag[v] == L'\t')) v++;
+    if (v >= tag.size()) return wstring();
+    wchar_t q = tag[v];
+    if (q != L'"' && q != L'\'') {   // 没引号：读到空白为止
+        size_t e = v;
+        while (e < tag.size() && tag[e] != L' ' && tag[e] != L'\t' && tag[e] != L'/') e++;
+        return Trim(tag.substr(v, e - v));
+    }
+    size_t e = tag.find(q, v + 1);
+    if (e == wstring::npos) return wstring();
+    return Trim(tag.substr(v + 1, e - v - 1));
+}
+
+static wstring StripHtml(const wstring& html, wstring* titleOut, wstring* descOut = nullptr) {
     wstring title;
+    wstring desc;
     wstring body;
     body.reserve(html.size());
 
@@ -250,6 +270,19 @@ static wstring StripHtml(const wstring& html, wstring* titleOut) {
             i = gt + 1;
             continue;
         }
+        if (name == L"meta" && !closing) {
+            // 摘要优先用站点自己写的 description：比正文头几行干净得多
+            if (desc.empty()) {
+                wstring t2 = LowerAscii(tag);
+                bool isDesc = t2.find(L"name=\"description\"") != wstring::npos ||
+                              t2.find(L"name='description'") != wstring::npos ||
+                              t2.find(L"property=\"og:description\"") != wstring::npos ||
+                              t2.find(L"property='og:description'") != wstring::npos;
+                if (isDesc) desc = UnescapeHtml(MetaContent(tag));
+            }
+            i = gt + 1;
+            continue;
+        }
         if (name == L"br" || name == L"p" || name == L"div" || name == L"li" || name == L"tr" || name == L"h1" ||
             name == L"h2" || name == L"h3" || name == L"h4" || name == L"section" || name == L"article" ||
             name == L"header" || name == L"footer" || name == L"blockquote") {
@@ -279,6 +312,7 @@ static wstring StripHtml(const wstring& html, wstring* titleOut) {
         out += cleaned;
     }
     if (titleOut) *titleOut = UnescapeHtml(title);
+    if (descOut) *descOut = Trim(desc);
     return out;
 }
 
@@ -296,7 +330,7 @@ static wstring ErrFromWinHttp(DWORD e) {
     }
 }
 
-WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
+WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes, const wstring& ua) {
     WebPage p;
     p.url = url;
     if (url.empty()) {
@@ -321,11 +355,18 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
         p.err = L"这不是一个完整链接（要 http:// 或 https:// 开头）";
         return p;
     }
+    if (uc.nScheme != INTERNET_SCHEME_HTTP && uc.nScheme != INTERNET_SCHEME_HTTPS) {
+        p.err = L"这不是网页链接：只认 http:// 和 https://（ftp、file 之类读不了）";
+        return p;
+    }
     wstring target = wstring(path);
     if (extra[0]) target += extra;
 
-    HINTERNET s = WinHttpOpen(L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) MinglingWorkbench/3.0",
-                              WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    // UA 可以在「链接与应用」里换成自己的；留空就用内置这句
+    wstring agent = Trim(ua);
+    if (agent.empty()) agent = L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) MinglingWorkbench/3.0";
+    HINTERNET s = WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_NO_PROXY, WINHTTP_NO_PROXY_NAME,
+                              WINHTTP_NO_PROXY_BYPASS, 0);
     if (!s) {
         p.err = ErrFromWinHttp(GetLastError());
         return p;
@@ -351,9 +392,17 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
         return p;
     }
 
+    // 现在大部分站点都 gzip。Win10 1809+ 的 WinHTTP 能自己解压：打开这个开关，
+    // 再照实说「我收 gzip/deflate」；老系统上开不了就要求明码，绝不把压缩字节当正文。
+    DWORD decomp = WINHTTP_DECOMPRESSION_FLAG_ALL;
+    const bool canDecomp = WinHttpSetOption(r, WINHTTP_OPTION_DECOMPRESSION, &decomp, sizeof(decomp)) != FALSE;
     const wchar_t* headers =
-        L"Accept: text/html,application/xhtml+xml;q=0.9,*/*;q=0.8\r\n"
-        L"Accept-Language: zh-CN,zh;q=0.9,en;q=0.6\r\n";
+        canDecomp ? L"Accept: text/html,application/xhtml+xml;q=0.9,*/*;q=0.8\r\n"
+                    L"Accept-Language: zh-CN,zh;q=0.9,en;q=0.6\r\n"
+                    L"Accept-Encoding: gzip, deflate\r\n"
+                  : L"Accept: text/html,application/xhtml+xml;q=0.9,*/*;q=0.8\r\n"
+                    L"Accept-Language: zh-CN,zh;q=0.9,en;q=0.6\r\n"
+                    L"Accept-Encoding: identity\r\n";
     BOOL ok = WinHttpSendRequest(r, headers, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) &&
               WinHttpReceiveResponse(r, nullptr);
     if (!ok) {
@@ -386,6 +435,7 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
                     ctypeW.find(L"text/plain") != wstring::npos;
 
     std::string all;
+    bool cut = false;   // 页面比上限大，只读了前面一段
     for (;;) {
         DWORD avail = 0;
         if (!WinHttpQueryDataAvailable(r, &avail)) {
@@ -399,6 +449,7 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
         all.append(buf.data(), read);
         if (all.size() >= maxBytes) {
             all.resize(maxBytes);
+            cut = true;
             break;
         }
     }
@@ -417,7 +468,31 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
         return p;
     }
 
+    // 截断是拿字节切的，最后一个汉字的字节可能被切成两半：那样整段会被误判成非 UTF-8，
+    // 于是按 GBK 解出一屏乱码。先把末尾那个不完整的字符整个丢掉，再判断编码。
+    if (cut && !all.empty()) {
+        size_t i = all.size();
+        size_t cont = 0;
+        while (i > 0 && cont < 3 && ((unsigned char)all[i - 1] & 0xC0) == 0x80) {
+            i--;
+            cont++;
+        }
+        if (i > 0) {
+            unsigned char lead = (unsigned char)all[i - 1];
+            size_t need = 1;
+            if ((lead & 0xE0) == 0xC0) need = 2;
+            else if ((lead & 0xF0) == 0xE0) need = 3;
+            else if ((lead & 0xF8) == 0xF0) need = 4;
+            if (all.size() - (i - 1) < need) all.resize(i - 1);
+        }
+    }
     wstring html = DecodePage(all, gbkHint);
+    // 编码没认出来时解码会留下 U+FFFD；比例一大就明说，别让用户对着乱码猜
+    {
+        size_t bad = 0;
+        for (wchar_t ch : html) if (ch == 0xFFFD) bad++;
+        if (!html.empty() && bad * 200 > html.size()) p.note = L"这个页面的编码没认出来，正文里可能有乱码";
+    }
     bool looksHtml = html.find(L'<') != wstring::npos;
     if (!htmlType && !looksHtml) {
         p.err = L"这个地址不是网页（像图片、文件或接口返回）";
@@ -425,10 +500,17 @@ WebPage FetchWebPage(const wstring& url, int timeoutMs, size_t maxBytes) {
     }
 
     wstring title;
-    wstring text = StripHtml(html, &title);
+    wstring desc;
+    wstring text = StripHtml(html, &title, &desc);
     if (text.size() > 8000) text = text.substr(0, 8000) + L"\n…（后面还有，先看这些）";
     p.title = title.empty() ? L"（无标题）" : title;
+    if (desc.size() > 240) desc = desc.substr(0, 240) + L"…";
+    p.desc = desc;
     p.text = text;
+    if (cut) {
+        if (!p.note.empty()) p.note += L"；";
+        p.note += L"页面太大，只读了前 " + Num((long long)(maxBytes / 1024)) + L" KB";
+    }
     if (text.empty()) {
         p.err = L"网页里没抽到能读的正文（可能要登录，或者整页是脚本画的）";
         return p;

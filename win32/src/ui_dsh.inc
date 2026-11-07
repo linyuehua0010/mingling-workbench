@@ -8,11 +8,14 @@ static DWORD g_dshAt = 0;
 static float g_dshScroll = 0, g_dshContentH = 0, g_dshViewH = 0;
 static RectF g_rcDsh;
 
-// 拿 debrief 的标题、UP 和前几节的要点拼一段背景，别把整份 raw 塞过去
+// 拿结果的标题、来源和前几节的要点拼一段背景，别把整份 raw 塞过去。
+// 看片和读链接共用这一个入口：链接结果没有分节，就退回正文前 1200 字。
 static wstring DshPrompt() {
-    wstring p = L"你在帮人理解一条刚看完的 B 站视频。请用中文，三到六句话，直接讲清讲了什么、值不值得看，不要客套。\n";
+    wstring p = g_linkMode
+                    ? L"你在帮人理解一个刚读到的网页。请用中文，三到六句话，直接讲清这页在说什么、值不值得细看，不要客套。\n"
+                    : L"你在帮人理解一条刚看完的 B 站视频。请用中文，三到六句话，直接讲清讲了什么、值不值得看，不要客套。\n";
     if (!g_result.title.empty()) p += L"标题：" + g_result.title + L"\n";
-    if (!g_result.up.empty()) p += L"UP：" + g_result.up + L"\n";
+    if (!g_result.up.empty()) p += (g_linkMode ? L"来源：" : L"UP：") + g_result.up + L"\n";
     wstring body;
     for (int i = 0; i < 8 && body.size() < 1200; i++) {
         if (g_result.section[i].empty()) continue;
@@ -21,9 +24,9 @@ static wstring DshPrompt() {
     if (body.empty() && !g_result.raw.empty()) {
         body = g_result.raw.size() > 1200 ? g_result.raw.substr(0, 1200) : g_result.raw;
     }
-    if (body.empty()) return p + L"（还没有看片结果，先随便说一句问候。）";
+    if (body.empty()) return p + L"（还没有结果，先随便说一句问候。）";
     if (body.size() > 1500) body.resize(1500);
-    p += L"她看完记下的要点：\n" + body;
+    p += (g_linkMode ? L"她读到的正文：\n" : L"她看完记下的要点：\n") + body;
     return p;
 }
 
@@ -45,11 +48,11 @@ static void DshRun() {
 static void DshAsk() {
     DshApiCfg cfg = DshApiLoad();
     if (!cfg.enabled) {
-        UiToast(L"对话 API 还没启用：B 站页 → 配置 → 启用对话 API");
+        UiToast(L"对话 API 还没启用：B 站页 → 链接与应用 → 启用对话 API");
         return;
     }
     if (cfg.base.empty()) {
-        UiToast(L"还没填 Base URL：B 站页 → 配置");
+        UiToast(L"还没填 Base URL：B 站页 → 链接与应用");
         return;
     }
     g_dshOpen = true;

@@ -337,11 +337,14 @@ bool DshApiSave(const DshApiCfg& cfg, std::wstring* err) {
         return false;
     }
     c.timeoutSec = ClampDshTimeout(c.timeoutSec);
-    SettingRawSet(L"dsh_api_enabled", c.enabled ? L"1" : L"0");
-    SettingSet(L"dsh_api_base", c.base);
-    SettingSet(L"dsh_api_model", c.model);
-    SettingSet(L"dsh_api_path", c.path);
-    SettingRawSet(L"dsh_api_timeout", Num(c.timeoutSec));
+    // 五个键一起改：一次备份、一次校验、失败一起回滚（不是改一半留一半）
+    std::vector<std::pair<std::wstring, std::wstring>> kv;
+    kv.push_back({L"dsh_api_enabled", c.enabled ? L"1" : L"0"});
+    kv.push_back({L"dsh_api_base", her::JStr(c.base).Dump(0)});
+    kv.push_back({L"dsh_api_model", her::JStr(c.model).Dump(0)});
+    kv.push_back({L"dsh_api_path", her::JStr(c.path).Dump(0)});
+    kv.push_back({L"dsh_api_timeout", Num(c.timeoutSec)});
+    if (!SettingsGuardApply(kv, err)) return false;
 
     // Key 不进 settings.json：单独一个文件，卸载也不删
     EnsureSecrets();
@@ -437,6 +440,97 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
         return false;
     }
     if (reply) *reply = content;
+    if (err) err->clear();
+    return true;
+}
+// ---------------------------------------------------------------- 读链接
+
+int LinkClampTimeout(int sec) {
+    if (sec < 5) return 5;
+    if (sec > 15) return 15;   // 上限就是 15 秒，配置不许放宽
+    return sec;
+}
+
+int LinkClampKB(int kb) {
+    if (kb < 64) return 64;
+    if (kb > 512) return 512;  // 上限就是 512 KB
+    return kb;
+}
+
+LinkCfg LinkLoad() {
+    LinkCfg c;
+    // 没写过这个键 = 默认开（读链接本来就是基础功能）
+    std::wstring on = Trim(SettingGet(L"link_read_enabled"));
+    c.enabled = on.empty() ? true : (on == L"1" || on == L"true" || on == L"开" || on == L"是");
+    long long sec = _wtoi64(Trim(SettingGet(L"link_read_timeout")).c_str());
+    c.timeoutSec = LinkClampTimeout(sec <= 0 ? 15 : (int)sec);
+    long long kb = _wtoi64(Trim(SettingGet(L"link_read_maxkb")).c_str());
+    c.maxKB = LinkClampKB(kb <= 0 ? 512 : (int)kb);
+    c.ua = Trim(SettingGet(L"link_read_ua"));
+    return c;
+}
+
+bool LinkSave(const LinkCfg& cfg, std::wstring* err) {
+    LinkCfg c = cfg;
+    c.ua = Trim(c.ua);
+    if (c.ua.size() > 300) {
+        if (err) *err = L"User-Agent 太长了（300 字以内就够）";
+        return false;
+    }
+    if (c.ua.find(L'\r') != std::wstring::npos || c.ua.find(L'\n') != std::wstring::npos) {
+        if (err) *err = L"User-Agent 不能换行";
+        return false;
+    }
+    c.timeoutSec = LinkClampTimeout(c.timeoutSec);
+    c.maxKB = LinkClampKB(c.maxKB);
+    std::vector<std::pair<std::wstring, std::wstring>> kv;
+    kv.push_back({L"link_read_enabled", c.enabled ? L"1" : L"0"});
+    kv.push_back({L"link_read_timeout", Num(c.timeoutSec)});
+    kv.push_back({L"link_read_maxkb", Num(c.maxKB)});
+    kv.push_back({L"link_read_ua", her::JStr(c.ua).Dump(0)});
+    return SettingsGuardApply(kv, err);
+}
+
+std::wstring LinkUserAgent(const LinkCfg& cfg) {
+    std::wstring ua = Trim(cfg.ua);
+    if (ua.empty()) ua = L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) MinglingWorkbench/3.0";
+    return ua;
+}
+
+// ---------------------------------------------------------------- settings.json 安全写入
+
+bool SettingsGuardApply(const std::vector<std::pair<std::wstring, std::wstring>>& kv, std::wstring* err) {
+    const std::wstring path = SettingsFile();
+
+    // 1) 先备份。备份失败就不改——宁可这轮配置不保存，也不能改坏了没得退。
+    std::wstring bak;
+    if (FileExists(path)) {
+        std::wstring text = ReadTextFile(path, 8 * 1024 * 1024);
+        bak = path + L".bak-" + SafeStamp();
+        for (int i = 2; i <= 50 && FileExists(bak); i++) bak = path + L".bak-" + SafeStamp() + L"-" + Num(i);
+        if (!WriteTextFile(bak, text)) {
+            if (err) *err = L"保存前要备份，但备份写不进去：" + bak;
+            return false;
+        }
+    }
+
+    // 2) 逐个改键。SettingRawSet 只替换这一行，其他键（包括我们不认识的）原样留着。
+    for (const auto& it : kv) SettingRawSet(it.first, it.second);
+
+    // 3) 写完重新解析整份文件。合法 JSON 才算写成；否则把备份拷回去。
+    std::wstring after = ReadTextFile(path, 8 * 1024 * 1024);
+    bool parsed = true;
+    if (!after.empty()) {
+        bool ok = false;
+        her::J::Parse(after, &ok);
+        parsed = ok;
+    }
+    if (!parsed) {
+        if (!bak.empty()) WriteTextFile(path, ReadTextFile(bak, 8 * 1024 * 1024));
+        if (err) *err = bak.empty() ? L"写出来的 settings.json 不是合法 JSON，已经还原"
+                                    : L"写出来的 settings.json 不是合法 JSON，已经回滚到 " + bak;
+        return false;
+    }
     if (err) err->clear();
     return true;
 }
