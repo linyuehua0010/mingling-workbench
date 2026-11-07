@@ -2,13 +2,15 @@
 
 # 冥零工作台
 
+![Version](https://img.shields.io/badge/version-V3.0.0-2563eb?style=flat-square)
+
 一个 `MinglingWorkbench.exe`，把「QQ 聊天机器人」和「B 站看片」收进同一个窗口：
 起停 SnowLuma / AstrBot、跑八块自设定、看今天的选题、丢一个 BV 进去让它自己看完、翻任务台账和日志。
 
-**Win32 + WebView2 内嵌 HTML**。七个页面和角色图片编进 exe，离线加载，不启动本机网页服务器。
-界面以冥零的冷白、雾蓝、宝石蓝和现有立绘重新设计，C++ 后端沿用 V3-snapshot-2。
+**C++ 后端 + WebView2 内嵌 HTML**。七个页面和角色图片编进 exe，离线加载，不启动本机网页服务器。
+界面以冥零的冷白、雾蓝、宝石蓝和现有立绘重做成「她值夜班时的桌子」。
 
-当前开发版：**V3-snapshot-3**。运行需要 Microsoft Edge WebView2 Runtime，`WebView2Loader.dll` 随程序分发。
+当前正式版：**V3.0.0**。运行需要 Microsoft Edge WebView2 Runtime，`WebView2Loader.dll` 随程序分发。
 [HTML 界面开发与验收](docs/ui-html.md)
 
 [下载安装包](#-下载与使用) · [从源码编译](#-从源码编译) · [使用说明](docs/使用说明.md) · [变更记录](docs/CHANGES.md)
@@ -27,31 +29,42 @@
 - **不重造轮子**：B 站协议、wbi 签名、抽帧、字幕识别留在 sidecar 里（一个 Node CLI，MIT 许可），
   窗口只负责「给参数、读进度、展示结果、写台账」。上游修了 bug 换 sidecar 即可，不用重编 UI。
 
-技术栈：C++17 / Win32 / GDI+ / WinHTTP，MinGW-w64 静态链接，Inno Setup 6 打包。
+技术栈：C++17 / Win32 / WebView2（内嵌 HTML）/ GDI+ / WinHTTP，MinGW-w64 静态链接，Inno Setup 6 打包。
 
 ---
 
 ## ✨ 核心特性
 
-### V3-snapshot-3 新增（快照通道）
+### V3.0.0 新增
 
-- 基于 snapshot-2 的 C++ 功能，七页界面换成内嵌 HTML；页面和角色图片直接打进 exe。
-- 界面做成「她值夜班时的桌子」：深夜蓝底、冰蓝高光，总览放她的立绘，侧栏是她的头像和说话框。
+- 七页界面整个换成内嵌 HTML（WebView2）：页面、样式和角色图片直接打进 exe，走内存资源离线加载，
+  不开本机端口。主题叫「她值夜班时的桌子」——深夜蓝底、冰蓝高光，总览放她的立绘，侧栏是她的头像和说话框。
+- 启动先铺一层与主题同色的加载画面，WebView2 初始化期间不再闪出旧界面；只有初始化或页面加载明确失败，
+  才退回原生界面并恢复系统窗口控制。
 - 文案按 `冥零人设.md` 重写：短句、括号动作、不客服腔；页名换成她的说法——总览 / 一起看看 /
   做过的事 / 日志 / 哪儿卡了 / 照顾她 / 帮帮忙，状态、数字和报错原因照实写。
-- 继续提供真实状态、配置备份、离线教程、任务台账与后台进度。
+- 阅读记忆队列 `memory-inbox`：看完的 B 站视频、读过的网页和「问一句」的回复，先在工作区
+  `logs\memory-inbox\` 排队，再由 `astrbot_plugin_bili_bridge` 0.3.0 每 30 秒挑走写进她的长期记忆；
+  失败留着重试，退出或取消也不丢。队列状态在「照顾她」→「她会做的事」→ 长期记忆下面看。
+- 黑夜 / 白天 / 自定义三套主题：黑夜保留深蓝，白天换成瓷白配蓝，自定义能改背景 / 卡片 / 文字 /
+  强调色四个颜色，切完自动保存、重启还在；标题栏跟着主题一起刷（DWM），不再一黑一白。
+- 「照顾她」拆成五个分区 tab：外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事，
+  各分区独立渲染，切过去即时重绘，主题脏标记也按分区清。
+- 「做过的事」改成双栏：左栏「本子」是任务列表，右栏「这一次」常驻选中任务的详情和正文，
+  不用先展开才看得到；没选中时给一句空态提示。
+- B 站桥接插件 `astrbot_plugin_bili_bridge` 升到 0.3.0：群里发 B 站链接 → 工作台看片 → 用她自己的口气回话。
 
-### V3-snapshot-2 新增（快照通道）
+### 从 V2.4.1 到 V3.0.0：其它改动
 
 | 功能 | 说明 |
 | --- | --- |
 | **链接读取落地** | 输入框统一入口：BV / B 站链接 → 看片；普通网页链接、分享文本 → 读链接。结果区统一给标题、摘要、来源、耗时、状态，可以复制、可以「问一句」、会写台账（`type:"link"`）。读链接跟随重定向、自动解 gzip、认得 GBK，失败原因说人话（超时 / 不是 http / 编码 / 太大 / 被拒）。 |
 | **「链接与应用」配置** | 「一起看看」→ 配置 → 链接与应用：读取开关、超时（上限 15 秒）、大小上限（上限 512 KB）、User-Agent；对话 API 的启用 / Base URL / 路径 / 模型 / 超时 / Key，带「测试连接」。默认值一点没放宽：单次 GET、15 秒、512 KB。Key 只写 `secrets\dsh-api-key.txt`，不进 `settings.json`、不进日志。 |
 | **B 站页并成四个分区** | 选题 / 看片与读链接 / 结果 / 配置。原来的「bili-whale 配置」和「问一句」两个浮层都搬进页面里，不再是浮层。 |
-| **更新只覆盖工作台自己** | 帮助中心 → 更新 → 工作台行「一键更新」：下载安装包 → 校验大小 / 哈希 → 先把 `bin\ sidecar\ tools\ pack\ plugin\ skill\ docs\ art\` 备份到 `<机器人根>\旧版\workbench-<版本>-<时间>\` → 静默覆盖安装 → 重启。`bots\`、`out\`、`logs\`、`secrets\`、`private\` 和 `%APPDATA%` 下的设置一概不碰；装失败自动回滚到备份。 |
-| **教程随包、离线可读** | `docs\使用说明.md`、`docs\deploy-bili.md`、`docs\deploy-qq.md` 跟着安装包走，帮助中心里直接读（标题 / 列表 / 代码块 / 表格都渲染），还能「用系统打开」。文档里的版本号、页签数、快捷键由程序注入，不写死。 |
-| **十页并成七页** | 侧栏：总览 / B站 / 队列 / 日志 / 体检 / 维护 / 帮助中心。「维护」下面接功能开关（桌宠 / 唱歌 / 豆包语音 / 在线 Breeze / 长期记忆 / 语音路线），「更新 + 求助 + 帮助」并成帮助中心三段。 |
-| **界面按人设重做** | 颜色、圆角、间距、字号收成一组 token（`win32\src\ui.cpp` 顶部），卡片统一走 `Card()`；空状态和报错用冥零的口吻，但原因不吞。 |
+| **更新只覆盖工作台自己** | 帮帮忙 → 检查更新 → 工作台行「一键更新」：下载安装包 → 校验大小 / 哈希 → 先把 `bin\ sidecar\ tools\ pack\ plugin\ skill\ docs\ art\` 备份到 `<机器人根>\旧版\workbench-<版本>-<时间>\` → 静默覆盖安装 → 重启。`bots\`、`out\`、`logs\`、`secrets\`、`private\` 和 `%APPDATA%` 下的设置一概不碰；装失败自动回滚到备份。 |
+| **教程随包、离线可读** | `docs\使用说明.md`、`docs\deploy-bili.md`、`docs\deploy-qq.md` 跟着安装包走，帮帮忙 → 教程里直接读（标题 / 列表 / 代码块 / 表格都渲染），还能「用系统打开」。文档里的版本号、页签数、快捷键由程序注入，不写死。 |
+| **十页并成七页** | 侧栏收成 总览 / 一起看看 / 做过的事 / 日志 / 哪儿卡了 / 照顾她 / 帮帮忙；功能开关收进「照顾她」，更新、求助、教程并进帮帮忙。 |
+| **界面按人设重做** | 颜色、圆角、间距、字号收进一组 CSS 变量（`win32\web\index.html` 顶部），卡片统一走同一个模板函数；空状态和报错用冥零的口吻，但原因不吞。 |
 
 ### V2.4.0 新增（正式版）
 
@@ -93,7 +106,7 @@
 - **七个页签**：总览 / 一起看看 / 做过的事 / 日志 / 哪儿卡了 / 照顾她 / 帮帮忙，`1`–`7` 直接跳，`0` 是帮帮忙。
 - **B 站一条龙**：今日选题 → 拉流 → 抽帧 → 字幕 → 九宫格 → 写正文，进度条分六个阶段。
 - **任务台账**：工作台、QQ 群、模型工具调用写的是同一份 `logs\jobs.jsonl`，从哪看都是同一段历史。
-- **照顾她**：八张状态卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包）+ 一排一键动作（自动配置 / 重启大脑 / 重登 QQ / 导入人设 / 备份 / 求助 / 打开工作区 / 修自启 …）。
+- **照顾她**：五个分区。组件状态八张卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包），一键操作分日常 / 组件 / 兜底三组（重启大脑 / 重登 QQ / 自设定 / 导入人设 / 修自启 / 备份 / 求助 …），再加外观主题、相处的习惯和她会做的事。
 - **体检五连**：登录 → 依赖 → 限额 → 风控 → 自检，就是排错顺序本身。
 - **检查更新**：AstrBot / SnowLuma / 安装 Skill（`mingling-install`）/ 工作台四项版本对比；工作台那一行能「一键更新」（只覆盖程序文件，先备份、失败回滚），其余三项给的是「复制给 Agent 的话」，Skill 那行可以直接「一键更新」。
 - **GUI 子系统但带 CLI**：`--paths`、`--feed`、`--watch BV…`、`--debrief`、`--bili <子命令>`、`--her-status` 都能在无桌面环境里跑。
@@ -144,7 +157,7 @@ build.bat
 
 ```bat
 installer\build-installer.bat
-:: 产物：dist\MinglingWorkbench-3-snapshot-2-setup.exe
+:: 产物：dist\MinglingWorkbench-3.0.0-setup.exe
 ```
 
 需要 **Inno Setup 6**（`ISCC.exe`）。仓库自带 `tools\innosetup6\app\ISCC.exe` 时直接用它，
@@ -160,22 +173,22 @@ installer\build-installer.bat
 
 ### 下载
 
-到 [Releases](https://github.com/linyuehua0010/mingling-workbench/releases) 页面下载：
+从 [V3.0.0 发布页](https://github.com/linyuehua0010/mingling-workbench/releases/tag/V3.0.0) 下载：
 
 ```
-MinglingWorkbench-3-snapshot-2-setup.exe   Windows 10/11 x64（快照通道），约 62 MB
+MinglingWorkbench-3.0.0-setup.exe   Windows 10/11 x64，约 66 MB
 ```
 
 安装包**自带** `node.exe`、`ffmpeg.exe`、bili-whale、自设定脚本与配置包（`tools\` / `pack\mingling-pack\`）、
 以及冥零自己的安装 Skill（`skill\mingling-install\`，第一次启动自动铺到 `%USERPROFILE%\.agents\skills\`）。
 干净机器不用再装 Node / ffmpeg / Python / DSH。
 
-同一个 Release 里还挂着两样给 Agent 用的东西：`mingling-install.zip`（Skill 本体）和
-`skill-version.json`（它的版本号，检查更新就用它比）。
+同一个 Release 里还挂着源码包 `MinglingWorkbench-3.0.0-source.zip`，以及两样给 Agent 用的东西：
+`mingling-install.zip`（Skill 本体）和 `skill-version.json`（它的版本号，检查更新就用它比）。
 
 ### 安装
 
-1. 双击安装包。默认装到 `%LOCALAPPDATA%\Programs\MinglingWorkbench`，**不需要管理员权限**。
+1. 双击安装包。默认装到 `%LOCALAPPDATA%\Programs\MinglingWorkbench`，**不需要管理员权限**；应用和功能里显示「冥零工作台 V3.0.0」。
 2. 向导里选**工作区**。产物、台账、日志都落在这里，建议单独放一个盘，例如 `D:\冥零工作区`。
 3. 勾选要不要桌面快捷方式。开始菜单会有「冥零工作台」和「卸载冥零工作台」。
 4. 装完直接启动；第一次启动会确认工作区（安装时已选过就不再问）。
@@ -255,8 +268,8 @@ AstrBot 后台改密码——**删除提交不够**，历史里还留着，得�
 ## 🏗 它是怎么工作的
 
 ```
-MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
-├── UI 线程           侧栏七个页签、卡片与表单（内嵌 HTML）
+MinglingWorkbench.exe（C++ 后端 + WebView2 内嵌 HTML）
+├── UI 线程           侧栏七个页签、卡片与表单（WebView2 渲染内嵌 HTML）
 ├── 工作线程          起停服务、跑 B 站任务、跑体检命令（结果用 PostMessage 回 UI）
 └── sidecar\          只在本机跑的私有运行时，不依赖任何外部 IDE / 平台
     ├── node\node.exe               跑 bili-whale 的 Node 运行时
@@ -286,14 +299,18 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 
 | 页 / 分区 | 截图 |
 | --- | --- |
-| 总览 | [总览](docs/screens/v3/overview.png) |
-| 一起看看 · 今天看啥 / 丢个链接 | [今天看啥](docs/screens/v3/bili-feed.png) · [丢个链接](docs/screens/v3/bili-work.png) |
-| 一起看看 · 看完了 / 配置 | [看完了](docs/screens/v3/bili-result.png) · [B 站配置](docs/screens/v3/bili-config.png) · [链接与对话 API](docs/screens/v3/bili-link.png) |
-| 做过的事 / 日志 / 哪儿卡了 | [做过的事](docs/screens/v3/jobs.png) · [日志](docs/screens/v3/logs.png) · [哪儿卡了](docs/screens/v3/check.png) |
-| 照顾她（含「相处的习惯」） | [照顾她](docs/screens/v3/maint.png) · [相处的习惯](docs/screens/v3/maint-features.png) |
-| 帮帮忙 · 教程 / 检查更新 / 找人帮忙 | [教程](docs/screens/v3/center-doc.png) · [检查更新](docs/screens/v3/center-update.png) · [找人帮忙](docs/screens/v3/center-ask.png) |
+| 总览 | [总览](docs/screens/v3/overview.png)：她的问候和立绘、SnowLuma / AstrBot 状态、四个数字、最近记录 |
+| 一起看看 · 今天看啥 / 丢个链接 | [今天看啥](docs/screens/v3/bili-feed.png) · [丢个链接](docs/screens/v3/bili-work.png)：粘 BV 或链接就开跑 |
+| 一起看看 · 看完了 / 配置 / 链接与对话 API | [看完了](docs/screens/v3/bili-result.png) · [B 站配置](docs/screens/v3/bili-config.png) · [链接与对话 API](docs/screens/v3/bili-link.png)：正文、产物，以及「问一句」 |
+| 做过的事 | [做过的事](docs/screens/v3/jobs.png)：左栏「本子」是任务列表，右栏「这一次」常驻选中任务的详情 |
+| 日志 | [日志](docs/screens/v3/logs.png)：SnowLuma / AstrBot / B 站三路，2.5 秒尾随 |
+| 哪儿卡了 | [哪儿卡了](docs/screens/v3/check.png)：登录 → 依赖 → 限额 → 风控 → 自检，原样显示命令输出 |
+| 照顾她 · 外观主题 | [外观主题](docs/screens/v3/maint.png)：五个分区 tab（外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事），第一格是黑夜 / 白天 / 自定义 |
+| 照顾她 · 组件状态 / 一键操作 | [组件状态](docs/screens/v3/maint-status.png) · [一键操作](docs/screens/v3/maint-ops.png)：状态卡；日常 / 组件 / 兜底三组按钮 |
+| 照顾她 · 相处的习惯 / 她会做的事 | [相处的习惯](docs/screens/v3/maint-habits.png) · [她会做的事](docs/screens/v3/maint-features.png)：群里怎么回、表情包、语音频率、掉线提醒、打游戏模式；桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线 |
+| 帮帮忙 | [教程](docs/screens/v3/center-doc.png) · [检查更新](docs/screens/v3/center-update.png) · [找人帮忙](docs/screens/v3/center-ask.png)：三段 |
 
-截图来自一台没有装 DSH 的隔离环境（`docs/ACCEPTANCE.md` 第 3 节有说明）；消息数、任务和日志是演示数据，避免把真实聊天内容拍进去。
+截图是用隔离的临时状态目录（`MINGLING_STATE_DIR` 指到 `tmp\shots-v3\`）启动程序拍的，界面里的消息数、任务和日志是演示数据，避免把真实聊天内容拍进去。
 
 ---
 
@@ -303,10 +320,10 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 | --- | --- | --- |
 | 1 | 总览 | 她的问候和立绘、SnowLuma / AstrBot 状态、四个数字、最近记录、扔链接的输入框 |
 | 2 | 一起看看 | 四个分区：今天看啥 / 丢个链接 / 看完了 / 配置。粘 BV 或链接就开跑，网页链接和分享文本走读链接 |
-| 3 | 做过的事 | `logs\jobs.jsonl` 的任务记录：时间、BV、标题、UP、来源、状态、耗时、正文（读链接记 `type:"link"`） |
+| 3 | 做过的事 | 双栏：左栏「本子」是 `logs\jobs.jsonl` 的任务列表（时间、BV、标题、UP、来源、状态、耗时），右栏「这一次」常驻选中任务的正文（读链接记 `type:"link"`）；没选中时给空态提示 |
 | 4 | 日志 | SnowLuma / AstrBot / B 站三路日志，2.5 秒尾随，可刷新、开日志目录 |
 | 5 | 哪儿卡了 | 登录、依赖、限额、风控、自检五条命令，原样显示 sidecar 输出 |
-| 6 | 照顾她 | 上半：八张状态卡和「相处习惯」；下半：一键操作（日常 / 组件 / 兜底三组） |
+| 6 | 照顾她 | 五个分区：外观主题（黑夜 / 白天 / 自定义）/ 组件状态（大脑、QQ、DeepSeek 余额、记忆、语音、看图看视频等，按实际组件列卡）/ 一键操作（日常 / 组件 / 兜底三组）/ 相处的习惯（回复、表情包、语音、掉线提醒、打游戏模式）/ 她会做的事（桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线） |
 | 7 | 帮帮忙 | 三段：教程（随包文档）/ 检查更新（四项版本 + 工作台一键更新）/ 找人帮忙（十一张卡，可改字） |
 
 ### 一起看看
@@ -376,7 +393,7 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 | bili-whale 配置（偏好、配额、作息） | `%APPDATA%\MinglingWorkbench\bili-whale.config.json` |
 | 日记、quota、作息状态 | `%APPDATA%\MinglingWorkbench\bili-state\` |
 | B 站凭据（工作台与插件共用） | `%USERPROFILE%\.bili-ai\credentials.json` |
-| 程序本体 | `%LOCALAPPDATA%\Programs\MinglingWorkbench\`（快照版是 `…\MinglingWorkbench-snapshot\`） |
+| 程序本体 | `%LOCALAPPDATA%\Programs\MinglingWorkbench\` |
 | 覆盖更新前的程序备份 | `<机器人根>\旧版\workbench-<版本>-<时间>\`（`bin\ sidecar\ …` 原样一份，回滚就用它） |
 
 换电脑：把工作区整个拷走，再把 `%APPDATA%\MinglingWorkbench` 和 `%USERPROFILE%\.bili-ai`
@@ -404,7 +421,7 @@ MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup
 ```
 
 `--her-op` 是排错和脚本化的入口：`selfsetup` 会先存快照再改，`updates` 只查版本，`diag` 出一份打了码的体检报告，
-`feature plugin/<插件名>/0|1` 改功能页的开关。它和界面点按钮走的是同一条代码路径。
+`feature plugin/<插件名>/0|1` 改「照顾她」→「她会做的事」里的开关。它和界面点按钮走的是同一条代码路径。
 
 `--watch` 与界面走完全相同的契约：同一套环境变量、同一个 `out\<BV>\`、同一份 `jobs.jsonl`。
 
@@ -421,14 +438,14 @@ MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup
 | 群里能看、工作台不能看 | `--paths` 的凭据与配置 | 两边必须指向同一个工作区和同一份凭据 |
 | 服务起不来 | 日志页对应日志 | AstrBot 在 `<组件根>\AstrBot`（老布局 `<机器人根>\astrbot`）；SnowLuma 在 `<组件根>\SnowLuma\node.exe`。日志页现在两路都认 `bots\`，读不到会直接告诉你它找的是哪个路径 |
 | 照顾她全红 | `--paths` 的机器人根 | `base` 指错了。组件在 `<组件根>`（默认 `<工作区>\bots\`）里，会先找 bots 再看老平铺目录 |
-| 自设定说「没找到 tools\self-setup.ps1」 | 安装目录里有没有 `tools\` | 装的是 V2.3.x 以前的包。换 V2.4.0：包自带 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` |
-| 检查更新 / 照顾她说「没找到安装（Skill）」 | `<机器人根>\tools\skill-home.txt` | V2.4.0 第一次启动会自动铺一份并写这个文件；手工装过的 Skill 想让它认，跑一次 `skill\mingling-install\scripts\finish.ps1 -Dir <机器人根>` |
+| 自设定说「没找到 tools\self-setup.ps1」 | 安装目录里有没有 `tools\` | 装的是 V2.3.x 以前的包。换 V3.0.0：包自带 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` |
+| 检查更新 / 照顾她说「没找到安装（Skill）」 | `<机器人根>\tools\skill-home.txt` | V2.4.0 起第一次启动会自动铺一份并写这个文件；手工装过的 Skill 想让它认，跑一次 `skill\mingling-install\scripts\finish.ps1 -Dir <机器人根>` |
 | 检查更新里 Skill 那行说「查不到新版」 | `logs\skill-check.log` | 私有仓库要 `secrets\github-token.txt` 才查得到；里面记了每次请求的 url / 状态码 / 有没有带 token |
 | 一键配置装到一半失败 | `<组件根>\.setup.json` | 里面记了每个组件的成功/失败与原因 |
 | 窗口不出现 | 任务管理器 | 已有实例被最小化到托盘区？再双击 exe 会置前；单实例靠窗口类名 |
 | 粘了链接没反应 | 「一起看看」→ 配置 → 链接与应用 | 「读取网页链接」关着就会只提示不读；也可能超时 / 页面太大（默认 15 秒、512 KB，可调小不可调大） |
 | 「问一句」说没连上 | 同上，点「测试连接」 | 没启用、Base URL 空、Key 不对或路径错都会明说；它只影响这一路，不挡看片 |
-| 一键更新失败 | 帮助中心 → 更新 底部的提示 | 会写明失败在哪一步；安装器非 0 退出时程序文件已从 `<机器人根>\旧版\` 回滚 |
+| 一键更新失败 | 帮帮忙 → 检查更新 底部的提示 | 会写明失败在哪一步；安装器非 0 退出时程序文件已从 `<机器人根>\旧版\` 回滚 |
 
 更多：QQ 机器人部署见 [docs/deploy-qq.md](docs/deploy-qq.md)，
 看 B 站插件部署见 [docs/deploy-bili.md](docs/deploy-bili.md)。
@@ -459,15 +476,16 @@ art\                   avatar.png / hero.png
 
 | 版本 | 一句话 |
 | --- | --- |
-| **V3-snapshot-2** | 链接读取落地 + 「链接与应用」配置；B 站页并四分区；更新只覆盖工作台自己；教程随包离线读；十页并七页；界面按人设重做 |
-| V3-snapshot-1 | 快照通道（原 `V3.0.0-snapshot`）：独立状态目录/卸载项/窗口类、更新页牵 GitHub Releases、bili-whale 配置界面、对话 API、链接读取 MVP |
+| **V3.0.0**（2026-11-07，当前正式版） | 内嵌 HTML 界面「她值夜班时的桌子」、启动加载画面、阅读记忆队列、黑夜 / 白天 / 自定义主题、照顾她五分区、做过的事双栏（页面修正版并入） |
+| V2.4.1（2026-11-07，上一个正式版） | 补丁版：安装包补齐自动配置 / 自设定 / 人设模板，修安装版资源路径、QQ 视频重复请求、B 站短链接软触发 |
 | V2.4.0 | 安装包补 `tools\` `pack\` `plugin\` 与冥零安装 Skill；组件路径全面认 `<工作区>\bots\` |
 | V2.3.1 | 修组件目录、语音卡、打游戏模式里的 Breeze |
 | V2.3.0 | 自设定八块、功能页、配置档案识别、白名单只加不删 |
 | V2.2.1 | 修「错误 5：拒绝访问」 |
 | V2.2.0 | 一键配置环境、人设模板、掉线提醒、帮助页路径、求助卡可改字 |
+| 历史快照 | `V3.0.0-snapshot` / `V3-snapshot-1` / `V3-snapshot-2` / `V3-snapshot-3`：V3 正式版之前的快照试验（独立安装目录、预发布包），成果已并入 V3.0.0 |
 
-命名规则：正式版 `V<主>.<次>.<补丁>`，快照版 `V<大版本>-snapshot-<序号>`（大版本 = 正式版最新大版本 + 1）。
+命名规则：正式版 `V<主>.<次>.<补丁>`，快照版 `V<大版本>-snapshot-<序号>`（大版本 = 正式版最新大版本 + 1）。V3.0.0 发版后，快照通道从 `V4-snapshot-1` 起，还没发。
 细节见 [docs/VERSIONING.md](docs/VERSIONING.md)，每次改了什么见 [docs/CHANGES.md](docs/CHANGES.md)。
 
 ---

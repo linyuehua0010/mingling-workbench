@@ -27,7 +27,7 @@ references\发布.md        怎么发这个 skill 的新版（工作台「一键
 ## 发布（给自己看的）
 
 发成 GitHub Release，仓库跟工作台同一个：`linyuehua0010/mingling-workbench`。
-tag `skill-v0.1.0`，两个资产：
+tag `skill-v0.2.0`，两个资产：
 
 - `mingling-install.zip` —— 打包时顶层目录必须是 `mingling-install\`（`SKILL.md`、`version.json`、
   `scripts\finish.ps1` 必须都在）
@@ -39,9 +39,9 @@ tag `skill-v0.1.0`，两个资产：
 ```powershell
 # 在工作区根目录跑
 Compress-Archive -Path skill\mingling-install -DestinationPath tmp\mingling-install.zip -Force
-gh release create skill-v0.1.0 tmp\mingling-install.zip skill\mingling-install\version.json `
-   --repo linyuehua0010/mingling-workbench --title "冥零安装 Skill v0.1.0" --notes "见 version.json"
+gh release create skill-v0.2.0 tmp\mingling-install.zip skill\mingling-install\version.json `
+   --repo linyuehua0010/mingling-workbench --title "冥零安装 Skill v0.2.0" --notes "见 version.json"
 ```
 
-没发布之前，工作台更新页会显示「本机 0.1.0」，不会报错——这是故意的：
+没发布之前，工作台更新页会显示「本机 0.2.0」，不会报错——这是故意的：
 查不到远端就说「本机」，不假装有新版本。

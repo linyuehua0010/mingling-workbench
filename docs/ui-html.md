@@ -1,8 +1,8 @@
-# V3-snapshot-3 · 内嵌 HTML 界面
+# V3.0.0 · 内嵌 HTML 界面
 
 把工作台做成「她值夜班时的桌子」：深夜蓝的房间、冰蓝的灯、她的立绘放在最显眼的地方，
-文案全部按 `冥零人设.md` 的口吻写——短句、括号动作、不客服腔。功能仍是 V3-snapshot-2 的
-C++ 后端，HTML 只负责长相和交互。
+文案全部按 `冥零人设.md` 的口吻写——短句、括号动作、不客服腔。C++ 后端沿用 V3 线已有的功能，
+HTML 只负责长相和交互。
 
 ## 设计
 
@@ -43,6 +43,19 @@ C++ 后端，HTML 只负责长相和交互。
   `WebUiPublish()` 推送。
 - `win32/res/app.rc`：把 `index.html`、`hero.png`、`avatar.png` 编进 exe（资源号 200/201/202）。
 
+### 页面里的两处结构
+
+- **做过的事（`jobs()`）**：双栏，左「本子」右「这一次」。左栏是任务列表（`jobRows()`，每行
+  `data-job` 带序号、标题、来源、时间、状态），右栏常驻选中任务详情：没有选中时显示空态
+  「挑一条，展开看看 / 点左边本子上的记录，详情会显示在这里 /（翻页）」，选中后显示
+  `<pre>` 详情和「复制记录」「打开产物」。点左边任意一条发 `{cmd:"job",index}`，右侧立即换成
+  这条的详情，不用先展开。
+- **照顾她（`maintenance()`）**：拆成五个分区 tab（`data-maint` 0–4）——外观主题、组件状态、
+  一键操作、相处的习惯、她会做的事；每个分区自己渲染，全局 `maintSec` 记住当前分区。
+  切分区只在页面内做（改 `maintSec` 后重绘），**不发消息给 C++**。
+- **渲染签名**：`JSON.stringify([comparable,helpSec,cfgSec,maintSec])`，分区也算进签名，切分区
+  立即重绘；同一签名下需要强制重绘时置 `force=true`（任务详情、分区点击都这么用）。
+
 页面地址是 `https://mingling.local/`，所有请求由 C++ 拦截，**没有本机 HTTP 服务或开放端口**；
 只应答这三个资源，其它一律 404。CSP 关闭外链、表单提交和框架；消息桥校验来源，动作走固定白名单，
 所有动态文本先转义再插入。
@@ -57,6 +70,7 @@ C++ 后端，HTML 只负责长相和交互。
 | 切页 | `{cmd:"tab",index}` | 侧栏和 `1`–`7`、`0` 都走这条 |
 | B 站分区 | `{cmd:"section",index}` | 今天看啥 / 丢个链接 / 看完了 / 配置 |
 | 操作按钮 | `{cmd:"action",value}` | `btn:*`、`op:*`、`fix:*`、`freq:*`、`plugin/*`、`memory/*`、`voice/*` 等 |
+| 任务详情 | `{cmd:"job",index}` | 点「做过的事」左栏某一条；不在第 3 页时顺带切回 `tab` 2 |
 | 看片 / 读链接 | `{cmd:"watch",value}` | 输入框回车也发这条 |
 | 保存配置 | `{cmd:"configsave",value,fields}` | 只提交改过的字段，密码清空后提交空值表示保留 |
 | 求助卡改字 | `{cmd:"asksave",index,value}` | 存在 `settings.json` 的 `custom_help_texts` |
@@ -68,11 +82,11 @@ C++ 后端，HTML 只负责长相和交互。
 
 ```bat
 win32\build.bat
-rem 另存一个文件名，方便和正在跑的正式版对比
-win32\build.bat MinglingWorkbench-html.exe
 ```
 
-输出在 `bin\`。exe 与 `WebView2Loader.dll` 必须在同一目录；运行需要 Microsoft Edge WebView2
+产物固定是 `bin\MinglingWorkbench.exe`。`build.bat` 先跑 `tools\check-version.ps1`，再用 windres
+编资源、g++ 静态链接、把 `WebView2Loader.dll` 拷到 `bin\`；版本号只改 `win32\src\version.h`，
+不要在别处另写。exe 与 `WebView2Loader.dll` 必须在同一目录；运行需要 Microsoft Edge WebView2
 Runtime，缺少时会显示错误说明。安装器已经带上 Loader，但没有自动下载 Runtime。
 
 WebView2 SDK 固定 **1.0.2903.40**（微软官方 NuGet 包），头文件、x64 Loader、LICENSE、NOTICE
@@ -96,7 +110,7 @@ $env:MINGLING_STATE_DIR = "tmp\ui-check\state"
 $env:MINGLING_WORKSPACE = "tmp\ui-check\workspace"
 $env:MINGLING_SECRETS   = "tmp\ui-check\secrets"
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9222"
-Start-Process bin\MinglingWorkbench-html.exe
+Start-Process bin\MinglingWorkbench.exe
 # 然后：node tmp\cdp.mjs shot out.png "send('tab',{index:5})"
 ```
 

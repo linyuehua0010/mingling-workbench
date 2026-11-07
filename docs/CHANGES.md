@@ -4,6 +4,55 @@
 
 ---
 
+## V3.0.0 正式版（2026-11-07）
+
+**这一版是什么**：V3 线的第一个正式版。`win32\src\version.h` 里 `APP_VERSION_TAG "V3.0.0"`、
+`APP_VERSION_SHORT "3.0.0"`、文件版本 `3.0.0.0`、`APP_SNAPSHOT 0`；`tools\check-version.ps1`
+打印 `[版本] OK V3.0.0 (3.0.0.0)`。正式通道沿用 V2.4.1 的目录——程序装到
+`%LOCALAPPDATA%\Programs\MinglingWorkbench`，状态在 `%APPDATA%\MinglingWorkbench`，
+「应用和功能」里显示「冥零工作台 V3.0.0」，装过 V2.4.1 的机器是原地升级。
+
+**V3 线主要变化**
+
+- **界面重做**：七页从 GDI+ 原生控件换成内嵌 HTML + WebView2，主题「她值夜班时的桌子」；
+  页面、立绘、头像编进 exe，地址走 `https://mingling.local/` 内存资源，不开端口、不落临时文件。
+- **启动加载画面**：WebView2 初始化期间先画与主题一致的底色，不再闪旧界面；只有初始化或页面
+  加载明确失败才退回原生 UI（细节见下文「启动加载画面」）。
+- **阅读记忆队列**：读成功的 B 站 / 网页 /「问一句」结果在 `logs/memory-inbox/` 落独立任务，
+  `astrbot_plugin_bili_bridge` 0.3.0 每 30 秒处理，失败保留重试；旧 `memory-pending.jsonl` 自动迁移
+  （细节见下文「阅读记忆与主题设置」）。
+- **主题**：黑夜 / 白天 / 自定义三种，窗口标题栏的 DWM 深浅跟随当前主题；保存后重启保留。
+- **插件**：`astrbot_plugin_bili_bridge` 0.3.0，要和 AstrBot 里那一份同步更新并重载，且与工作台
+  指向同一工作区。
+
+**页面修正版（V3.0.0 定稿）**
+
+1. 「做过的事」改双栏：左「本子」是任务列表，右「这一次」常驻选中任务详情，没有选中时给空态提示，
+   不用先展开才看得到详情；点左边任意一条发 `{cmd:"job",index}` 并留在本页。
+2. 「照顾她」拆成五个分区 tab：外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事，
+   各自独立渲染；全局 `maintSec` 记住当前分区。
+3. 渲染签名改成 `JSON.stringify([comparable,helpSec,cfgSec,maintSec])`，分区也进签名，切分区即时重绘；
+   分区点击置 `force=true` 强制重绘（实现细节见 [ui-html.md](ui-html.md)）。
+
+**从快照版转正式版**
+
+- 快照通道停在 `V3-snapshot-3`，目录是 `%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot`，
+  状态在 `%APPDATA%\MinglingWorkbench\snapshot`，和正式通道互不影响。
+- 装了快照版的人要转正式版，得装 `MinglingWorkbench-3.0.0-setup.exe` 到正式通道，**配置不自动迁移**；
+  想留着旧设置就先备份 `%APPDATA%\MinglingWorkbench\snapshot`。
+- 快照通道下一版从 `V4-snapshot-1` 起，尚未发布（规则见 [VERSIONING.md](VERSIONING.md)）。
+
+**构建与打包**
+
+- 版本号只有一个出处：`win32\src\version.h`；改完先跑 `tools\check-version.ps1`，
+  `build.bat` 和 `installer\build-installer.bat` 开头都会先跑它。
+- `win32\build.bat`：windres 编 `app.rc` → g++ 静态链接 → 拷 `WebView2Loader.dll` → `bin\MinglingWorkbench.exe`。
+- `installer\build-installer.bat`：校验 `bin\`、`sidecar\node\node.exe`、`sidecar\bili-whale\tools\bili.mjs`、
+  `sidecar\bili-whale\bin\ffmpeg.exe`、`installer\secrets-README.txt`，从 `version.h` 生成
+  `installer\version_auto.iss`，ISCC 出 `dist\MinglingWorkbench-3.0.0-setup.exe`。
+- 发布资产：安装包、`MinglingWorkbench-3.0.0-source.zip`、`mingling-install.zip`、`skill-version.json`，
+  各配 `.sha256`；GitHub Release 为正式发布（非 prerelease）。
+
 ## 启动加载画面
 
 WebView2 异步初始化期间显示与主题一致的加载底色，不再先绘制旧的 C++ 界面。

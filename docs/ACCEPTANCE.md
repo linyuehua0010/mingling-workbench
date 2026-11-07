@@ -587,3 +587,89 @@ exe 1,637,888 字节。截图见 `docs\screens\`，全部是 `PrintWindow` 抓�
 - **真 DSH 端点的「问一句」成功返回**：没有可用 Key，只验到「配置→请求→错误人话化→不影响看片」。
 - **从 GitHub 真下一版安装包**：`FindSetupAsset` / `DownloadFile` / `Sha256File` 的代码路径与错误文案做了静态核对，
   没等到真实 release 资产（`repo_snapshot` 目前最新是 V2.4.0，本机版本更高，UI 显示「最新」）。
+
+## V3.0.0 验收记录（2026-11-07）
+
+工作副本：`F:\dsh工作区\MinglingWorkbench`。构建走 `win32\build.bat`（MinGW-w64 g++ 16.2.0，
+静态链接），产物 `bin\MinglingWorkbench.exe` 3,284,480 字节。安装包与其余发布资产的大小、
+SHA-256 由发布脚本在打包后生成到同名 `.sha256` 文件和 Release 正文里，本节只记校验办法，不预填数字。
+
+### 1. 构建与版本
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 编译 | `win32\build.bat` | 通过：先跑 `tools\check-version.ps1`，再 `windres` 编资源、`g++` 静态链接、拷 `WebView2Loader.dll`，最后产出 `bin\MinglingWorkbench.exe` |
+| 版本自检 | `powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1` | `[版本] OK V3.0.0 (3.0.0.0)`，exit 0 |
+| 产物 | `bin\MinglingWorkbench.exe` | 3,284,480 字节；FileVersion `3.0.0.0`；ProductVersion `V3.0.0` |
+| 版本源 | `win32\src\version.h` | `APP_VERSION_TAG "V3.0.0"`、`SHORT "3.0.0"`、`SUFFIX ""`、`APP_SNAPSHOT 0`、`APP_SNAPSHOT_N 0` |
+| 安装通道 | 按 `installer\mingling.iss` / `version_auto.iss` 静态核对 | `MinglingWorkbench_is1`，DisplayName「冥零工作台 V3.0.0」；程序在 `%LOCALAPPDATA%\Programs\MinglingWorkbench`，状态在 `%APPDATA%\MinglingWorkbench`；真装一遍等 lead 打包后补 |
+| 原地升级 | 按目录与安装器逻辑核对 | 与 V2.4.1 同一套正式目录，工作区与 `bots\` 不动；本轮没跑 V2.4.1 → V3.0.0 的覆盖安装 |
+
+### 2. 页面修正版三处
+
+| 修正 | 观察点 | 结果 |
+| --- | --- | --- |
+| 做过的事双栏 | 左「本子」任务列表、右「这一次」详情常驻；无选中时空态「挑一条，展开看看 / 点左边本子上的记录，详情会显示在这里 /（翻页）」 | 点左栏任意一条即显示详情，不用先展开；仍留在本页 |
+| 照顾她五分区 | 外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事，按钮带 `data-maint` 0–4 | 五个 tab 都能切，全局 `maintSec` 记住当前分区，切完立即重绘 |
+| 渲染签名含分区 | `JSON.stringify([comparable,helpSec,cfgSec,maintSec])` | 同一状态下换分区会重绘；任务详情、分区点击走 `force=true` 强制重绘 |
+
+### 3. 依赖与回归自检
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| sidecar 测试 | `node --test tests/*.test.mjs`（先 `npm install` 装 `qrcode` 依赖） | 154 ✔ / 0 ✖；测完删 `node_modules`，避免被打进安装包 |
+| 插件自检 | `python plugin-selftest.py`（AstrBot 包不在时退回 stub，只测路径与纯逻辑） | exit 0：「路径都通了」；人设 115 字符，BV 识别正常 |
+
+### 4. 界面截图
+
+17 张，在 `docs\screens\v3\`，2026-11-07 23:05 用 `tmp\demo-shots-v3.mjs` 重拍：
+
+- 程序以**隔离的临时状态目录**启动：`MINGLING_STATE_DIR=tmp\shots-v3\state`、
+  `MINGLING_WORKSPACE=tmp\shots-v3\workspace`、`MINGLING_SECRETS=tmp\shots-v3\secrets`，
+  加 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` 走 CDP 截图。
+- 视口 1050×675，2 倍输出 2100×1350。
+- 界面数据是脚本注入的演示数据，避免把真实聊天内容拍进去。
+- **这台机器装了 DSH**，所以本批截图不是「没有 `.dsh` 的隔离用户目录」；
+  隔离的只是状态目录、工作区和密钥目录。
+
+| 文件 | 内容 |
+| --- | --- |
+| `overview.png` | 总览：今天的活、最近任务、服务状态、快捷入口 |
+| `bili-feed.png` | B 站 · 今晚看什么（选题列表） |
+| `bili-link.png` | B 站 · 丢个链接 |
+| `bili-work.png` | B 站 · 看完了（任务队列） |
+| `bili-result.png` | 看完一条后的结果正文与产物入口 |
+| `bili-config.png` | B 站 · 配置 |
+| `jobs.png` | 做过的事：左「本子」右「这一次」双栏 |
+| `maint.png` | 照顾她（默认落在「外观主题」分区） |
+| `maint-status.png` | 照顾她 · 组件状态 |
+| `maint-ops.png` | 照顾她 · 一键操作 |
+| `maint-habits.png` | 照顾她 · 相处的习惯 |
+| `maint-features.png` | 照顾她 · 她会做的事 |
+| `logs.png` | 日志 |
+| `check.png` | 体检 · 自检 |
+| `center-ask.png` | 中心 · 求助 / 问一句 |
+| `center-doc.png` | 中心 · 文档 |
+| `center-update.png` | 中心 · 更新 |
+
+### 5. 安装包与发布资产
+
+| 资产 | 文件名 | 校验 |
+| --- | --- | --- |
+| 安装包 | `dist\MinglingWorkbench-3.0.0-setup.exe` | 同名 `.sha256`；Release 正文列出字节数与哈希 |
+| 源码包 | `dist\MinglingWorkbench-3.0.0-source.zip` | 同名 `.sha256`（由 tag `V3.0.0` 的 `git archive` 出包） |
+| 安装 Skill | `mingling-install.zip` | 同名 `.sha256` |
+| Skill 版本 | `skill-version.json` | `0.2.0`；发布脚本从 `tools\skill-version.json` 同步 |
+
+- 每个大文件旁配同名 `.sha256`，内容是一行「哈希 + 文件名」，`sha256sum -c` 可直接校验。
+- GitHub Release `V3.0.0` 为正式发布（**非 prerelease**），资产与上表一致；`dist\skill-version.json`
+  由发布脚本与 `tools\skill-version.json` 同步（本机 `0.2.0`）。
+- 安装包为 Inno Setup 产出；静默安装参数与 V2.4.0/V2.4.1 相同（`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`）。
+
+### 6. 没跑的项
+
+- **安装包在干净机器上的真装**：打包机上有已有的正式安装，`/VERYSILENT` 覆盖安装与「应用和功能」
+  里的版本串没在空机器上重跑；安装器逻辑与 V2.4.1 相同。
+- **Release 页面上的资产**：发布后按页面核对文件名与 `.sha256`，结果记在 Release 正文，不回写本节。
+- **从快照版转正式版的真机迁移**：只按目录与安装器逻辑核对（两条通道互不覆盖、配置不自动迁移），
+  没在装过 V3-snapshot-3 的机器上跑完整迁移。

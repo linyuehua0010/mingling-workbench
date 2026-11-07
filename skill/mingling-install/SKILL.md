@@ -3,7 +3,7 @@ name: mingling-install
 description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、SnowLuma/NapCat、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」时使用。
 ---
 
-# 帮人装、修、搬、卸冥零工作台（skill 0.1.0，2026-11-07）
+# 帮人装、修、搬、卸冥零工作台（skill 0.2.0，2026-11-07）
 
 你在帮一个可能完全不懂电脑的人，在**他自己的 Windows 电脑**上把「冥零工作台」装好、修好，
 或者搬去云服务器。整套东西是：
@@ -60,8 +60,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 
 ## 第 1 步：装
 
-安装包在 `https://github.com/linyuehua0010/mingling-workbench/releases`，名字是
-`MinglingWorkbench-<版本>-setup.exe`（约 50 MB，已经内含 bots\ 组件和 pack\，不用另外下）。
+安装包在 `https://github.com/linyuehua0010/mingling-workbench/releases`，当前正式版是
+**V3.0.0**，名字是 `MinglingWorkbench-3.0.0-setup.exe`（约 66 MB，已经内含 bots\ 组件和 pack\，
+不用另外下）。以后换了版本，文件名里的版本号跟着 `version.h` 走。
 
 1. 问他装哪个盘，默认「不是 C 盘、空间够的那个」。工作区就是装完后的那个文件夹。
 2. 安装时**不要**把工作区设成安装目录的上一级；工作区本身就是机器人根。
@@ -111,9 +112,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
   settings 里的 `base`；它如果在「工作区的上一级」，脚本就会去上一级的 `private\backend.txt` 找登录信息，
   找不到就报这一句。去 `<工作区>` 里确认有 `private\backend.txt`，然后核对
   `%APPDATA%\MinglingWorkbench\settings.json` 或 `...\snapshot\settings.json` 的 `base` 必须 == `workspace` == 机器人根。
-- **从桌面「冥零工作台（快照）」快捷方式启动，自设定永远找不到脚本**：那个快捷方式指向
-  `%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot\`，那里没有 `tools\`、也没有 `pack\`。
-  让他用指向工作区 `bin\MinglingWorkbench.exe` 的那个快捷方式。
+- **桌面快捷方式叫「冥零工作台（快照）」，自设定永远找不到脚本**：那是以前的快照通道
+  （`%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot\`，里面只有 exe，没有 `tools\`、也没有
+  `pack\`）。V3.0.0 起正式版只走正式通道 `%LOCALAPPDATA%\Programs\MinglingWorkbench\`，让他装正式版
+  安装包；从快照版转正式版要重装一次，配置不自动迁移。临时要用，就让他用指向工作区
+  `bin\MinglingWorkbench.exe` 的快捷方式。
 - **日志页说「日志是空的：服务可能还没启动过」，但服务在跑**：日志要看
   `bots\AstrBot\run.log`、`bots\SnowLuma\snowluma-run.log`（老布局才在 `AstrBot\`、`SnowLuma\` 下）。
 - **她记不住事**：先看 `bots\AstrBot\data\plugins\astrbot_plugin_livingmemory\` 在不在，再看
