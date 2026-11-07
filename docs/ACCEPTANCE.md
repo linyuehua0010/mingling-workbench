@@ -503,3 +503,86 @@ V3.0.0 是**预奏快照版**，走独立通道：界面与文件版本都是 `V
 - **release 构建下的完整看片链路**：修完崩溃后做的是切页压测（3×16）；完整 debrief 是在带符号构建下跑的，产物与台账字段都正常。
 - **GUI 里逐字改 bili-whale 配置再保存**：浮层打开/滚动/测试连接/保存/`Esc` 都点了；逐字编辑 + 保存的语义由无头自检 `tmp\cfgtest` 覆盖（同一套 `BiliCfgApply`/`BiliCfgSave`）。
 - **本地 `.lnk` / `.exe` 打开**：代码路径是 `ShellExecuteW`，与「打开工作区」同一条，没单独造快捷方式试。
+
+## 16. V3-snapshot-2 验收（2026-11-07）
+
+工作副本：`F:\dsh工作区\MinglingWorkbench`，构建 `win32\build.bat`（MinGW-w64，静态链接），
+exe 1,637,888 字节。截图见 `docs\screens\`，全部是 `PrintWindow` 抓的 2122×1406 物理像素（DPI 150%）。
+截图的实例跑在开发目录（`bin\MinglingWorkbench.exe`），状态目录是真实的 `%APPDATA%\MinglingWorkbench\snapshot`；队列里那几条是自己跑出来的验收记录，没有 PS 过。
+
+### 16.1 版本：四处一致
+
+| 项 | 命令 / 观察点 | 结果 |
+| --- | --- | --- |
+| 自检脚本 | `tools\check-version.ps1` | `[版本] OK V3-snapshot-2 (3.0.0.2)`，exit 0 |
+| 命令行 | `MinglingWorkbench.exe --version` | `冥零工作台 V3-snapshot-2` / `  文件版本 3.0.0.2` |
+| exe 属性 | `(Get-Item …).VersionInfo` | FileVersion `3.0.0.2`、ProductVersion `V3-snapshot-2`、ProductName `冥零工作台` |
+| 安装包名 | `installer\build-installer.bat` 的 `OutputBaseFilename` | `MinglingWorkbench-{#AppVerShort}-setup` → `MinglingWorkbench-3-snapshot-2-setup.exe` |
+| 应用和功能 | 把新 exe 连同占位 `unins000.exe` 放到 `tmp\regtest\` 跑一次，读 `HKCU\…\Uninstall\MinglingWorkbench_snapshot_is1` | DisplayName `冥零工作台 V3-snapshot-2`、DisplayVersion `V3-snapshot-2`、InstallLocation 指向该目录；**测完把这几个值按测试前的快照还原**（本机真实安装项仍指向 `%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot`） |
+
+版本规则：`version.h` 里 `APP_SNAPSHOT_N=2`、`BUILD=2`、`APP_VERSION_SHORT="3-snapshot-2"`；
+`check-version.ps1` 在快照态强制 `suffix=="-snapshot"`、`BUILD==APP_SNAPSHOT_N`，并校验 8 个派生宏。
+
+### 16.2 读链接 + 问一句 + 测试连接
+
+静态夹具在 `tmp\linktest\`（`utf8.html` 292 B / `gbk.html` 264 B CP936 / `big.html` 2,165,713 B），
+用 `python -m http.server 8799` 起本机服务；CLI 用 `--link`，GUI 用自绘输入框 + Enter。
+
+| 用例 | 结果 |
+| --- | --- |
+| UTF-8 页 | 分类=链接，exit 0，标题「冥零测试页 · UTF-8」，正文正确 |
+| GBK 页 | Content-Type `charset=gbk` → 按 CP_ACP 解，正文正确（不是乱码） |
+| 分享文本 `【冥零】顺手看看这个 http://…/utf8.html 挺有意思的` | 分类=分享文本，抽出链接读成功，exit 0 |
+| 非法输入 `not a url` | exit 4「这里面没有链接」 |
+| `ftp://example.com/file.txt` | exit 4「只认 http:// 和 https:// 的链接（别的协议读不了）」 |
+| 404 | exit 3「对方拒绝了（HTTP 404）」 |
+| 超大页（2 MB） | HTTP 200、读到 524,288 B、`注意: 页面太大，只读了前 512 KB`，末尾半个汉字回退后不串码 |
+| 真实站点 | `bilibili.com/video/BV1GJ411x7h7` → 242,887 B，标题「【官方 MV】Never Gonna Give You Up - Rick Astley_哔哩哔哩_bilibili」；`example.com` 也通过（gzip 由 WinHTTP 解） |
+| 台账 | `logs\jobs.jsonl` 新增行带 `"type":"link"`、`sink` 指 `logs\jobs\link-<t>.txt`；看片老行仍然没有 `type` 键 |
+| 「问一句」 | 临时把 `dsh_api_enabled=1`、Base 指到本机夹具服务，结果区右侧出现面板（标题/副标题/错误行「没问到：服务端说不行（HTTP 501）」/复制·再问一次·收起）；测完用 `.bak-test` 还原 settings |
+| 「测试连接」 | 同一次配置下点 `lc:test` → 底部「没连上：服务端说不行（HTTP 501）」+ toast「对话 API 没连上（不影响看片）」 |
+| Key 不泄漏 | 全程 `settings.json` 只有 `workspace/base/repo_snapshot`（+ 测试期临时键），`secrets\` 下没有 `dsh-api-key.txt`；Key 只在「链接与应用」填了才会写 `secrets\dsh-api-key.txt`，日志与 `--her-op diag` 的 txt 都不含它（`diag` 打码逻辑未改） |
+
+### 16.3 覆盖更新演练（只覆盖工作台自己）
+
+假安装器 `tmp\fake_ok.exe` / `tmp\fake_fail.exe`（`g++ -O2 -municode`，读 `MINGLING_FAKE_TARGET` / `MINGLING_FAKE_MODE`），
+用 `bin\MinglingWorkbench.exe --wb-update <fake> v3-snapshot-2-test` 跑。
+
+| 项 | 结果 |
+| --- | --- |
+| 哨兵 | 先在 `bots\`、`secrets\`、`out\`、`logs\`、`private\` 写哨兵文件，SHA-256 存 `tmp\sentinel-before.json`；成功/失败两次演练后 `changed=0` |
+| 备份 | `<工作区>\旧版\workbench-<tag>-<时间>\` 含 `art bin docs pack plugin sidecar skill tools _self`；`_self\MinglingWorkbench.exe` 是主程序自身 |
+| 成功路径 | 退出码 0，`[更新] 备份到 …` / `[更新] 好了（安装器退出码 0）`，`bin\FAKE-UPDATED.txt` 出现 |
+| 失败路径 | 退出码 4，日志「[更新] 失败：安装器退出码 1，已经回滚到备份」，被改的 `docs\ACCEPTANCE.md` 哈希还原、`<!-- FAKE-INSTALLER-JUNK -->` 不残留 |
+| 备份落在哪 | 早先误用 `BotRoot()` 会写进 `bots\旧版\`；改成「工作区优先、空则安装根」，误建目录已删 |
+| 安装器审计 | `installer\mingling.iss` 的 `[Files]` 只有 bin/README/art/docs/plugin/sidecar/skill/tools/pack；**没有 `[InstallDelete]`**；`[UninstallDelete]` 只有 `Type: dirifempty; Name: "{app}"`；bots 只出现在 `[Code]` 猜 base 的逻辑里 |
+| 运行中检测 | `her::PidsNamed(L"minglingworkbench.exe").size() > 1` 时先弹「先关掉别的工作台」，不进下载 |
+
+### 16.4 教程与帮助（离线）
+
+- 三篇（`使用说明.md` / `deploy-bili.md` / `deploy-qq.md`）随包进 `{app}\docs`（`Source: "..\docs\*"; recursesubdirs`，截图一起进去）。
+- 帮助中心 → 帮助 → 教程胶囊 → 自写 Markdown 渲染：标题分三级、列表、代码块（底色先画再写字，修过一次盖字）、表格、引用；
+  打开时右上出现「用系统打开」`docopen` /「回 FAQ」`docback`。
+- 文档里的版本号 / 页签数 / 快捷键来自 `{{VERSION}} {{FILEVERSION}} {{TABS}} {{TABLIST}} {{HOTKEYS}}`，
+  正文里不再出现写死的「10 个页签」「1–9」。
+- `docs\*.md` 里没有任何 `![…](http…)` 远程图片（grep 结果为空）。
+
+### 16.5 七页签与动作可达
+
+| 项 | 结果 |
+| --- | --- |
+| 侧栏 | 总览 / B站 / 队列 / 日志 / 体检 / 维护 / 帮助中心（`TABS[]` 7 项，`docs\screens\overview.png` 可见） |
+| 快捷键 | `1`–`7` 切页、`0` 跳帮助中心、F5 按当前页/分段刷新、F9/F10 全起全停、Enter 提交、Esc 失焦（配置分区退回看片） |
+| 维护 + 功能 | 维护页滚到底：功能六行（桌宠/唱歌/豆包语音/在线 Breeze/长期记忆/语音路线）都在；点「桌宠 开」→ `private\features.txt` 变化 + 自设定跑完 toast，随后点「关」还原 |
+| 帮助中心三段 | 更新（四项 + 工作台一键更新）/ 求助（11 卡，改字与复制）/ 帮助（FAQ、路径、组件目录、教程），三颗胶囊 `hsec:0/1/2` 都点得动 |
+| 配置分区不劫持导航 | 修前在「配置」里点侧栏无反应；修后 `tab:` / `hsec:` 先于配置捕获处理，实拍可切走 |
+| `--her-op` 回归 | `--her-op meme mid` exit 0，`logs\her-op.txt` 写「OK 改好了：她挑中表情，六成会发图。」 |
+| 自设定干跑 | `tools\self-setup.ps1 -Base <机器人根> -DryRun` → 八块 `##OK`，`##RESULT ok=1 done=8 fail=0`；`--selfsetup --dry` 同样八块 `[ok]` |
+
+### 16.6 没跑的项（如实写）
+
+- **真打安装包 / 真装一遍**：本机没有 Inno Setup（`ISCC.exe` 不存在），这一轮只做 `version_auto.iss` 生成逻辑与
+  `mingling.iss` 的静态审计；覆盖更新用假安装器验证了备份/回滚/重启链路，真安装包上的 `/VERYSILENT` 参数与这条路径一致。
+- **真 DSH 端点的「问一句」成功返回**：没有可用 Key，只验到「配置→请求→错误人话化→不影响看片」。
+- **从 GitHub 真下一版安装包**：`FindSetupAsset` / `DownloadFile` / `Sha256File` 的代码路径与错误文案做了静态核对，
+  没等到真实 release 资产（`repo_snapshot` 目前最新是 V2.4.0，本机版本更高，UI 显示「最新」）。

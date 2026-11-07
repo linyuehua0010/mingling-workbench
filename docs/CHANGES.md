@@ -594,3 +594,64 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 - `--her-op updates` → AstrBot 4.29.4（最新）/ SnowLuma 2.4.0（最新）/ 冥零的安装 Skill 0.1.0（最新）/ 冥零工作台 V2.4.0（最新）。
 - 卸载干净（`unins000.exe /VERYSILENT`，目录与 `MinglingWorkbench_is1` 注册项都不留），工作区外面的 `~\.agents\skills\mingling-install` 按设计保留。
 - Release V2.4.0 三个资产：`MinglingWorkbench-2.4.0-setup.exe`（61,260,277 B）、`mingling-install.zip`（14,811 B）、`skill-version.json`（450 B）。
+
+## 16. V3-snapshot-2：链接读取落地 + 七页整合 + 只覆盖自己的更新（2026-11-07）
+
+**版本规则变了**：正式版 `V<主>.<次>.<补丁>`；快照版 `V<大版本>-snapshot-<序号>`，大版本 = 正式版最新大版本 + 1。
+本轮 `V3-snapshot-2`（`version.h` 里 `APP_SNAPSHOT_N=2`、`BUILD=2`、`APP_VERSION_SHORT="3-snapshot-2"`），
+旧的 `V3.0.0-snapshot` 按「V3-snapshot-1」认、不改名。`check-version.ps1`、`version_auto.iss`、
+`her::WbCmp/WbIsSnapshotTag`、安装包文件名（`MinglingWorkbench-3-snapshot-2-setup.exe`）、`docs\VERSIONING.md` 一起改。
+
+**1. 读链接从「可选增强」做成完整功能**
+
+- 输入框统一入口：BV/B 站链接 → 看片；网页链接/分享文本 → 读链接；结果区统一给标题、摘要、来源、耗时、状态。
+- `FetchWebPage` 补：URL 协议校验、跟随重定向、`WINHTTP_OPTION_DECOMPRESSION`（B 站返回 gzip，原来正文是压缩字节）、
+  accept-encoding 按解压能力发 gzip/identity、超限截断时回退半个 UTF-8 字符（原来尾部半个汉字会让整页按 GBK 解成乱码）、
+  编码没认出来给 `note`、站点 `description`/`og:description` 抽成摘要。
+- 新增 `LinkCfg`（`link_read_enabled/timeout/maxkb/ua`，默认 15 s / 512 KB，只能往小调）与 `SettingsGuardApply`：
+  写 settings 前备份 `.bak-<时间>`、写完重新解析、坏了写回备份。
+- 新增「链接与应用」面板（`ui_link_cfg.inc`）：读链接四项 + 对话 API 六项 + 「测试连接」（真发一句）。
+  Key 只进 `secrets\dsh-api-key.txt`；`DshApiSave` 改用 `SettingsGuardApply` 一次写五个键。
+- 「问一句」支持链接结果：`DshPrompt()` 按 `g_linkMode` 换开场白与字段名。
+- 新增 `--link` 命令行入口（分类 → 读取 → 打印 → 写 `logs\jobs\link-<t>.txt` + 台账 `type:"link"`）。
+
+**2. B 站页并成四个分区**（`ui_pages.inc`）
+
+- 分区：选题 / 看片与读链接 / 结果 / 配置（`g_bSec`），配置里再分 bili-whale / 链接与应用（`g_bCfgSub`）。
+- 原「bili-whale 配置」「问一句」两个浮层改成页内区域：`PaintBiliCfg/PaintLinkCfg/PaintDshAsk` 都改成 `(Graphics&, const RectF&)`；
+  `BiliCfgClose`/`LinkCfgClose` 从「关掉」变成「保存后留在原地」，底部按钮「保存 / 重新读」。
+- 跑完一条自动跳到结果分区；`UiOnWheel/UiOnChar/UiOnKeyDown/UiOnRClick` 全部按分区改。
+- 修的 bug：配置分区会把所有点击吃给自己，侧栏和帮助中心胶囊点不动——`tab:`/`hsec:` 的处理提到配置捕获之前。
+
+**3. 更新只覆盖工作台自己**（新增 `her\her_selfupdate.cpp`）
+
+- 白名单：`bin sidecar tools pack plugin skill docs art`（`UpdateProgramDirs()`）；`ProgramRoot()` 认两种布局
+  （安装包：exe 就在安装根；开发目录：exe 在 `bin\`）。
+- `PlanUpdate` → 备份到 `%WORKSPACE%\旧版\workbench-<tag>-<时间>\`（含 `_self\MinglingWorkbench.exe`）→ 复制自身到 `%TEMP%` →
+  `--wb-update-run` 等父进程退出 → `RunInstaller`（`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /LOG=`）→
+  非 0 退出就 `CopyProgramBack` 回滚 → 成功后重启。
+- 自带 SHA-256（不引第三方库）、`HttpGetBinary` 下安装包（进度/大小/可选 `.sha256`）。
+- 更新页工作台行「一键更新」（`up:wbgo`），覆盖前用 `her::PidsNamed` 查有没有别的实例；`TK_SELFUPD` 收尾。
+- 安装器审计：`installer\mingling.iss` 的 `[Files]` 只含程序文件，**没有 `[InstallDelete]`**，`[UninstallDelete]` 只有 `dirifempty {app}`，不碰 bots。
+
+**4. 教程内置**（新增 `ui_docs.inc`）
+
+- 帮助中心里三篇：`使用说明.md`、`deploy-bili.md`、`deploy-qq.md`；自写 Markdown 解析（标题/列表/代码块/表格/图片/引用），离线可读，图片只从 `docs\` 本地加载，不联网。
+- 文档里的 `{{VERSION}} {{FILEVERSION}} {{TABS}} {{TABLIST}} {{HOTKEYS}}` 由程序注入（页签数与快捷键不再写死）；「用系统打开」把展开后的正文写到 `%TEMP%` 再交给系统。
+
+**5. 页面整合：十页 → 七页**
+
+- 侧栏：总览 / B站 / 队列 / 日志 / 体检 / 维护 / 帮助中心；快捷键 `1`–`7`，`0` 跳帮助中心，F5 按当前页/当前分段刷新。
+- 「维护 + 功能」合一：维护页下半接 `PaintFeatures()` 六行（桌宠/唱歌/豆包语音/在线 Breeze/长期记忆/语音路线），动作仍走 `RunHerOp`。
+- 「更新 + 求助 + 帮助」合成帮助中心（`ui_center.inc`，`g_hSec` 0/1/2），三段各自保留原功能（含 11 张求助卡与 `custom_help_texts`）。
+
+**6. UI 重构**
+
+- 设计 token 集中在 `win32\src\ui.cpp`：颜色、字号之外新增 `R_CARD/R_PANEL/R_PILL/R_SMALL/PAD_X/GAP_M/GAP_S`，卡片统一 `Card()`（25 处 `Round(...S(14)...)` 收编）。
+- 空状态、报错文案沿用人设口吻（「她还没看过视频」「没读成：…」），但原因、路径、错误码一律照实写出。
+- 高 DPI：仍按 `GetDpiForWindow` 缩放，字体仍是 Microsoft YaHei UI。
+
+**回归**
+
+- `--selfsetup --dry` 八块全 ok；`--her-op meme mid` exit 0；`--watch`/`--feed`/`--link` 都写台账；哨兵文件（`bots\`/`secrets\`/`out\`/`logs\`）在覆盖更新演练前后哈希不变。
+- 截图见 `docs\screens\`；验收明细见 `docs\ACCEPTANCE.md` 第 16 节。

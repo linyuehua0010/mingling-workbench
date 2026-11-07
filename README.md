@@ -1,6 +1,6 @@
 <div align="center">
 
-# 冥零工作台 v2
+# 冥零工作台
 
 一个 `MinglingWorkbench.exe`，把「QQ 聊天机器人」和「B 站看片」收进同一个窗口：
 起停 SnowLuma / AstrBot、跑八块自设定、看今天的选题、丢一个 BV 进去让它自己看完、翻任务台账和日志。
@@ -8,7 +8,7 @@
 原生 **Win32 + GDI+** 自绘，**不挂 Chromium / WebView2 / Electron**。一个进程、一个窗口，
 重复双击只会把已有窗口提到前面。
 
-![Version](https://img.shields.io/badge/version-V2.4.0-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-V3--snapshot--2-2563eb?style=flat-square)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0ea5e9?style=flat-square)
 ![GUI](https://img.shields.io/badge/GUI-Win32%20%2B%20GDI%2B-7c3aed?style=flat-square)
 ![No Electron](https://img.shields.io/badge/no-Electron%20%2F%20WebView2-16a34a?style=flat-square)
@@ -35,6 +35,18 @@
 ---
 
 ## ✨ 核心特性
+
+### V3-snapshot-2 新增（快照通道）
+
+| 功能 | 说明 |
+| --- | --- |
+| **链接读取落地** | 输入框统一入口：BV / B 站链接 → 看片；普通网页链接、分享文本 → 读链接。结果区统一给标题、摘要、来源、耗时、状态，可以复制、可以「问一句」、会写台账（`type:"link"`）。读链接跟随重定向、自动解 gzip、认得 GBK，失败原因说人话（超时 / 不是 http / 编码 / 太大 / 被拒）。 |
+| **「链接与应用」配置** | B 站页 → 配置 → 链接与应用：读取开关、超时（上限 15 秒）、大小上限（上限 512 KB）、User-Agent；对话 API 的启用 / Base URL / 路径 / 模型 / 超时 / Key，带「测试连接」。默认值一点没放宽：单次 GET、15 秒、512 KB。Key 只写 `secrets\dsh-api-key.txt`，不进 `settings.json`、不进日志。 |
+| **B 站页并成四个分区** | 选题 / 看片与读链接 / 结果 / 配置。原来的「bili-whale 配置」和「问一句」两个浮层都搬进页面里，不再是浮层。 |
+| **更新只覆盖工作台自己** | 帮助中心 → 更新 → 工作台行「一键更新」：下载安装包 → 校验大小 / 哈希 → 先把 `bin\ sidecar\ tools\ pack\ plugin\ skill\ docs\ art\` 备份到 `<机器人根>\旧版\workbench-<版本>-<时间>\` → 静默覆盖安装 → 重启。`bots\`、`out\`、`logs\`、`secrets\`、`private\` 和 `%APPDATA%` 下的设置一概不碰；装失败自动回滚到备份。 |
+| **教程随包、离线可读** | `docs\使用说明.md`、`docs\deploy-bili.md`、`docs\deploy-qq.md` 跟着安装包走，帮助中心里直接读（标题 / 列表 / 代码块 / 表格都渲染），还能「用系统打开」。文档里的版本号、页签数、快捷键由程序注入，不写死。 |
+| **十页并成七页** | 侧栏：总览 / B站 / 队列 / 日志 / 体检 / 维护 / 帮助中心。「维护」下面接功能开关（桌宠 / 唱歌 / 豆包语音 / 在线 Breeze / 长期记忆 / 语音路线），「更新 + 求助 + 帮助」并成帮助中心三段。 |
+| **界面按人设重做** | 颜色、圆角、间距、字号收成一组 token（`win32\src\ui.cpp` 顶部），卡片统一走 `Card()`；空状态和报错用冥零的口吻，但原因不吞。 |
 
 ### V2.4.0 新增（正式版）
 
@@ -73,12 +85,12 @@
 
 ### 一直都有
 
-- **十个页签**：总览 / B站 / 队列 / 日志 / 体检 / 维护 / 更新 / 功能 / 求助 / 帮助，`1`–`9` 直接跳，`0` 是帮助。
+- **七个页签**：总览 / B站 / 队列 / 日志 / 体检 / 维护 / 帮助中心，`1`–`7` 直接跳，`0` 是帮助中心。
 - **B 站一条龙**：今日选题 → 拉流 → 抽帧 → 字幕 → 九宫格 → 写正文，进度条分六个阶段。
 - **任务台账**：工作台、QQ 群、模型工具调用写的是同一份 `logs\jobs.jsonl`，从哪看都是同一段历史。
 - **维护页**：八张状态卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包）+ 一排一键动作（自动配置 / 重启大脑 / 重登 QQ / 导入人设 / 备份 / 求助 / 打开工作区 / 修自启 …）。
 - **体检五连**：登录 → 依赖 → 限额 → 风控 → 自检，就是排错顺序本身。
-- **更新页**：AstrBot / SnowLuma / 安装 Skill（`mingling-install`）/ 工作台四项版本对比；前三项给的是「复制给 Agent 的话」，Skill 那行可以直接「一键更新」。
+- **更新页**：AstrBot / SnowLuma / 安装 Skill（`mingling-install`）/ 工作台四项版本对比；工作台那一行能「一键更新」（只覆盖程序文件，先备份、失败回滚），其余三项给的是「复制给 Agent 的话」，Skill 那行可以直接「一键更新」。
 - **GUI 子系统但带 CLI**：`--paths`、`--feed`、`--watch BV…`、`--debrief`、`--bili <子命令>`、`--her-status` 都能在无桌面环境里跑。
 
 ---
@@ -127,7 +139,7 @@ build.bat
 
 ```bat
 installer\build-installer.bat
-:: 产物：dist\MinglingWorkbench-2.4.0-setup.exe
+:: 产物：dist\MinglingWorkbench-3-snapshot-2-setup.exe
 ```
 
 需要 **Inno Setup 6**（`ISCC.exe`）。仓库自带 `tools\innosetup6\app\ISCC.exe` 时直接用它，
@@ -146,7 +158,7 @@ installer\build-installer.bat
 到 [Releases](https://github.com/linyuehua0010/mingling-workbench/releases) 页面下载：
 
 ```
-MinglingWorkbench-2.4.0-setup.exe      Windows 10/11 x64，约 61 MB
+MinglingWorkbench-3-snapshot-2-setup.exe   Windows 10/11 x64（快照通道），约 62 MB
 ```
 
 安装包**自带** `node.exe`、`ffmpeg.exe`、bili-whale、自设定脚本与配置包（`tools\` / `pack\mingling-pack\`）、
@@ -199,6 +211,7 @@ MinglingWorkbench.exe --paths
 | 内容 | 位置 |
 | --- | --- |
 | DeepSeek API Key | `<机器人根>\secrets\deepseek-key.txt` |
+| 对话 API Key（「问一句」用） | `<机器人根>\secrets\dsh-api-key.txt` |
 | AstrBot 后台账号 | `<机器人根>\secrets\backend.txt`（也接受 `private\backend.txt`） |
 | SnowLuma 后台密码 | `<机器人根>\secrets\snowluma-webui.txt` |
 | QQ 协议端类型 | `<机器人根>\secrets\protocol.txt` |
@@ -238,7 +251,7 @@ AstrBot 后台改密码——**删除提交不够**，历史里还留着，得�
 
 ```
 MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
-├── UI 线程           侧栏九个页签、自绘卡片、进度条、日志尾随
+├── UI 线程           侧栏七个页签、自绘卡片、进度条、日志尾随
 ├── 工作线程          起停服务、跑 B 站任务、跑体检命令（结果用 PostMessage 回 UI）
 └── sidecar\          只在本机跑的私有运行时，不依赖任何外部 IDE / 平台
     ├── node\node.exe               跑 bili-whale 的 Node 运行时
@@ -266,30 +279,30 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 
 ![总览](docs/screens/overview.png)
 
-| 页 | 截图 |
+| 页 / 分区 | 截图 |
 | --- | --- |
-| B 站（选题 / 看完） | [选题](docs/screens/bili-feed.png) · [结果](docs/screens/bili-result.png) |
-| 队列 / 体检 | [队列](docs/screens/jobs.png) · [体检](docs/screens/check.png) |
-| 维护 / 帮助 | [维护](docs/screens/maint.png) · [帮助](docs/screens/help.png) |
-| V2.2.0 新界面 | [侧栏与维护页](docs/screens/v2.2.0-sidebar.png) · [帮助页路径](docs/screens/help-paths.png) |
+| 总览 | [总览](docs/screens/overview.png) |
+| B站 · 选题 / 看片与读链接 | [选题](docs/screens/bili-feed.png) · [看片与读链接](docs/screens/bili-work.png) |
+| B站 · 结果 / 配置 | [结果](docs/screens/bili-result.png) · [配置（bili-whale）](docs/screens/bili-config.png) · [配置（链接与应用）](docs/screens/bili-link.png) |
+| 队列 / 日志 / 体检 | [队列](docs/screens/jobs.png) · [日志](docs/screens/logs.png) · [体检](docs/screens/check.png) |
+| 维护（含功能六行） | [维护](docs/screens/maint.png) · [功能](docs/screens/maint-features.png) |
+| 帮助中心 · 更新 / 求助 / 帮助 / 教程 | [更新](docs/screens/center-update.png) · [求助](docs/screens/center-ask.png) · [帮助](docs/screens/center-help.png) · [教程](docs/screens/center-doc.png) |
 
 截图来自一台没有装 DSH 的隔离环境（`docs/ACCEPTANCE.md` 第 3 节有说明）。
 
 ---
 
-## 📑 九个页签
+## 📑 七个页签
 
 | # | 页签 | 能做什么 |
 | --- | --- | --- |
 | 1 | 总览 | SnowLuma / AstrBot 起停、今天看了几条、磁盘剩余、最近任务、快捷入口 |
-| 2 | B站 | 今日选题、输入 BV/链接看视频、进度、封面/九宫格/字幕条、复制全文、打开产物目录 |
-| 3 | 队列 | `logs\jobs.jsonl` 的任务记录：时间、BV、标题、UP、来源、状态、耗时、正文 |
+| 2 | B站 | 四个分区：选题 / 看片与读链接 / 结果 / 配置。粘 BV 或链接就开跑，网页链接和分享文本走「读链接」，配置分区里是 bili-whale 参数和「链接与应用」 |
+| 3 | 队列 | `logs\jobs.jsonl` 的任务记录：时间、BV、标题、UP、来源、状态、耗时、正文（读链接记 `type:"link"`） |
 | 4 | 日志 | SnowLuma / AstrBot / B 站三路日志，2.5 秒尾随，可刷新、开日志目录 |
 | 5 | 体检 | 登录、依赖、限额、风控、自检五条命令，原样显示 sidecar 输出 |
-| 6 | 维护 | 八张状态卡、两个频率（掉线提醒 / 打游戏）、一排一键动作（一键自动配置 / 重启大脑 / 重登 QQ / 导入冥零人设 / 备份 / 求助 / 开语音 / 开 Ollama / 打开工作区 / 修自启 / 更新技能 / 打开日志） |
-| 7 | 更新 | AstrBot、SnowLuma、安装 Skill 和工作台四项的本地版本 vs 最新版 |
-| 8 | 求助 | 十一张常见问题卡，点一下就把「该对 Agent 说的话」复制到剪贴板，卡片文字可改 |
-| 9 | 帮助 | 使用 FAQ、快捷键、组件绝对路径与「组件目录」按钮 |
+| 6 | 维护 | 上半：八张状态卡、四个频率、两排一键动作；下半：功能开关六行（桌宠 / 唱歌 / 豆包语音 / 在线 Breeze / 长期记忆 / 语音路线） |
+| 7 | 帮助中心 | 三段：更新（四项版本 + 工作台一键更新）/ 求助（十一张卡，可改字）/ 帮助（FAQ、快捷键、路径、组件目录、随包教程） |
 
 ### B 站页
 
@@ -305,12 +318,13 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 
 | 键 | 作用 |
 | --- | --- |
-| `1` … `9` | 切到第 1…9 个页签 |
-| `F5` | 刷新当前页（B 站选题 / 队列 / 日志） |
+| `1` … `7` | 切到第 1…7 个页签 |
+| `0` | 跳到帮助中心 |
+| `F5` | 刷新当前页（B 站选题 / 队列 / 日志 / 体检重跑 / 帮助中心按当前分段刷新） |
 | `F9` | 启动 SnowLuma + AstrBot |
 | `F10` | 停掉 SnowLuma + AstrBot |
-| `Esc` | 让输入框失焦 |
-| `Enter`（输入框里） | 开始看当前 BV |
+| `Esc` | 让输入框失焦（配置分区里退回「看片与读链接」） |
+| `Enter`（输入框里） | 开始看当前 BV / 读当前链接 |
 | 再双击 exe | 不会多开，只把已有窗口提到最前 |
 
 ---
@@ -357,7 +371,8 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 | bili-whale 配置（偏好、配额、作息） | `%APPDATA%\MinglingWorkbench\bili-whale.config.json` |
 | 日记、quota、作息状态 | `%APPDATA%\MinglingWorkbench\bili-state\` |
 | B 站凭据（工作台与插件共用） | `%USERPROFILE%\.bili-ai\credentials.json` |
-| 程序本体 | `%LOCALAPPDATA%\Programs\MinglingWorkbench\` |
+| 程序本体 | `%LOCALAPPDATA%\Programs\MinglingWorkbench\`（快照版是 `…\MinglingWorkbench-snapshot\`） |
+| 覆盖更新前的程序备份 | `<机器人根>\旧版\workbench-<版本>-<时间>\`（`bin\ sidecar\ …` 原样一份，回滚就用它） |
 
 换电脑：把工作区整个拷走，再把 `%APPDATA%\MinglingWorkbench` 和 `%USERPROFILE%\.bili-ai`
 一起带过去，最后在新机器上用「换工作区」指过去即可。
@@ -372,8 +387,10 @@ MinglingWorkbench.exe（Win32 + GDI+，无浏览器内核）
 MinglingWorkbench.exe --paths                 :: 工作区、机器人根、组件根、sidecar、node、ffmpeg、凭据、台账
 MinglingWorkbench.exe --feed                  :: 跑一次今日选题
 MinglingWorkbench.exe --watch BV1xxxxxxxxx    :: 完整看一条，并写台账（source=console）
+MinglingWorkbench.exe --link <链接或分享文本>  :: 读一个网页链接，并写台账（type=link）
 MinglingWorkbench.exe --debrief BV1xxxxxxxxx  :: 只看 sidecar 的 debrief 输出
 MinglingWorkbench.exe --bili session          :: 把任意 bili-whale 子命令原样转发
+MinglingWorkbench.exe --wb-update <安装包> [版本] :: 覆盖更新演练：备份程序文件 → 静默安装 → 失败回滚
 MinglingWorkbench.exe --her-status            :: 机器人状态（维护页同款）
 MinglingWorkbench.exe --bots-setup            :: 一键配置环境（维护页同款）
 MinglingWorkbench.exe --selfsetup             :: 跑一遍八块自设定（加 --dry 只干跑、不落地）
@@ -403,6 +420,9 @@ MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup
 | 更新页 Skill 那行说「查不到新版」 | `logs\skill-check.log` | 私有仓库要 `secrets\github-token.txt` 才查得到；里面记了每次请求的 url / 状态码 / 有没有带 token |
 | 一键配置装到一半失败 | `<组件根>\.setup.json` | 里面记了每个组件的成功/失败与原因 |
 | 窗口不出现 | 任务管理器 | 已有实例被最小化到托盘区？再双击 exe 会置前；单实例靠窗口类名 |
+| 粘了链接没反应 | B 站页 → 配置 → 链接与应用 | 「读取网页链接」关着就会只提示不读；也可能超时 / 页面太大（默认 15 秒、512 KB，可调小不可调大） |
+| 「问一句」说没连上 | 同上，点「测试连接」 | 没启用、Base URL 空、Key 不对或路径错都会明说；它只影响这一路，不挡看片 |
+| 一键更新失败 | 帮助中心 → 更新 底部的提示 | 会写明失败在哪一步；安装器非 0 退出时程序文件已从 `<机器人根>\旧版\` 回滚 |
 
 更多：QQ 机器人部署见 [docs/deploy-qq.md](docs/deploy-qq.md)，
 看 B 站插件部署见 [docs/deploy-bili.md](docs/deploy-bili.md)。
@@ -426,6 +446,23 @@ installer\             Inno Setup 脚本与打包脚本
 docs\                  部署教程、第三方声明、验收记录、变更清单、截图
 art\                   avatar.png / hero.png
 ```
+
+---
+
+## 🕘 版本历史
+
+| 版本 | 一句话 |
+| --- | --- |
+| **V3-snapshot-2** | 链接读取落地 + 「链接与应用」配置；B 站页并四分区；更新只覆盖工作台自己；教程随包离线读；十页并七页；界面按人设重做 |
+| V3-snapshot-1 | 快照通道（原 `V3.0.0-snapshot`）：独立状态目录/卸载项/窗口类、更新页牵 GitHub Releases、bili-whale 配置界面、对话 API、链接读取 MVP |
+| V2.4.0 | 安装包补 `tools\` `pack\` `plugin\` 与冥零安装 Skill；组件路径全面认 `<工作区>\bots\` |
+| V2.3.1 | 修组件目录、语音卡、打游戏模式里的 Breeze |
+| V2.3.0 | 自设定八块、功能页、配置档案识别、白名单只加不删 |
+| V2.2.1 | 修「错误 5：拒绝访问」 |
+| V2.2.0 | 一键配置环境、人设模板、掉线提醒、帮助页路径、求助卡可改字 |
+
+命名规则：正式版 `V<主>.<次>.<补丁>`，快照版 `V<大版本>-snapshot-<序号>`（大版本 = 正式版最新大版本 + 1）。
+细节见 [docs/VERSIONING.md](docs/VERSIONING.md)，每次改了什么见 [docs/CHANGES.md](docs/CHANGES.md)。
 
 ---
 
