@@ -874,6 +874,94 @@ static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring
     return L"";
 }
 
+// 私有仓库的 release 资产：releases/latest/download/<名字> 匿名一律 404，
+// 得先用 token 翻 release 列表，找到最近一版带着这个资产的，再按 API 资产地址取正文。
+static wstring FetchAssetManifest(const wstring& repo, const wstring& asset, wstring* why, J* out = nullptr) {
+    if (why) *why = L"net";
+    const wstring tok = GithubToken();
+    if (tok.empty()) {
+        if (why) *why = L"notoken";
+        return L"";
+    }
+    Http lr = HttpGetJson(L"https://api.github.com/repos/" + repo + L"/releases?per_page=30", tok, 10000);
+    if (!lr.ok) return L"";
+    if (lr.code == 404) {
+        if (why) *why = L"notpublished";
+        return L"";
+    }
+    if (lr.code >= 400) return L"";
+    bool lok = false;
+    J lj = J::Parse(lr.body, &lok);
+    if (!lok || !lj.Arr()) {
+        if (why) *why = L"bad";
+        return L"";
+    }
+    for (const J& rel : lj.a) {
+        const J* assets = rel.Get(L"assets");
+        if (!assets || !assets->Arr()) continue;
+        for (const J& a : assets->a) {
+            if (a.Str(L"name") != asset) continue;
+            wstring u = a.Str(L"url");  // https://api.github.com/repos/<repo>/releases/assets/<id>
+            if (u.empty()) continue;
+            std::vector<std::pair<wstring, wstring>> h;
+            h.push_back({L"Accept", L"application/octet-stream"});
+            h.push_back({L"Authorization", L"Bearer " + tok});
+            Http r = HttpCall(L"GET", u, L"", h, 20000);
+            if (!r.ok || r.code >= 400) continue;
+            bool ok = false;
+            J j = J::Parse(r.body, &ok);
+            wstring v = ok ? j.Str(L"version") : L"";
+            if (v.empty()) {
+                if (why) *why = L"bad";
+                return L"";
+            }
+            if (out) *out = j;
+            if (why) why->clear();
+            return v;
+        }
+    }
+    // 列表里没有任何一版带这个资产：确实还没发
+    if (why) *why = L"notpublished";
+    return L"";
+}
+
+// Skill 的版本清单：有 token 先走 API 资产那条（私有仓库只能这么查），
+// 没有 token（公开仓库、别人的机器）再退回去走各加速站的直链。
+static wstring FetchSkillManifest(wstring* why, J* out = nullptr) {
+    const wstring tok = GithubToken();
+    if (!tok.empty()) {
+        wstring w2;
+        wstring v = FetchAssetManifest(kSkillRepo, L"skill-version.json", &w2, out);
+        if (!v.empty()) {
+            if (why) why->clear();
+            return v;
+        }
+        if (w2 == L"notpublished") {
+            if (why) *why = L"notpublished";
+            return L"";
+        }
+        // 其他情况（网络不通、坏数据）继续试直链
+    }
+    wstring w = L"net";
+    for (const wchar_t* p : kProxies) {
+        wstring w1;
+        J j;
+        wstring v = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
+                                      L"/releases/latest/download/skill-version.json",
+                                  &w1, &j);
+        if (!v.empty()) {
+            if (out) *out = j;
+            if (why) why->clear();
+            return v;
+        }
+        if (w1 == L"notpublished") w = L"notpublished";
+        else if (w1 == L"bad" && w != L"notpublished") w = L"bad";
+        else if (tok.empty() && w1 == L"notoken") w = L"notoken";
+    }
+    if (why) *why = w;
+    return L"";
+}
+
 // 桌面 QQ 自动升级、SnowLuma 还没跟上：看它最新日志里「挂不上」是不是发生在最后一次挂上之后
 static bool QqUpgradeSuspect() {
     if (Protocol() != L"snowluma") return false;
@@ -1052,30 +1140,26 @@ static UpdatesInfo FetchUpdates() {
         wstring lv;
         bool saw404 = false, sawNet = false, sawBad = false;
         std::vector<wstring> notes, reimport;
-        for (const wchar_t* p : kProxies) {
+        {
             wstring w;
             J j;
-            wstring got = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
-                                            L"/releases/latest/download/skill-version.json",
-                                        &w, &j);
+            wstring got = FetchSkillManifest(&w, &j);
             if (got.empty()) {
                 if (w == L"notpublished") saw404 = true;
                 else if (w == L"bad") sawBad = true;
                 else sawNet = true;
-                continue;
+            } else {
+                lv = got;
+                const J* nn = j.Get(L"notes");
+                if (nn && nn->Arr())
+                    for (const J& n : nn->a)
+                        if (notes.size() < 6) notes.push_back(n.t == J::STR ? n.s : n.NumText());
+                const J* rr = j.Get(L"reimport");
+                if (rr && rr->Arr())
+                    for (const J& n : rr->a)
+                        if (reimport.size() < 6) reimport.push_back(n.t == J::STR ? n.s : n.NumText());
             }
-            lv = got;
-            const J* nn = j.Get(L"notes");
-            if (nn && nn->Arr())
-                for (const J& n : nn->a)
-                    if (notes.size() < 6) notes.push_back(n.t == J::STR ? n.s : n.NumText());
-            const J* rr = j.Get(L"reimport");
-            if (rr && rr->Arr())
-                for (const J& n : rr->a)
-                    if (reimport.size() < 6) reimport.push_back(n.t == J::STR ? n.s : n.NumText());
-            break;
         }
-        // 「还没发布」不算网络故障：只有真连不上、拿到坏数据时，才算这一轮没查全
         // 「还没发布」不算网络故障：只要有一个入口明确给了 404、又没有入口给出坏数据，就算没发布；
         // 只有从头到尾都没拿到确定答复（代理挂了、断网）才算这一轮没查全
         if (lv.empty() && !(saw404 && !sawBad)) okAll = false;
@@ -1144,26 +1228,17 @@ ActionResult SkillUpdate() {
         if (ImportLogState(blk) == L"running") return Bad(L"正在补装东西，等它装完再更新。");
     wstring latest;
     wstring why;
-    bool saw404 = false, sawNet = false, sawBad = false;
-    for (const wchar_t* p : kProxies) {
-        wstring w;
+    {
         J j;
-        wstring got = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
-                                        L"/releases/latest/download/skill-version.json",
-                                    &w, &j);
-        if (got.empty()) {
-            if (w == L"notpublished") saw404 = true;
-            else if (w == L"bad") sawBad = true;
-            else sawNet = true;
-            continue;
-        }
-        latest = got;
-        break;
+        latest = FetchSkillManifest(&why, &j);
     }
     if (latest.empty()) {
-        if (saw404 && !sawBad)
-            return Bad(L"这一版还没发到 GitHub（" + wstring(kSkillRepo) + L" 的 releases 里要有 mingling-install.zip；"
-                       L"仓库还得是公开的，私有仓库别人查不到），本机是 " + sl + L"，先这么用着。");
+        if (why == L"notpublished")
+            return Bad(L"这一版还没发到 GitHub（" + wstring(kSkillRepo) + L" 的 releases 里要有 mingling-install.zip），"
+                       L"本机是 " + sl + L"，先这么用着。");
+        if (why == L"notoken")
+            return Bad(L"查不到新版：这个仓库是私有的，得先把 token 写进 secrets\\github-token.txt 才能查（公开仓库不用）。"
+                       L"本机是 " + sl + L"。");
         return Bad(L"查不到新版（GitHub 和加速站都没连上），过会儿再点。");
     }
     if (VerCmp(latest, sl) <= 0) return Ok(L"已经是最新（" + sl + L"）。");
@@ -1174,9 +1249,13 @@ ActionResult SkillUpdate() {
         L"$dl=Join-Path $Dir 'downloads';New-Item -ItemType Directory -Force -Path $dl|Out-Null;"
         L"$zp=Join-Path $dl ('mingling-install-' + $ver + '.zip');"
         L"$base='https://github.com/' + $repo + '/releases/latest/download/mingling-install.zip';"
+        L"$hdr=@{};if($env:DFY_TOK){$hdr['Authorization']='token '+$env:DFY_TOK};"
         L"$got=$false;"
-        L"foreach($p in @('https://gh.dpik.top/','https://edgeone.gh-proxy.com/','https://gh-proxy.org/','')){"
-        L"  try{Invoke-WebRequest -Uri ($p+$base) -OutFile $zp -UseBasicParsing -TimeoutSec 120;if((Get-Item $zp).Length -gt 10000){$got=$true;break}}catch{}"
+        // 私有仓库只有带 token 的直连能下；公开仓库照旧先试加速站
+        L"$urls=@();if($env:DFY_TOK){$urls+=$base};"
+        L"foreach($p in @('https://gh.dpik.top/','https://edgeone.gh-proxy.com/','https://gh-proxy.org/','')){$urls+=($p+$base)};"
+        L"foreach($u in $urls){"
+        L"  try{Invoke-WebRequest -Uri $u -OutFile $zp -UseBasicParsing -TimeoutSec 120 -Headers $hdr;if((Get-Item $zp).Length -gt 10000){$got=$true;break}}catch{}"
         L"};"
         L"if(-not $got){throw '没下下来'};"
         L"$ext=Join-Path $dl ('skill-' + [guid]::NewGuid().ToString('N'));Expand-Archive -Path $zp -DestinationPath $ext -Force;"
@@ -1200,6 +1279,7 @@ ActionResult SkillUpdate() {
     env.push_back({L"DFY_VER", latest});
     env.push_back({L"DFY_REPO", kSkillRepo});
     env.push_back({L"DFY_CUR", sl});
+    env.push_back({L"DFY_TOK", GithubToken()});
     wstring home = SkillHome();
     env.push_back({L"DFY_HOME", home});
     CmdResult r = PsEncoded(ps, env, 600000);
