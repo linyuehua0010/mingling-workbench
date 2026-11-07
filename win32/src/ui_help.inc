@@ -279,10 +279,17 @@ static void PaintHelp(Graphics& g) {
     float x0 = S(236), y0 = S(20), w = (float)g_w - x0 - S(24);
     float h = (float)g_h - y0 - S(22);
 
-    float headH = S(72);
+    float headH = S(118);
     RectF head(x0, y0, w, headH);
     Round(g, head, S(14), C_PANEL, C_LINE);
-    Txt(g, L"帮助", RectF(x0 + S(22), y0 + S(16), S(280), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
+    Txt(g, L"帮助", RectF(x0 + S(22), y0 + S(14), S(280), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
+    // 教程：随安装包带的几篇，离线读
+    Txt(g, L"教程", RectF(x0 + S(22), y0 + S(50), S(60), S(22)), Fnt(HINT_SIZE, 0, 0), C_SUB, 0);
+    DocChipRow(g, x0 + S(74), y0 + S(46), w - S(330));
+    if (g_docSel >= 0) {
+        Button(g, RectF(x0 + w - S(198), y0 + S(46), S(96), S(30)), L"用系统打开", "docopen", 0, true, true);
+        Button(g, RectF(x0 + w - S(96), y0 + S(46), S(74), S(30)), L"回 FAQ", "docback", 0, true, true);
+    }
 
     struct Btn { const wchar_t* label; const char* id; };
     static const Btn bs[6] = {
@@ -301,9 +308,20 @@ static void PaintHelp(Graphics& g) {
     // ---- 正文：富文本 + 滚动
     RectF panel(x0, y0 + headH + S(12), w, (y0 + h) - (y0 + headH + S(12)));
     Round(g, panel, S(14), C_PANEL, C_LINE);
-    RectF text(panel.X + S(24), panel.Y + S(18), panel.Width - S(48), panel.Height - S(36));
+    RectF text(panel.X + S(22), panel.Y + S(16), panel.Width - S(44), panel.Height - S(32));
     g_rcHelp = text;
-    float total = DrawRich(g, HelpText(), text, g_helpScroll);
+    float total = 0;
+    if (g_docSel >= 0) {
+        DocLoad(g_docSel);
+        wstring name = (g_docSel >= 0 && g_docSel < DOC_COUNT) ? wstring(DOCS[g_docSel].file) : wstring();
+        Txt(g, name + L"　·　随安装包带的，不联网", RectF(text.X, text.Y, text.Width, S(22)),
+            Fnt(MICRO_SIZE, 0, 0), C_FAINT, 0, true);
+        RectF body(text.X, text.Y + S(26), text.Width, text.Height - S(26));
+        g_rcHelp = body;
+        total = DrawDoc(g, body, g_docScroll) + S(26);
+    } else {
+        total = DrawRich(g, HelpText(), text, g_helpScroll);
+    }
     g_helpH = total;
-    ScrollBar(g, text, g_helpScroll, total);
+    ScrollBar(g, text, g_docSel >= 0 ? g_docScroll : g_helpScroll, total);
 }

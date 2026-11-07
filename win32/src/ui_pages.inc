@@ -1397,6 +1397,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_maint.inc"
 #include "ui_setup.inc"
 #include "ui_update.inc"
+#include "ui_docs.inc"
 #include "ui_help.inc"
 #include "ui_bili_cfg.inc"
 #include "ui_link_cfg.inc"
@@ -1718,6 +1719,15 @@ void UiOnClick(int x, int y) {
     if (p[0] == "ws" && p.size() >= 2 && p[1] == "pick") { SwitchWorkspace(); return; }
     if (p[0] == "doc") {
         wstring k = Utf8ToW(p[1]);
+        for (int i = 0; i < DOC_COUNT; i++) {
+            if (k == DOCS[i].id) {
+                g_docSel = i;
+                g_docScroll = 0;
+                DocLoad(i);
+                UiRequestRepaint();
+                return;
+            }
+        }
         if (k == L"readme") {
             wstring r = JoinPath(AppDir(), L"README.md");
             if (!FileExists(r)) r = JoinPath(RootDir(), L"README.md");
@@ -1731,6 +1741,8 @@ void UiOnClick(int x, int y) {
         else if (k == L"shots") OpenPath(JoinPath(JoinPath(RootDir(), L"win32"), L"shots"));
         return;
     }
+    if (id == "docback") { g_docSel = -1; g_docScroll = 0; UiRequestRepaint(); return; }
+    if (id == "docopen") { DocOpenExternal(g_docSel); return; }
     if (p[0] == "fix") { RunHerOp(Utf8ToW(p[1]), L""); return; }
     if (p[0] == "lnk") {
         int i = std::atoi(p[1].c_str());
@@ -1925,7 +1937,8 @@ bool UiOnWheel(int x, int y, int delta) {
         return true;
     }
     if (g_tab == 9 && g_rcHelp.Contains(pt)) {
-        g_helpScroll = clampf(g_helpScroll + step, g_helpH, g_rcHelp.Height);
+        if (g_docSel >= 0) g_docScroll = clampf(g_docScroll + step, g_helpH, g_rcHelp.Height);
+        else g_helpScroll = clampf(g_helpScroll + step, g_helpH, g_rcHelp.Height);
         UiRequestRepaint();
         return true;
     }
