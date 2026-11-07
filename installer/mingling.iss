@@ -72,6 +72,17 @@ Source: "..\sidecar\*"; DestDir: "{app}\sidecar"; Flags: ignoreversion recursesu
 ; %USERPROFILE%\.agents\skills\mingling-install，并写下 tools\skill-home.txt / skill-version.json。
 ; 没有它，Agent 就只会照大肥鱼那份说明书干活。
 Source: "..\skill\mingling-install\*"; DestDir: "{app}\skill\mingling-install"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 人设注入用的清单和人设正文（导入冥零人设要读 plugin\mingling_skill\mingling_skill.json）
+Source: "..\plugin\mingling_skill\*"; DestDir: "{app}\plugin\mingling_skill"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 工作台跑活要用的脚本：自设定（self-setup）、一键自动配置、体检、备份、掉线提醒、人设导入、桌宠
+Source: "..\tools\*.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\*.py"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\*.cmd"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\*.txt"; DestDir: "{app}\tools"; Flags: ignoreversion; Excludes: "skill-home.txt,pet-name-mine.txt,pet-persona-mine.txt"
+; 掉线提醒用的那个 pythonw（工作台按 tools\python\pythonw.exe 找）
+Source: "..\tools\python\*"; DestDir: "{app}\tools\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 配置包：自设定读 pack\mingling-pack\pack.json（tools\self-setup.ps1 按 <根>\pack\ 找）
+Source: "..\pack\mingling-pack\*"; DestDir: "{app}\pack\mingling-pack"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
 
 [Icons]

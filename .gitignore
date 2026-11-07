@@ -1,4 +1,4 @@
-# ============================================================
+ ============================================================
 #  冥零工作台 · Mingling Workbench
 #  仓库只放：源码、脚本、文档、小图、打包脚本。
 #  编译产物 / 大体积运行时 / 本机配置 / 凭据 / 日志 / 临时文件不进 Git。
@@ -55,23 +55,9 @@ start-petbridge.cmd
 # 工作台自己写的老版本备份（点「一键修复」前会存一份）
 旧版/
 
-# 掉线提醒 / 桌宠那套老运行时脚本：工作区里现场带着，不属于仓库
+# 掉线提醒 / 桌宠那套运行时脚本：工作台自己跑活要用，属于源码（.gitignore 不再排除）
 tools/python/
-tools/qq_watch.py
-tools/qq-toast.ps1
-tools/qq-watch.cmd
-tools/common.ps1
-tools/relogin-qq.ps1
-tools/relogin.cmd
-tools/autostart.ps1
-tools/backend_state.py
-tools/backup.ps1
-tools/diag.ps1
-tools/import-pack.ps1
-tools/dafeiyu_pet_bridge.py
-tools/pet_config.py
 tools/pet-*.txt
-tools/setup-pet.ps1
 
 # ---------- 4. 隐私与凭据（绝对不要提交） ----------
 credentials.json
