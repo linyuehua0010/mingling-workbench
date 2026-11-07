@@ -167,6 +167,10 @@ struct UpdatesInfo {
     std::vector<UpdateItem> items;
 };
 UpdatesInfo CheckUpdates(bool force = false);
+// 工作台版本串比较（V3-snapshot-2 / 旧 V3.0.0-snapshot / 正式版 V3.1.0）：
+// 返回 -1 / 0 / 1。主要给更新页说明「新在哪」用，规则跟后台查更新时一致。
+int WbCmp(const std::wstring& a, const std::wstring& b);
+bool WbIsSnapshotTag(const std::wstring& tag);
 // 旧接口：给 --her 命令行 / 别处要一句话摘要时用
 std::wstring UpdatesSummary(const UpdatesInfo& u);
 

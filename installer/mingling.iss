@@ -30,8 +30,15 @@
 [Setup]
 AppId={#AppIdValue}
 AppName={#AppTitle}
-AppVersion={#AppVer}
+; 显示版本用完整串（V3-snapshot-2）：「应用和功能」那一列直接读它
+AppVersion={#AppVerTag}
 AppVerName={#AppTitle} {#AppVerTag}
+; 文件版本必须是四段数字（资源管理器 → 属性 → 详细信息）
+VersionInfoVersion={#AppVer}
+VersionInfoProductVersion={#AppVer}
+VersionInfoProductTextVersion={#AppVerTag}
+VersionInfoCompany=冥零工作台
+VersionInfoDescription={#AppTitle} 安装程序
 AppPublisher=冥零工作台
 DefaultDirName={localappdata}\Programs\{#AppDir}
 DefaultGroupName={#AppTitle}
@@ -40,7 +47,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 OutputDir=..\dist
-OutputBaseFilename=MinglingWorkbench-{#AppVer}{#AppOutSuffix}-setup
+OutputBaseFilename=MinglingWorkbench-{#AppVerShort}-setup
 SetupIconFile=..\win32\res\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppTitle}

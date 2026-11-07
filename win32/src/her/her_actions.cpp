@@ -623,6 +623,68 @@ int VerCmp(const wstring& a, const wstring& b) {
     return 0;
 }
 
+// 工作台的版本串有两种写法：
+//   正式版  V3.1.0
+//   快照版  V3-snapshot-2      （规则见 version.h：大版本 = 正式版大版本 + 1，序号 = 第几版）
+//   旧产物  V3.0.0-snapshot    （= V3-snapshot-1，只读不改名）
+// 比较口径：同一渠道先比大版本，快照版再比序号；同大版本的正式版永远比快照版新
+// （快照是它的前身）。以前拿 VerParts 直接比，会把「3-snapshot-2」和「3.0.0」都读成 3.0.0.0，
+// 于是快照通道永远显示「已是最新」。
+struct WbVer {
+    bool ok = false;
+    bool snap = false;
+    int major = 0, minor = 0, patch = 0, seq = 0;
+};
+
+static WbVer WbParse(const wstring& s) {
+    WbVer v;
+    wstring t = s;
+    if (!t.empty() && (t[0] == L'v' || t[0] == L'V')) t = t.substr(1);
+    auto digit = [](wchar_t c) { return c >= L'0' && c <= L'9'; };
+    size_t i = 0;
+    while (i < t.size() && digit(t[i])) i++;
+    if (i == 0) return v;
+    v.ok = true;
+    size_t at = t.find(L"snapshot");
+    if (at != wstring::npos) {
+        v.snap = true;
+        v.major = _wtoi(t.substr(0, i).c_str());
+        size_t j = at + 8;                       // "snapshot" 之后
+        if (j < t.size() && t[j] == L'-') j++;
+        int n = 0;
+        bool any = false;
+        while (j < t.size() && digit(t[j])) { n = n * 10 + (t[j] - L'0'); j++; any = true; }
+        v.seq = any ? n : 1;                     // V3.0.0-snapshot 没写序号 = 第 1 版
+    } else {
+        std::vector<int> p = VerParts(t);
+        v.major = p[0];
+        v.minor = p[1];
+        v.patch = p[2];
+    }
+    return v;
+}
+
+int WbCmp(const wstring& a, const wstring& b) {
+    WbVer x = WbParse(a), y = WbParse(b);
+    if (!x.ok || !y.ok) return 0;
+    if (x.snap != y.snap) {
+        if (x.major != y.major) return x.major < y.major ? -1 : 1;
+        return x.snap ? -1 : 1;
+    }
+    if (x.major != y.major) return x.major < y.major ? -1 : 1;
+    if (x.snap) return x.seq == y.seq ? 0 : (x.seq < y.seq ? -1 : 1);
+    if (x.minor != y.minor) return x.minor < y.minor ? -1 : 1;
+    if (x.patch != y.patch) return x.patch < y.patch ? -1 : 1;
+    return 0;
+}
+
+// 这个 tag 是不是快照通道的（新旧两种写法都认：V3-snapshot-2、V3.0.0-snapshot）
+bool WbIsSnapshotTag(const wstring& tag) {
+    wstring t = tag;
+    if (!t.empty() && (t[0] == L'v' || t[0] == L'V')) t = t.substr(1);
+    return t.find(L"snapshot") != wstring::npos;
+}
+
 wstring FetchText(const wstring& url, int timeoutMs = 8000, size_t limit = 0) {
     Http r = HttpGet(url, timeoutMs);
     if (!r.ok || r.code >= 400) return L"";
@@ -812,17 +874,25 @@ static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring
             bool lok = false;
             J lj = J::Parse(lr.body, &lok);
             if (lok && lj.Arr()) {
+                // 列表是新的在前，但不能只认第一条：旧 tag（V3.0.0-snapshot）和新 tag
+                // （V3-snapshot-2）并存时，得按「大版本 + 快照序号」挑最大的那条。
+                wstring bestTag, bestUrl, bestVer;
                 for (const J& it : lj.a) {
                     wstring tag = it.Str(L"tag_name");
                     if (tag.empty() || !IContains(tag, tagFilter)) continue;
-                    if (rawTagOut) *rawTagOut = tag;
-                    if (url) {
-                        *url = it.Str(L"html_url");
-                        if (url->empty()) *url = L"https://github.com/" + repo + L"/releases/tag/" + tag;
-                    }
                     wstring v = tag;
-                    if (v[0] == L'v') v = v.substr(1);
-                    if (!v.empty()) return v;
+                    if (v[0] == L'v' || v[0] == L'V') v = v.substr(1);
+                    if (v.empty()) continue;
+                    if (!bestVer.empty() && WbCmp(v, bestVer) <= 0) continue;
+                    bestVer = v;
+                    bestTag = tag;
+                    bestUrl = it.Str(L"html_url");
+                    if (bestUrl.empty()) bestUrl = L"https://github.com/" + repo + L"/releases/tag/" + tag;
+                }
+                if (!bestVer.empty()) {
+                    if (rawTagOut) *rawTagOut = bestTag;
+                    if (url) *url = bestUrl;
+                    return bestVer;
                 }
             }
         }
@@ -1069,8 +1139,8 @@ static UpdatesInfo ParseUpdates(const J& up) {
     w.id = L"wb";
     w.name = ItemName(w.id);
     w.what = ItemWhat(w.id);
-    // 显示用完整串（V3.0.0-snapshot），比较用数字串（3.0.0）——快照版和正式版数字一样，
-    // 只差后缀，混着比会把「两个渠道」当成同一版。
+    // 显示用完整串（V3-snapshot-2），比较也按「大版本 + 快照序号」来（WbCmp）；
+    // 以前拿 VerCmp 比，快照版和正式版的数字一样，会混成同一版。
     w.local = u.wb.empty() ? APP_VERSION : u.wb;
     u.wb = w.local;
     u.wbRepo = up.Str(L"wbRepo");
@@ -1078,7 +1148,7 @@ static UpdatesInfo ParseUpdates(const J& up) {
     w.latest = JustVer(w.id, up.Str(L"wbLatest"));
     if (w.latest.empty()) {
         w.state = L"local";  // 还没发布/查不到：就显示本机版本
-    } else if (VerCmp(w.latest, APP_VERSION_PLAIN_W) > 0) {
+    } else if (WbCmp(w.latest, w.local) > 0) {
         w.state = L"new";
     } else {
         w.state = L"latest";
@@ -1166,7 +1236,6 @@ static UpdatesInfo FetchUpdates() {
 
     // 工作台自己：正式版查正式仓库的正式 release，快照版查 repo_snapshot 那条预发布通道。
     // 别让正式版把快照塞给用户，也别让快照版拿到正式包覆盖掉自己。
-    const wstring wbLocal = APP_VERSION_PLAIN_W;
     const wstring wbShow = APP_VERSION;
 #if APP_SNAPSHOT
     wstring repo = Trim(SettingGet(L"repo_snapshot"));
@@ -1180,15 +1249,20 @@ static UpdatesInfo FetchUpdates() {
         // 第 4 个参数是通道标记：快照 release 是 prerelease，只能从列表里挑
         wbLatest = LatestGithub(repo, &wbUrl, &wbTag, L"snapshot");
         // 列表里挑出来的 tag 一定带 snapshot；这里再兜一次底，防止以后改了筛选口径
-        if (!wbLatest.empty() && !IContains(wbTag, L"snapshot")) {
+        if (!wbLatest.empty() && !WbIsSnapshotTag(wbTag)) {
             wbLatest.clear();
             wbUrl.clear();
         }
 #else
         wbLatest = LatestGithub(repo, &wbUrl, &wbTag);
+        // 正式通道不要预发布：万一仓库里最新一条是快照，别拿它当正式版
+        if (!wbLatest.empty() && WbIsSnapshotTag(wbTag)) {
+            wbLatest.clear();
+            wbUrl.clear();
+        }
 #endif
         // 本机比 GitHub 上还新（没发布的版本）：别提示「更新」，免得换回旧的
-        if (!wbLatest.empty() && VerCmp(wbLatest, wbLocal) < 0) wbLatest = wbLocal;
+        if (!wbLatest.empty() && WbCmp(wbLatest, wbShow) < 0) wbLatest = wbShow;
         okAll = okAll && !wbLatest.empty();
     }
 
