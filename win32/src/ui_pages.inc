@@ -834,7 +834,7 @@ static void PaintOverview(Graphics& g) {
 
     for (int i = 0; i < 3; i++) {
         RectF c(x0 + i * (cw + gap), cy, cw, ch);
-        Round(g, c, S(14), C_PANEL, C_LINE);
+        Card(g, c, C_PANEL, C_LINE);
         bool up = i < 2 ? g_svcUp[i] : g_whaleOk;
         const wchar_t* name = i < 2 ? SVCS[i].name : L"bili-whale";
         const wchar_t* desc = i < 2 ? SVCS[i].desc : L"看视频";
@@ -865,7 +865,7 @@ static void PaintOverview(Graphics& g) {
     // 第四格：机器
     {
         RectF c(x0 + 3 * (cw + gap), cy, cw, ch);
-        Round(g, c, S(14), C_PANEL, C_LINE);
+        Card(g, c, C_PANEL, C_LINE);
         Txt(g, L"今天", RectF(c.X + S(20), c.Y + S(16), c.Width - S(36), S(20)), Fnt(BODY_SIZE, 1, 0), C_FAINT, 0);
         int n = CountToday();
         Txt(g, Num(n), RectF(c.X + S(18), c.Y + S(36), S(60), S(34)), Fnt(24, 1, 0), C_ACCENT, 0);
@@ -883,7 +883,7 @@ static void PaintOverview(Graphics& g) {
     float bh = y0 + h - by;
     float rw = S(292);
     RectF recent(x0, by, w - rw - gap, bh);
-    Round(g, recent, S(14), C_PANEL, C_LINE);
+    Card(g, recent, C_PANEL, C_LINE);
     Txt(g, L"最近任务", RectF(recent.X + S(22), recent.Y + S(18), S(160), S(22)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     Button(g, RectF(recent.X + recent.Width - S(104), recent.Y + S(14), S(84), S(28)), L"看全部", "btn:goto_jobs",
            0, true);
@@ -920,7 +920,7 @@ static void PaintOverview(Graphics& g) {
     }
 
     RectF quick(x0 + w - rw, by, rw, bh);
-    Round(g, quick, S(14), C_PANEL, C_LINE);
+    Card(g, quick, C_PANEL, C_LINE);
     Txt(g, L"快捷", RectF(quick.X + S(22), quick.Y + S(18), S(120), S(22)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     float qy = quick.Y + S(54);
     float bw2 = (quick.Width - S(44) - S(10)) / 2.0f;
@@ -976,7 +976,7 @@ static void PaintBiliChips(Graphics& g, float x, float y) {
 
 // ---- 分区一：选题
 static void PaintBiliFeed(Graphics& g, const RectF& body) {
-    Round(g, body, S(14), C_PANEL, C_LINE);
+    Card(g, body, C_PANEL, C_LINE);
     Txt(g, L"今晚看什么", RectF(body.X + S(22), body.Y + S(16), S(200), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     wstring note = g_feedBusy ? wstring(L"正在捞…") : (g_feedNote.empty() ? wstring(L"她按你的口味挑的") : g_feedNote);
     Txt(g, note, RectF(body.X + S(22), body.Y + S(46), body.Width - S(260), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
@@ -1051,7 +1051,7 @@ static void PaintBiliFeed(Graphics& g, const RectF& body) {
 // ---- 分区二：看片与读链接
 static void PaintBiliWork(Graphics& g, const RectF& body) {
     RectF top(body.X, body.Y, body.Width, S(152));
-    Round(g, top, S(14), C_PANEL, C_LINE);
+    Card(g, top, C_PANEL, C_LINE);
     Txt(g, L"看片与读链接", RectF(top.X + S(22), top.Y + S(14), S(200), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, L"粘 B 站 链接 / BV、普通网页链接或分享文本，回车就开跑", RectF(top.X + S(130), top.Y + S(20), top.Width - S(160), S(18)),
         Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
@@ -1090,7 +1090,7 @@ static void PaintBiliWork(Graphics& g, const RectF& body) {
     // 最近一次（结果分区是全文，这里只给一眼）
     float ly = top.Y + top.Height + S(14);
     RectF last(body.X, ly, body.Width, body.Height - (ly - body.Y) - S(66));
-    Round(g, last, S(14), C_PANEL, C_LINE);
+    Card(g, last, C_PANEL, C_LINE);
     Txt(g, L"最近一次", RectF(last.X + S(22), last.Y + S(14), S(160), S(22)), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT, 0);
     if (!g_hasResult) {
         Image* em = LoadImg(g_artEmpty);
@@ -1151,7 +1151,7 @@ static void PaintBiliWork(Graphics& g, const RectF& body) {
 
 // ---- 分区三：结果（「问一句」现在也长在这里，不再是浮层）
 static void PaintBiliResult(Graphics& g, const RectF& body) {
-    Round(g, body, S(14), C_PANEL, C_LINE);
+    Card(g, body, C_PANEL, C_LINE);
     wstring kind = g_linkMode ? L"读链接" : L"看视频";
     Txt(g, L"结果", RectF(body.X + S(22), body.Y + S(12), S(80), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     if (g_hasResult) Chip(g, RectF(body.X + S(76), body.Y + S(15), S(58), S(20)), kind, C_ACCENT, C_ACCENT_S);
@@ -1278,7 +1278,7 @@ static void PaintJobs(Graphics& g) {
     float x0 = S(236), y0 = S(22), W = (float)g_w - x0 - S(24), H = (float)g_h - S(44);
     float th = H * 0.50f;
     RectF table(x0, y0, W, th);
-    Round(g, table, S(14), C_PANEL, C_LINE);
+    Card(g, table, C_PANEL, C_LINE);
     Txt(g, L"任务队列", RectF(table.X + S(22), table.Y + S(16), S(160), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, Num((long long)g_jobs.size()) + L" 条", RectF(table.X + S(104), table.Y + S(18), S(80), S(20)),
         Fnt(HINT_SIZE, 1, 0), C_FAINT, 0);
@@ -1327,7 +1327,7 @@ static void PaintJobs(Graphics& g) {
     }
 
     RectF detail(x0, y0 + th + S(14), W, H - th - S(14));
-    Round(g, detail, S(14), C_PANEL, C_LINE);
+    Card(g, detail, C_PANEL, C_LINE);
     Txt(g, L"任务详情", RectF(detail.X + S(22), detail.Y + S(14), detail.Width - S(200), S(24)),
         Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     if (g_jobSel >= 0 && g_jobSel < (int)g_jobs.size()) {
@@ -1369,7 +1369,7 @@ static void PaintLogs(Graphics& g) {
     Button(g, RectF(cx + S(82), y0, S(104), S(30)), L"日志目录", "btn:logdir", 0, true);
 
     RectF panel(x0, y0 + S(42), W, H - S(42));
-    Round(g, panel, S(14), C_PANEL, C_LINE);
+    Card(g, panel, C_PANEL, C_LINE);
     RectF text(panel.X + S(20), panel.Y + S(16), panel.Width - S(40), panel.Height - S(32));
     g_rcLog = text;
     g_logView = text.Height;
@@ -1391,7 +1391,7 @@ static void PaintCheck(Graphics& g) {
         cx += w + S(8);
     }
     RectF panel(x0, y0 + S(44), W, H - S(44));
-    Round(g, panel, S(14), C_PANEL, C_LINE);
+    Card(g, panel, C_PANEL, C_LINE);
     RectF text(panel.X + S(20), panel.Y + S(16), panel.Width - S(40), panel.Height - S(32));
     g_rcCheck = text;
     g_checkView = text.Height;

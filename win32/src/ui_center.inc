@@ -25,7 +25,7 @@ static void PaintHelpCenter(Graphics& g) {
     float headH = S(64);
 
     RectF head(x0, y0, w, headH);
-    Round(g, head, S(14), C_PANEL, C_LINE);
+    Card(g, head, C_PANEL, C_LINE);
     Txt(g, L"帮助中心", RectF(x0 + S(22), y0 + S(14), S(220), S(28)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, L"更新、求助、帮助都在这儿；出问题先看这里。", RectF(x0 + S(150), y0 + S(20), S(360), S(18)),
         Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);

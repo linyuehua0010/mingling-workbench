@@ -167,7 +167,7 @@ static void PaintBiliCfg(Graphics& g, const RectF& panel) {
     const float pw = panel.Width;
     const float ph = panel.Height;
     g_rcBcfg = panel;
-    Round(g, panel, S(14), C_PANEL, C_LINE);
+    Card(g, panel, C_PANEL, C_LINE);
     Txt(g, L"bili-whale 配置", RectF(panel.X + S(26), panel.Y + S(14), pw - S(52), S(26)), Fnt(TITLE_SIZE, 0, 0),
         C_TEXT, 0);
     Txt(g, g_bcfgPath, RectF(panel.X + S(26), panel.Y + S(42), pw - S(52), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT,

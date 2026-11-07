@@ -170,7 +170,7 @@ static void PaintAskBody(Graphics& g, const RectF& area) {
     // ---- 头
     float headH = S(92);
     RectF head(x0, y0, w, headH);
-    Round(g, head, S(14), C_PANEL, C_LINE);
+    Card(g, head, C_PANEL, C_LINE);
     Txt(g, L"交给 Agent", RectF(x0 + S(22), y0 + S(16), S(320), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, L"换角色、换声音、搬家、修坏了，交给 DeepSeek Harness 里的 Agent。",
         RectF(x0 + S(22), y0 + S(46), w - S(340), S(18)), Fnt(HINT_SIZE, 1, 0), C_SUB, 0, true);
@@ -289,7 +289,7 @@ static void PaintHelpBody(Graphics& g, const RectF& area) {
 
     float headH = S(96);
     RectF head(x0, y0, w, headH);
-    Round(g, head, S(14), C_PANEL, C_LINE);
+    Card(g, head, C_PANEL, C_LINE);
     // 教程：随安装包带的几篇，离线读
     Txt(g, L"教程", RectF(x0 + S(22), y0 + S(12), S(60), S(22)), Fnt(HINT_SIZE, 0, 0), C_SUB, 0);
     DocChipRow(g, x0 + S(74), y0 + S(8), w - S(330));
@@ -315,7 +315,7 @@ static void PaintHelpBody(Graphics& g, const RectF& area) {
 
     // ---- 正文：富文本 + 滚动
     RectF panel(x0, y0 + headH + S(12), w, (y0 + h) - (y0 + headH + S(12)));
-    Round(g, panel, S(14), C_PANEL, C_LINE);
+    Card(g, panel, C_PANEL, C_LINE);
     RectF text(panel.X + S(22), panel.Y + S(16), panel.Width - S(44), panel.Height - S(32));
     g_rcHelp = text;
     float total = 0;

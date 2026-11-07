@@ -80,7 +80,7 @@ static float UpRowH(const her::UpdateItem& it) {
 }
 
 static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
-    Round(g, c, S(14), C_PANEL, C_LINE);
+    Card(g, c, C_PANEL, C_LINE);
     Font* nf = Fnt(TITLE_SIZE, 0, 0);
     Txt(g, it.name, RectF(c.X + S(20), c.Y + S(13), S(340), S(22)), nf, C_TEXT, 0, true);
     float nw = Tw(g, it.name, nf) + S(12);
@@ -232,7 +232,7 @@ static void PaintUpdatesBody(Graphics& g, const RectF& area) {
     // ---- 版本行
     if (g_up.items.empty()) {
         RectF box(x0, y, w, S(120));
-        Round(g, box, S(14), C_PANEL, C_LINE);
+        Card(g, box, C_PANEL, C_LINE);
         Txt(g, g_upBusy ? L"正在查新版本……" : L"还没查到版本，点右上「再查一遍」",
             RectF(x0, y + S(42), w, S(24)), Fnt(BODY_SIZE, 1, 0), C_FAINT, 1);
         Txt(g, L"第一次查要问 PyPI 和 GitHub，十几秒，不影响别的。", RectF(x0, y + S(70), w, S(18)),

@@ -31,6 +31,18 @@ static const ARGB C_OK = 0xFF3F8F72;
 static const ARGB C_WARN = 0xFFB08A3E;
 static const ARGB C_ERR = 0xFFB4566A;
 
+// ---------------------------------------------------------------- 圆角 / 间距（都在这儿定）
+// 页面里别自己再写 S(14) 这种数字：卡片的圆角就叫 R_CARD，间距就叫 GAP_M。
+// 她的气质是「冷白底、细描边、留白多、圆角软一点」，所以圆角偏大、描边很淡。
+#define R_CARD S(14)    // 普通卡片、面板
+#define R_PANEL S(16)   // 整块大面板（hero、结果区）
+#define R_PILL S(10)    // 胶囊、输入框、页签
+#define R_SMALL S(8)    // 小按钮、状态胶囊
+#define PAD_X S(22)     // 页内左右留白
+#define GAP_M S(12)     // 卡片之间
+#define GAP_S S(8)      // 行内小间隔
+
+
 // ---------------------------------------------------------------- 字号（四档 + 页面标题）
 // 新加文字一律用这几个常量，别再往 Fnt() 里写裸数字；数值都乘 S()，150% 下跟着放大。
 static const float PAGE_TITLE_SIZE = 16.5f;  // 维护/求助/帮助 的页面大标题
@@ -237,6 +249,9 @@ static void Round(Graphics& g, const RectF& r, float rad, ARGB fill, ARGB line, 
         g.DrawPath(&pen, &p);
     }
 }
+
+// 卡片：圆角统一走 R_CARD，页面只管给矩形和颜色
+static void Card(Graphics& g, const RectF& r, ARGB fill, ARGB line) { Round(g, r, R_CARD, fill, line); }
 
 static float Tw(Graphics& g, const wstring& s, Font* f) {
     if (s.empty()) return 0;

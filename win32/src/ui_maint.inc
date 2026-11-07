@@ -227,7 +227,7 @@ static void PaintMaint(Graphics& g) {
 
     // ---- 头：今天的数据
     RectF head(x0, y0, w, headH);
-    Round(g, head, S(14), C_PANEL, C_LINE);
+    Card(g, head, C_PANEL, C_LINE);
     Txt(g, L"她今天怎么样", RectF(x0 + S(22), y0 + S(16), S(420), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, g_mBusy ? g_mNote : (g_mLastOp.empty() ? g_mNote : g_mLastOp),
         RectF(x0 + S(22), y0 + S(44), w * 0.40f, S(18)), Fnt(HINT_SIZE, 1, 0), g_mBusy ? C_ACCENT : C_FAINT, 0, true);
@@ -290,14 +290,14 @@ static void PaintMaint(Graphics& g) {
     float gtop = gy;
     if (g_mItems.empty()) {
         RectF box(x0, gy, w, bandBot - gy);
-        Round(g, box, S(14), C_PANEL, C_LINE);
+        Card(g, box, C_PANEL, C_LINE);
         Txt(g, g_mBusy ? L"正在查…" : L"点右上「再查一遍」",
             RectF(x0, gy + (bandBot - gy) / 2 - S(12), w, S(24)), Fnt(BODY_SIZE, 1, 0), C_FAINT, 1);
     } else {
         for (size_t i = 0; i < g_mItems.size() && i < 8; i++) {
             int col = (int)i % 4, row = (int)i / 4;
             RectF c(x0 + col * (cw + gap), gtop + row * (ch + gap), cw, ch);
-            Round(g, c, S(14), C_PANEL, C_LINE);
+            Card(g, c, C_PANEL, C_LINE);
             ARGB sc = StateColor(g_mItems[i].state);
             Dot(g, c.X + S(20), c.Y + S(24), S(4), sc);
             Txt(g, g_mItems[i].name, RectF(c.X + S(34), c.Y + S(14), c.Width - S(100), S(22)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0, true);
@@ -334,7 +334,7 @@ static void PaintMaint(Graphics& g) {
     // ---- 三个频率开关
     float fy = bandBot + S(14);
     RectF fr(x0, fy, w, freqH);
-    Round(g, fr, S(14), C_PANEL, C_LINE);
+    Card(g, fr, C_PANEL, C_LINE);
     struct Row { const wchar_t* label; const wchar_t* key; const wchar_t* const* opts; const wchar_t* const* words; int n; wstring cur; };
     static const wchar_t* GRP_OPT[4] = {L"off", L"mention", L"quote", L"both"};
     static const wchar_t* GRP_WORD[4] = {L"不 @", L"@ 对方", L"引用", L"都加"};

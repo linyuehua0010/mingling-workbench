@@ -306,7 +306,7 @@ static void PaintLinkCfg(Graphics& g, const RectF& panel) {
     const float pw = panel.Width;
     const float ph = panel.Height;
     g_rcLc = panel;
-    Round(g, panel, S(14), C_PANEL, C_LINE);
+    Card(g, panel, C_PANEL, C_LINE);
     Txt(g, L"链接与应用", RectF(panel.X + S(26), panel.Y + S(14), pw - S(52), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, L"读网页链接的规矩，和「问一句」用的对话 API", RectF(panel.X + S(26), panel.Y + S(42), pw - S(52), S(16)),
         Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0, true);

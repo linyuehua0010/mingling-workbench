@@ -29,7 +29,7 @@ struct FeatOpt {
 static void SetupRow(Graphics& g, float x, float y, float w, float rowH, const wchar_t* title, const wchar_t* desc,
                      const FeatOpt* opts, int n, int cur) {
     RectF card(x, y, w, rowH);
-    Round(g, card, S(14), C_PANEL, C_LINE);
+    Card(g, card, C_PANEL, C_LINE);
     Txt(g, title, RectF(x + S(22), y + S(14), S(260), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0, true);
     Txt(g, desc, RectF(x + S(22), y + S(42), w - S(360), S(20)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
     // 选项从右往左排，选中的那个是蓝底
