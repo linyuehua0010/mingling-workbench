@@ -163,9 +163,9 @@ static void PaintAskEditor(Graphics& g) {
     Button(g, RectF(x + w - S(124), y + h - S(46), S(96), S(28)), L"取消", "askeditor:cancel", 0, true, true);
 }
 
-static void PaintAsk(Graphics& g) {
-    float x0 = S(236), y0 = S(20), w = (float)g_w - x0 - S(24);
-    float h = (float)g_h - y0 - S(22);
+// 画在「帮助中心 → 求助」这一块里：坐标和尺寸由外面给
+static void PaintAskBody(Graphics& g, const RectF& area) {
+    float x0 = area.X, y0 = area.Y, w = area.Width, h = area.Height;
 
     // ---- 头
     float headH = S(92);
@@ -214,7 +214,7 @@ static const wchar_t* FAQ_TEXT =
     L"\n"
     L"══════════ 她不回我了 ══════════\n"
     L"先看「维护」页：哪张卡是红的，就点那张卡上的修复按钮。\n"
-    L"还是不行，点「复制求助信息」——她会把日志、版本、配置打包成桌面上的 txt，再回「求助」复制「她不回话了」那句，一起发给 Agent。\n"
+    L"还是不行，点「复制求助信息」——她会把日志、版本、配置打包成桌面上的 txt，再回「帮助中心 → 求助」复制「她不回话了」那句，一起发给 Agent。\n"
     L"\n"
     L"══════════ 小号被踢下线 ══════════\n"
     L"QQ 风控挺严，小号偶尔被踢很正常，不是坏了。点「重登 QQ」，照弹出来的窗口做（有头像点登录，是二维码就用小号的手机扫）。\n"
@@ -233,7 +233,7 @@ static const wchar_t* FAQ_TEXT =
     L"打完点「打完了，恢复」。忘了点也没事，重启电脑会自己恢复。\n"
     L"\n"
     L"══════════ 她掉线了怎么知道 ══════════\n"
-    L"「维护」页底部的「掉线提醒」开着的话，小号掉线会在右下角弹一条通知，点一下就能重登。\n"
+    L"「维护」页「掉线提醒」开着的话，小号掉线会在右下角弹一条通知，点一下就能重登。\n"
     L"点「试一条」可以先看看通知长什么样；不想被打扰就点「关」。\n"
     L"\n"
     L"══════════ 她能看 B 站 ══════════\n"
@@ -247,7 +247,7 @@ static const wchar_t* FAQ_TEXT =
     L"凭据、日记、限额这些状态在用户配置目录，备份时会一起打包。\n"
     L"\n"
     L"══════════ 换电脑、重装系统前 ══════════\n"
-    L"先点「备份到桌面」把那个 zip 拷走。新电脑上装到能聊天，再去「求助」复制「用备份还原」那句。\n"
+    L"先点「备份到桌面」把那个 zip 拷走。新电脑上装到能聊天，再去「帮助中心 → 求助」复制「用备份还原」那句。\n"
     L"看 B 站的 out/logs 数据不在这份备份里，换电脑时把整个工作区文件夹一起拷走。\n"
     L"备份里有你的密钥，别发给别人。\n"
     L"\n"
@@ -255,13 +255,21 @@ static const wchar_t* FAQ_TEXT =
     L"不影响她。工作台只是看看、修修，关了她照常在 QQ 上聊。想再看就双击桌面图标。\n"
     L"\n"
     L"══════════ 键盘和快捷键 ══════════\n"
-    L"1–9 切左侧页签，F5 刷新当前页，F9 全部启动，F10 全部关闭。\n"
+    L"@@HOTKEYS@@\n"
     L"\n"
     L"══════════ 关于 ══════════\n"
     L"冥零工作台 " APP_VERSION L" · 单个 exe，Win32 + GDI+ 自绘，不挂浏览器内核。\n";
 
 static std::wstring HelpText() {
     std::wstring t = FAQ_TEXT;
+    // 页签数、快捷键跟着 TABS 走，别在文案里写死
+    {
+        int n = (int)(sizeof(TABS) / sizeof(TABS[0]));
+        std::wstring hk = (n > 1 ? (L"1–" + std::to_wstring(n)) : std::wstring(L"1")) +
+                          L" 切左侧页签（0 跳到最后），F5 刷新当前页，F9 全部启动，F10 全部关闭。";
+        size_t at = t.find(L"@@HOTKEYS@@");
+        if (at != std::wstring::npos) t.replace(at, 11, hk);
+    }
     t += L"\n══════════ 当前路径 ══════════\n";
     t += L"工作区：" + WorkspaceDir() + L"\n";
     t += L"台账：" + JobsFile() + L"\n";
@@ -275,20 +283,19 @@ static std::wstring HelpText() {
     return t;
 }
 
-static void PaintHelp(Graphics& g) {
-    float x0 = S(236), y0 = S(20), w = (float)g_w - x0 - S(24);
-    float h = (float)g_h - y0 - S(22);
+// 画在「帮助中心 → 帮助」这一块里：坐标和尺寸由外面给
+static void PaintHelpBody(Graphics& g, const RectF& area) {
+    float x0 = area.X, y0 = area.Y, w = area.Width, h = area.Height;
 
-    float headH = S(118);
+    float headH = S(96);
     RectF head(x0, y0, w, headH);
     Round(g, head, S(14), C_PANEL, C_LINE);
-    Txt(g, L"帮助", RectF(x0 + S(22), y0 + S(14), S(280), S(26)), Fnt(PAGE_TITLE_SIZE, 0, 0), C_TEXT, 0);
     // 教程：随安装包带的几篇，离线读
-    Txt(g, L"教程", RectF(x0 + S(22), y0 + S(50), S(60), S(22)), Fnt(HINT_SIZE, 0, 0), C_SUB, 0);
-    DocChipRow(g, x0 + S(74), y0 + S(46), w - S(330));
+    Txt(g, L"教程", RectF(x0 + S(22), y0 + S(12), S(60), S(22)), Fnt(HINT_SIZE, 0, 0), C_SUB, 0);
+    DocChipRow(g, x0 + S(74), y0 + S(8), w - S(330));
     if (g_docSel >= 0) {
-        Button(g, RectF(x0 + w - S(198), y0 + S(46), S(96), S(30)), L"用系统打开", "docopen", 0, true, true);
-        Button(g, RectF(x0 + w - S(96), y0 + S(46), S(74), S(30)), L"回 FAQ", "docback", 0, true, true);
+        Button(g, RectF(x0 + w - S(198), y0 + S(6), S(96), S(30)), L"用系统打开", "docopen", 0, true, true);
+        Button(g, RectF(x0 + w - S(96), y0 + S(6), S(74), S(30)), L"回 FAQ", "docback", 0, true, true);
     }
 
     struct Btn { const wchar_t* label; const char* id; };
@@ -300,9 +307,10 @@ static void PaintHelp(Graphics& g) {
         {L"美术素材", "doc:art"},
         {L"组件目录", "doc:bots"},
     };
-    float bw = S(88), bx = x0 + w - S(22) - (bw + S(8)) * 6 + S(8);
+    Txt(g, L"文件", RectF(x0 + S(22), y0 + S(58), S(60), S(22)), Fnt(HINT_SIZE, 0, 0), C_SUB, 0);
+    float bw = S(88), bx = x0 + S(74);
     for (int i = 0; i < 6; i++) {
-        Button(g, RectF(bx + i * (bw + S(8)), y0 + S(16), bw, S(28)), bs[i].label, bs[i].id, 0, true, true);
+        Button(g, RectF(bx + i * (bw + S(8)), y0 + S(52), bw, S(28)), bs[i].label, bs[i].id, 0, true, true);
     }
 
     // ---- 正文：富文本 + 滚动

@@ -2,6 +2,9 @@
 // 把「大肥鱼工作台」那套逻辑自己做了：八张卡、四个频率、十几个按钮，
 // 全部由 src\her 里的 C++ 直接查、直接改、直接启停进程。
 // 不经过旧网页工作台，也不再需要任何 python 桥。
+// 下半截的功能开关在 ui_setup.inc 里画（原「功能」页，现在并到这一页）。
+
+static float PaintFeatures(Graphics& g, float x0, float y0, float w, float rowH, float gap);
 
 struct MItem {
     wstring id, state, name, text, fixAct, fixLbl, linkLbl, linkHref, pill;
@@ -203,7 +206,13 @@ static void PaintMaint(Graphics& g) {
     float opsH = S(94);
     float freqH = S(86);
     float ch = S(150);
-    float fullH = headH + S(14) + ch * 2 + gap + S(14) + freqH + S(14) + opsH;
+    // 下半截是功能开关：桌宠 / 唱歌 / 豆包语音 / 在线 Breeze / 长期记忆 / 语音路线
+    float featHeadH = S(40);
+    float featRowH = S(76), featGap = S(10);
+    float featH = featHeadH + 6 * (featRowH + featGap);
+    float opsY = headH + S(14) + ch * 2 + gap + S(14) + freqH + S(14);
+    float featY = opsY + opsH + S(20);
+    float fullH = featY + featH;
     g_mContentH = fullH;
     g_mViewH = h;
     g_rcMaint = RectF(x0, y0, w, h);
@@ -384,7 +393,7 @@ static void PaintMaint(Graphics& g) {
     }
 
     // ---- 一键操作（两排）
-    float oy = y0 + fullH - opsH + S(6);
+    float oy = y0 + opsY + S(6);
     struct Btn { const wchar_t* label; const char* id; int kind; };
     Btn rowA[6] = {
         {L"重启大脑", "op:restart_brain", 1},
@@ -415,6 +424,9 @@ static void PaintMaint(Graphics& g) {
             bx2 += bwid + S(10);
         }
     }
+
+    // ---- 功能开关（原「功能」页并进来了）
+    PaintFeatures(g, x0, y0 + featY, w, featRowH, featGap);
 
     if (scrolls) {
         g.ResetTransform();

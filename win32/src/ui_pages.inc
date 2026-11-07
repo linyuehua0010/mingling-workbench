@@ -642,11 +642,18 @@ static void TabIcon(Graphics& g, float x, float y, int idx, ARGB c) {
             g.DrawLine(&p, x + S(3), y + S(6.5f), x + S(5.5f), y + S(9));
             g.DrawLine(&p, x + S(5.5f), y + S(9), x + s2 - S(3.4f), y + S(3.4f));
             break;
-        case 6: {   // 更新：一圈箭头
-            g.DrawArc(&p, x + S(0.5f), y + S(0.5f), s2 - S(1), s2 - S(1), 40.0f, 280.0f);
-            PointF tip[3] = {{x + s2 - S(2.4f), y + S(0.4f)}, {x + s2 - S(0.2f), y + S(4.6f)}, {x + s2 - S(5.2f), y + S(4.2f)}};
-            g.FillPolygon(&b, tip, 3);
-            g.DrawLine(&p, x + s2 * 0.5f, y + S(3.5f), x + s2 * 0.5f, y + s2 - S(3.5f));
+        case 5: {   // 维护：三条滑块
+            float yy[3] = {y + S(1.5f), y + S(6), y + S(10.5f)};
+            float kx[3] = {x + S(8), x + S(4), x + S(9.5f)};
+            for (int i = 0; i < 3; i++) {
+                g.DrawLine(&p, x, yy[i], x + s2, yy[i]);
+                g.FillRectangle(&b, kx[i] - S(1.5f), yy[i] - S(1.8f), S(3), S(3.6f));
+            }
+            break;
+        }
+        case 6: {   // 帮助中心：一本书
+            g.DrawRectangle(&p, x + S(1), y + S(1), s2 - S(3), s2 - S(2));
+            for (int i = 0; i < 3; i++) g.DrawLine(&p, x + S(3), y + S(4) + i * S(3), x + s2 - S(4), y + S(4) + i * S(3));
             break;
         }
         case 8: {   // 问号
@@ -1402,6 +1409,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_bili_cfg.inc"
 #include "ui_link_cfg.inc"
 #include "ui_dsh.inc"
+#include "ui_center.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
     if (!g_bmp || w != g_bw || h != g_bh) {
@@ -1442,11 +1450,8 @@ void UiPaint(HDC hdc, int w, int h) {
         case 3: PaintLogs(g); break;
         case 4: PaintCheck(g); break;
         case 5: PaintMaint(g); break;
-        case 6: PaintUpdates(g); break;
-        case 7: PaintSetup(g); break;
-        case 8: PaintAsk(g); break;
-        case 9: PaintHelp(g); break;
-        default: PaintHelp(g); break;
+        case 6: PaintHelpCenter(g); break;
+        default: PaintHelpCenter(g); break;
     }
 
     PaintNotifyBanner(g);   // 右上角滑进来那条：托盘气泡被压掉时也看得见
@@ -1557,6 +1562,13 @@ void UiOnClick(int x, int y) {
         return;
     }
 
+    if (p[0] == "hsec" && p.size() > 1) {
+        g_hSec = std::atoi(p[1].c_str());
+        if (g_hSec == 0) RefreshUpdates(false);
+        g_editFocus = 0;
+        UiRequestRepaint();
+        return;
+    }
     if (p[0] == "tab") {
         g_tab = std::atoi(p[1].c_str());
         if (g_tab == 1 && g_feed.empty() && !g_feedBusy) RefreshFeed();
@@ -1762,8 +1774,9 @@ void UiOnClick(int x, int y) {
     }
     if (p[0] == "op") {
         wstring op = Utf8ToW(p[1]);
-        if (op == L"updates") {   // 「更新检查」把更新页翻出来，别只弹一句话
+        if (op == L"updates") {   // 「更新检查」把帮助中心翻到「更新」那一格，别只弹一句话
             g_tab = 6;
+            g_hSec = 0;
             RefreshUpdates(true);
             UiRequestRepaint();
             return;
@@ -1931,16 +1944,20 @@ bool UiOnWheel(int x, int y, int delta) {
         UiRequestRepaint();
         return true;
     }
-    if (g_tab == 7 && g_rcSetup.Contains(pt)) {
-        g_setScroll = clampf(g_setScroll + step, g_setContentH, g_setViewH);
-        UiRequestRepaint();
-        return true;
-    }
-    if (g_tab == 9 && g_rcHelp.Contains(pt)) {
-        if (g_docSel >= 0) g_docScroll = clampf(g_docScroll + step, g_helpH, g_rcHelp.Height);
-        else g_helpScroll = clampf(g_helpScroll + step, g_helpH, g_rcHelp.Height);
-        UiRequestRepaint();
-        return true;
+    if (g_tab == 6) {
+        // 帮助中心：三段各自滚自己的
+        if (g_hSec == 0 && g_rcUp.Contains(pt)) {
+            g_upScroll = clampf(g_upScroll + step, g_upContentH, g_upViewH);
+            UiRequestRepaint();
+            return true;
+        }
+        if (g_hSec == 2 && g_rcHelp.Contains(pt)) {
+            if (g_docSel >= 0) g_docScroll = clampf(g_docScroll + step, g_helpH, g_rcHelp.Height);
+            else g_helpScroll = clampf(g_helpScroll + step, g_helpH, g_rcHelp.Height);
+            UiRequestRepaint();
+            return true;
+        }
+        return false;
     }
     if (g_tab == 3 && g_rcLog.Contains(pt)) {
         g_logScroll = clampf(g_logScroll + step, g_logH, g_logView);
@@ -1954,11 +1971,6 @@ bool UiOnWheel(int x, int y, int delta) {
     }
     if (g_tab == 5 && g_rcMaint.Contains(pt)) {
         g_mScroll = clampf(g_mScroll + step, g_mContentH, g_mViewH);
-        UiRequestRepaint();
-        return true;
-    }
-    if (g_tab == 6 && g_rcUp.Contains(pt)) {
-        g_upScroll = clampf(g_upScroll + step, g_upContentH, g_upViewH);
         UiRequestRepaint();
         return true;
     }
@@ -2045,19 +2057,27 @@ void UiOnKeyDown(int vk) {
         g_editFocus = 0;
         g_inputSelAll = false;
     }
-    // 1..9 直接切页签，键盘党不用摸鼠标
-    if (!g_editFocus && (vk == '0')) {   // 0 = 最后一个页签（帮助）
-        g_tab = 9;
+    // 1..7 直接切页签，键盘党不用摸鼠标；0 跳最后一个（帮助中心）
+    int ntab = (int)(sizeof(TABS) / sizeof(TABS[0]));
+    if (!g_editFocus && vk == '0') {
+        g_tab = ntab - 1;
+        g_hSec = 2;
         UiRequestRepaint();
         return;
     }
     if (!g_editFocus && vk >= '1' && vk <= '9') {
-        g_tab = vk - '1';
+        int want = vk - '1';
+        if (want >= ntab) want = ntab - 1;
+        g_tab = want;
         if (g_tab == 1 && g_feed.empty() && !g_feedBusy) RefreshFeed();
         if (g_tab == 2) LoadJobs();
         if (g_tab == 3) RefreshLogsNow();
         if (g_tab == 5) RefreshStatus(false);
-        if (g_tab == 6) RefreshUpdates(false);
+        if (g_tab == 6) {
+            g_hSec = 0;
+            RefreshUpdates(false);
+        }
+        g_editFocus = 0;
         UiRequestRepaint();
         return;
     }
@@ -2065,6 +2085,16 @@ void UiOnKeyDown(int vk) {
         if (g_tab == 1) RefreshFeed();
         if (g_tab == 2) LoadJobs();
         if (g_tab == 3) RefreshLogsNow();
+        if (g_tab == 4) {
+            int a = g_checkAction;
+            RunCheck(a < 0 ? 0 : a);
+        }
+        if (g_tab == 5) RefreshStatus(true);
+        if (g_tab == 6) {
+            if (g_hSec == 0) RefreshUpdates(true);
+            else if (g_hSec == 1) LoadAskTexts();
+            else if (g_docSel >= 0) DocLoad(g_docSel);
+        }
         UiRequestRepaint();
     }
     // F9 全起 / F10 全停，跟快捷卡上那两个按钮一件事

@@ -171,11 +171,11 @@ static void UpMaybeRefresh() {
     if (!g_upLoaded && !g_upBusy) RefreshUpdates(false);
 }
 
-static void PaintUpdates(Graphics& g) {
+// 画在「帮助中心 → 更新」这一块里：坐标和尺寸由外面给
+static void PaintUpdatesBody(Graphics& g, const RectF& area) {
     if (!g_upLoaded && !g_upBusy) RefreshUpdates(false);
 
-    float x0 = S(236), y0 = S(20), w = (float)g_w - x0 - S(24);
-    float h = (float)g_h - y0 - S(22);
+    float x0 = area.X, y0 = area.Y, w = area.Width, h = area.Height;
     float headH = S(64), gap = S(10);
 
     float qqH = g_up.qqUpgrade ? S(116) : 0;
