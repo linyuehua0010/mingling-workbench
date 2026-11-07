@@ -391,6 +391,7 @@ MinglingWorkbench.exe --link <链接或分享文本>  :: 读一个网页链接�
 MinglingWorkbench.exe --debrief BV1xxxxxxxxx  :: 只看 sidecar 的 debrief 输出
 MinglingWorkbench.exe --bili session          :: 把任意 bili-whale 子命令原样转发
 MinglingWorkbench.exe --wb-update <安装包> [版本] :: 覆盖更新演练：备份程序文件 → 静默安装 → 失败回滚
+MinglingWorkbench.exe --wb-get <owner/repo> <版本> [保存路径] :: 从 GitHub Release 拉安装包，核对大小和 SHA-256
 MinglingWorkbench.exe --her-status            :: 机器人状态（维护页同款）
 MinglingWorkbench.exe --bots-setup            :: 一键配置环境（维护页同款）
 MinglingWorkbench.exe --selfsetup             :: 跑一遍八块自设定（加 --dry 只干跑、不落地）

@@ -554,6 +554,7 @@ exe 1,637,888 字节。截图见 `docs\screens\`，全部是 `PrintWindow` 抓�
 | 备份 | `<工作区>\旧版\workbench-<tag>-<时间>\` 含 `art bin docs pack plugin sidecar skill tools _self`；`_self\MinglingWorkbench.exe` 是主程序自身 |
 | 成功路径 | 退出码 0，`[更新] 备份到 …` / `[更新] 好了（安装器退出码 0）`，`bin\FAKE-UPDATED.txt` 出现 |
 | 失败路径 | 退出码 4，日志「[更新] 失败：安装器退出码 1，已经回滚到备份」，被改的 `docs\ACCEPTANCE.md` 哈希还原、`<!-- FAKE-INSTALLER-JUNK -->` 不残留 |
+| 真下载 | 仓库是私有的，`--wb-get linyuehua0010/mingling-workbench V3-snapshot-2 tmp\dl\setup.exe`：找到资产（59.5 M）→ 12 秒下完 → 大小一致 → SHA-256 与 release 上的 `.sha256` 一致（发版时实测过两次，数字见 release 页面）；API 资产地址 + `Accept: application/octet-stream`，302 到签名地址时摘掉 Authorization |
 | 备份落在哪 | 早先误用 `BotRoot()` 会写进 `bots\旧版\`；改成「工作区优先、空则安装根」，误建目录已删 |
 | 安装器审计 | `installer\mingling.iss` 的 `[Files]` 只有 bin/README/art/docs/plugin/sidecar/skill/tools/pack；**没有 `[InstallDelete]`**；`[UninstallDelete]` 只有 `Type: dirifempty; Name: "{app}"`；bots 只出现在 `[Code]` 猜 base 的逻辑里 |
 | 运行中检测 | `her::PidsNamed(L"minglingworkbench.exe").size() > 1` 时先弹「先关掉别的工作台」，不进下载 |

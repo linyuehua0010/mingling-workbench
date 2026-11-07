@@ -631,6 +631,12 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
   `--wb-update-run` 等父进程退出 → `RunInstaller`（`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /LOG=`）→
   非 0 退出就 `CopyProgramBack` 回滚 → 成功后重启。
 - 自带 SHA-256（不引第三方库）、`HttpGetBinary` 下安装包（进度/大小/可选 `.sha256`）。
+- 私有仓库的坑（发 V3-snapshot-2 时踩的）：`releases/download/<tag>/<file>` 不认 token（curl 带 token 也是 404），
+  必须走 `api.github.com/repos/<repo>/releases/assets/<id>` + `Accept: application/octet-stream`。所以 `FindSetupAsset`
+  在有 token 时把 `url/shaUrl` 换成资产接口地址；`HttpGetBinary` 自己跟跳转（最多 6 跳、换主机就摘掉 Authorization，
+  免得签名地址被 S3 嫌「两种认证并存」），并且**要保住查询串**——早先只取 `lpszUrlPath`，签名参数全丢。
+  `HeaderLine` 优先 `WINHTTP_QUERY_LOCATION`，原始头兜底时大小写统一。
+- 新增 `--wb-get <owner/repo> <tag> [保存路径]`：命令行拉安装包并核对大小 / SHA-256（发版和排错都用它）。
 - 更新页工作台行「一键更新」（`up:wbgo`），覆盖前用 `her::PidsNamed` 查有没有别的实例；`TK_SELFUPD` 收尾。
 - 安装器审计：`installer\mingling.iss` 的 `[Files]` 只含程序文件，**没有 `[InstallDelete]`**，`[UninstallDelete]` 只有 `dirifempty {app}`，不碰 bots。
 
