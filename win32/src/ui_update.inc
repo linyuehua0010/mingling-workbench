@@ -110,16 +110,15 @@ static void PaintUpRow(Graphics& g, const her::UpdateItem& it, const RectF& c) {
     if (it.state == L"new" && it.id == L"skill")
         desc = L"有新版，点一下就换上，大约半分钟，她照常聊天。" + wstring(UpSkillNotes(it) ? L"这一版改了：" : L"");
     else if (it.state == L"new" && it.id == L"wb")
-        desc = L"快照通道 " + UpWbRepo() +
-               L" 上有新快照了。点右边去 Releases 下载，覆盖安装即可：设置、台账和看过的视频都在工作区里，不会被换掉。";
+        desc = L"GitHub 上（" + UpWbRepo() +
+               L"）有新版本了。点右边去 Releases 下载，覆盖安装即可：设置、台账和看过的视频都在工作区里，不会被换掉。";
     else if (it.id == L"wb" && it.state == L"latest")
         desc = L"已经是最新（" + UpWbRepo() + L"）。换机器时从 Releases 页面下载安装包覆盖安装就行。";
     else if (it.id == L"wb" && UpWbRepo().empty())
-        desc = L"快照通道还没配：在 settings.json 里写 repo_snapshot（owner/name），更新页就会去查那个仓库的 "
-               L"snapshot release。现在显示的是本机版本，不影响任何功能。";
+        desc = L"更新页还没配更新源：现在显示的是本机版本，不影响任何功能。正式版装了就会去查正式仓库的 release。";
     else if (it.id == L"wb")
         desc = L"本机就是最新一版，或者这会儿没查到 " + UpWbRepo() +
-               L" 的 snapshot release——断网、被限流、仓库还没发版都会这样。查到会变成「有新版」。";
+               L" 的 release——断网、被限流、仓库还没发版都会这样。查到会变成「有新版」。";
     else if (it.state == L"new")
         desc = it.what + L"有新版。升级前 Agent 会先备份，升级时她会下线一两分钟。";
     else if (it.state == L"latest")

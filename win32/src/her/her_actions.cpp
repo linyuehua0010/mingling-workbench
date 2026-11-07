@@ -874,91 +874,72 @@ static wstring LatestGithub(const wstring& repo, wstring* url = nullptr, wstring
     return L"";
 }
 
-// 私有仓库的 release 资产：releases/latest/download/<名字> 匿名一律 404，
-// 得先用 token 翻 release 列表，找到最近一版带着这个资产的，再按 API 资产地址取正文。
-static wstring FetchAssetManifest(const wstring& repo, const wstring& asset, wstring* why, J* out = nullptr) {
+// 私有仓库只有带 token 才读得到文件；raw.githubusercontent.com 这条路不经过 302 跳转
+// （release 资产的地址会跳到另一台机器上，WinHTTP 那边拿不到正文），所以优先走它。
+static wstring FetchManifestTok(const wstring& url, wstring* why, J* out = nullptr) {
     if (why) *why = L"net";
     const wstring tok = GithubToken();
-    if (tok.empty()) {
-        if (why) *why = L"notoken";
-        return L"";
+    std::vector<std::pair<wstring, wstring>> h;
+    h.push_back({L"Accept", L"application/vnd.github.raw"});
+    if (!tok.empty()) h.push_back({L"Authorization", L"token " + tok});
+    Http r = HttpCall(L"GET", url, L"", h, 20000);
+    // 查不到的时候得能看出是哪一步断的：把最后一次请求的实情留在 logs\skill-check.log
+    {
+        wstring body = r.body.size() > 200 ? r.body.substr(0, 200) : r.body;
+        WriteTextFile(JoinPath(JoinPath(Base(), L"logs"), L"skill-check.log"),
+                      L"url=" + url + L"\nok=" + (r.ok ? L"1" : L"0") + L" code=" + Num(r.code) +
+                          L" token=" + (tok.empty() ? L"0" : L"1") + L"\nbody=" + body + L"\n");
     }
-    Http lr = HttpGetJson(L"https://api.github.com/repos/" + repo + L"/releases?per_page=30", tok, 10000);
-    if (!lr.ok) return L"";
-    if (lr.code == 404) {
+    if (!r.ok) return L"";
+    if (r.code == 404) {
         if (why) *why = L"notpublished";
         return L"";
     }
-    if (lr.code >= 400) return L"";
-    bool lok = false;
-    J lj = J::Parse(lr.body, &lok);
-    if (!lok || !lj.Arr()) {
+    if (r.code >= 400) return L"";
+    bool ok = false;
+    J j = J::Parse(r.body, &ok);
+    if (!ok) {
         if (why) *why = L"bad";
         return L"";
     }
-    for (const J& rel : lj.a) {
-        const J* assets = rel.Get(L"assets");
-        if (!assets || !assets->Arr()) continue;
-        for (const J& a : assets->a) {
-            if (a.Str(L"name") != asset) continue;
-            wstring u = a.Str(L"url");  // https://api.github.com/repos/<repo>/releases/assets/<id>
-            if (u.empty()) continue;
-            std::vector<std::pair<wstring, wstring>> h;
-            h.push_back({L"Accept", L"application/octet-stream"});
-            h.push_back({L"Authorization", L"Bearer " + tok});
-            Http r = HttpCall(L"GET", u, L"", h, 20000);
-            if (!r.ok || r.code >= 400) continue;
-            bool ok = false;
-            J j = J::Parse(r.body, &ok);
-            wstring v = ok ? j.Str(L"version") : L"";
-            if (v.empty()) {
-                if (why) *why = L"bad";
-                return L"";
-            }
-            if (out) *out = j;
-            if (why) why->clear();
-            return v;
-        }
+    wstring v = j.Str(L"version");
+    if (v.empty()) {
+        if (why) *why = L"bad";
+        return L"";
     }
-    // 列表里没有任何一版带这个资产：确实还没发
-    if (why) *why = L"notpublished";
-    return L"";
+    if (out) *out = j;
+    if (why) why->clear();
+    return v;
 }
 
-// Skill 的版本清单：有 token 先走 API 资产那条（私有仓库只能这么查），
-// 没有 token（公开仓库、别人的机器）再退回去走各加速站的直链。
+// Skill 的版本清单：仓库里的 skill/<名字>/version.json 就是最新一版（发版时一起推上去）。
+// 私有仓库要走 api.github.com 的 contents 接口带 token 才读得到——raw.githubusercontent.com
+// 这条路在这台机器上 WinHTTP 连不上（ok=0 code=0，见 logs\skill-check.log），api 那条是通的。
 static wstring FetchSkillManifest(wstring* why, J* out = nullptr) {
-    const wstring tok = GithubToken();
-    if (!tok.empty()) {
-        wstring w2;
-        wstring v = FetchAssetManifest(kSkillRepo, L"skill-version.json", &w2, out);
-        if (!v.empty()) {
-            if (why) why->clear();
-            return v;
-        }
-        if (w2 == L"notpublished") {
-            if (why) *why = L"notpublished";
-            return L"";
-        }
-        // 其他情况（网络不通、坏数据）继续试直链
+    wstring w1;
+    wstring v = FetchManifestTok(L"https://api.github.com/repos/" + wstring(kSkillRepo) + L"/contents/skill/" +
+                                     kSkillDir + L"/version.json?ref=main",
+                                 &w1, out);
+    if (!v.empty()) {
+        if (why) why->clear();
+        return v;
     }
-    wstring w = L"net";
+    wstring w = w1;
     for (const wchar_t* p : kProxies) {
-        wstring w1;
+        wstring w2;
         J j;
-        wstring v = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
-                                      L"/releases/latest/download/skill-version.json",
-                                  &w1, &j);
-        if (!v.empty()) {
+        wstring v2 = FetchManifest(wstring(p) + L"https://github.com/" + kSkillRepo +
+                                       L"/releases/latest/download/skill-version.json",
+                                   &w2, &j);
+        if (!v2.empty()) {
             if (out) *out = j;
             if (why) why->clear();
-            return v;
+            return v2;
         }
-        if (w1 == L"notpublished") w = L"notpublished";
-        else if (w1 == L"bad" && w != L"notpublished") w = L"bad";
-        else if (tok.empty() && w1 == L"notoken") w = L"notoken";
+        if (w2 == L"notpublished") w = L"notpublished";
+        else if (w2 == L"bad" && w != L"notpublished") w = L"bad";
     }
-    if (why) *why = w;
+    if (why) *why = w.empty() ? L"net" : w;
     return L"";
 }
 
@@ -1183,14 +1164,19 @@ static UpdatesInfo FetchUpdates() {
         items.Set(L"skill", it);
     }
 
-    // 工作台自己：只走快照通道。repo_snapshot（owner/name）配了才联网；
-    // 不读正式版用的 repo，也绝不把正式 V3.0.0 的包推给快照用户。
+    // 工作台自己：正式版查正式仓库的正式 release，快照版查 repo_snapshot 那条预发布通道。
+    // 别让正式版把快照塞给用户，也别让快照版拿到正式包覆盖掉自己。
     const wstring wbLocal = APP_VERSION_PLAIN_W;
     const wstring wbShow = APP_VERSION;
+#if APP_SNAPSHOT
     wstring repo = Trim(SettingGet(L"repo_snapshot"));
+#else
+    wstring repo = kSkillRepo;  // 正式版就发在这个仓库里
+#endif
     wstring wbUrl, wbTag;
     wstring wbLatest;
     if (!repo.empty()) {
+#if APP_SNAPSHOT
         // 第 4 个参数是通道标记：快照 release 是 prerelease，只能从列表里挑
         wbLatest = LatestGithub(repo, &wbUrl, &wbTag, L"snapshot");
         // 列表里挑出来的 tag 一定带 snapshot；这里再兜一次底，防止以后改了筛选口径
@@ -1198,6 +1184,9 @@ static UpdatesInfo FetchUpdates() {
             wbLatest.clear();
             wbUrl.clear();
         }
+#else
+        wbLatest = LatestGithub(repo, &wbUrl, &wbTag);
+#endif
         // 本机比 GitHub 上还新（没发布的版本）：别提示「更新」，免得换回旧的
         if (!wbLatest.empty() && VerCmp(wbLatest, wbLocal) < 0) wbLatest = wbLocal;
         okAll = okAll && !wbLatest.empty();
@@ -1234,11 +1223,8 @@ ActionResult SkillUpdate() {
     }
     if (latest.empty()) {
         if (why == L"notpublished")
-            return Bad(L"这一版还没发到 GitHub（" + wstring(kSkillRepo) + L" 的 releases 里要有 mingling-install.zip），"
-                       L"本机是 " + sl + L"，先这么用着。");
-        if (why == L"notoken")
-            return Bad(L"查不到新版：这个仓库是私有的，得先把 token 写进 secrets\\github-token.txt 才能查（公开仓库不用）。"
-                       L"本机是 " + sl + L"。");
+            return Bad(L"查不到新版：还没发到 GitHub，或者这个仓库是私有的、这台机器没写 secrets\\github-token.txt"
+                       L"（私有仓库只有写了 token 才查得到）。本机是 " + sl + L"，先这么用着。");
         return Bad(L"查不到新版（GitHub 和加速站都没连上），过会儿再点。");
     }
     if (VerCmp(latest, sl) <= 0) return Ok(L"已经是最新（" + sl + L"）。");
@@ -1249,14 +1235,23 @@ ActionResult SkillUpdate() {
         L"$dl=Join-Path $Dir 'downloads';New-Item -ItemType Directory -Force -Path $dl|Out-Null;"
         L"$zp=Join-Path $dl ('mingling-install-' + $ver + '.zip');"
         L"$base='https://github.com/' + $repo + '/releases/latest/download/mingling-install.zip';"
-        L"$hdr=@{};if($env:DFY_TOK){$hdr['Authorization']='token '+$env:DFY_TOK};"
         L"$got=$false;"
-        // 私有仓库只有带 token 的直连能下；公开仓库照旧先试加速站
-        L"$urls=@();if($env:DFY_TOK){$urls+=$base};"
-        L"foreach($p in @('https://gh.dpik.top/','https://edgeone.gh-proxy.com/','https://gh-proxy.org/','')){$urls+=($p+$base)};"
-        L"foreach($u in $urls){"
-        L"  try{Invoke-WebRequest -Uri $u -OutFile $zp -UseBasicParsing -TimeoutSec 120 -Headers $hdr;if((Get-Item $zp).Length -gt 10000){$got=$true;break}}catch{}"
+        // 私有仓库：先问 API 要资产地址（github.com 那条直链对私有仓库是 404），再带着
+        // Accept: application/octet-stream 去下，GitHub 会跳到签名地址，那一跳不用再带 token
+        L"if($env:DFY_TOK){"
+        L"  try{"
+        L"    $h2=@{Authorization=('token '+$env:DFY_TOK);'User-Agent'='mingling-workbench'};"
+        L"    $rels=Invoke-RestMethod -Uri ('https://api.github.com/repos/'+$repo+'/releases?per_page=30') -Headers $h2 -TimeoutSec 30;"
+        L"    $au=$null;foreach($r in $rels){foreach($a in $r.assets){if($a.name -eq 'mingling-install.zip'){$au=$a.url;break}};if($au){break}};"
+        L"    if($au){$h3=@{Authorization=('token '+$env:DFY_TOK);Accept='application/octet-stream';'User-Agent'='mingling-workbench'};"
+        L"      Invoke-WebRequest -Uri $au -OutFile $zp -UseBasicParsing -TimeoutSec 180 -Headers $h3;"
+        L"      if((Get-Item $zp).Length -gt 10000){$got=$true}}"
+        L"  }catch{}"
         L"};"
+        // 公开仓库（或者上面没成）：照旧先试加速站，最后直连
+        L"if(-not $got){foreach($p in @('https://gh.dpik.top/','https://edgeone.gh-proxy.com/','https://gh-proxy.org/','')){"
+        L"  try{Invoke-WebRequest -Uri ($p+$base) -OutFile $zp -UseBasicParsing -TimeoutSec 120;if((Get-Item $zp).Length -gt 10000){$got=$true;break}}catch{}"
+        L"}};"
         L"if(-not $got){throw '没下下来'};"
         L"$ext=Join-Path $dl ('skill-' + [guid]::NewGuid().ToString('N'));Expand-Archive -Path $zp -DestinationPath $ext -Force;"
         L"$src=Join-Path $ext 'mingling-install';"
