@@ -36,28 +36,31 @@ static void InputPaste();
 static void InputCopy();
 static void InputCut();
 static void InputSelectAll();
-// bili-whale 配置浮层（实现在 ui_bili_cfg.inc；帮助页的浮层要一起管 Esc，所以这里先声明）
+// B 站页分区：0 选题 / 1 看片与读链接 / 2 结果 / 3 配置（配置里再分 bili-whale 与链接与应用）
+static int g_bSec = 1;
+static int g_bCfgSub = 0;
+// bili-whale 配置（实现在 ui_bili_cfg.inc；进配置分区时装载）
 static bool g_bcfgOpen = false;
 static void BiliCfgOpen();
 static void BiliCfgClose(bool save);
 static void BiliCfgEndEdit(bool apply);
 static bool BiliCfgClick(const std::string& id);
 static bool BiliCfgWheel(int delta);
-static void PaintBiliCfg(Graphics& g);
+static void PaintBiliCfg(Graphics& g, const RectF& area);
 // 「链接与应用」面板（读链接的设置 + 对话 API，实现在 ui_link_cfg.inc）
 static bool g_lcOpen = false;
 static void LinkCfgOpen();
 static void LinkCfgClosePanel();
 static bool LinkCfgClick(const std::string& id);
 static bool LinkCfgWheel(int delta);
-static void PaintLinkCfg(Graphics& g);
-// 「问一句」浮层（对话 API，实现在 ui_dsh.inc）
+static void PaintLinkCfg(Graphics& g, const RectF& area);
+// 「问一句」面板（对话 API，实现在 ui_dsh.inc；嵌在结果分区右边）
 static bool g_dshOpen = false;
 static void DshAsk();
 static void DshClose();
 static bool DshClick(const std::string& id);
 static bool DshWheel(int delta);
-static void PaintDshAsk(Graphics& g);
+static void PaintDshAsk(Graphics& g, const RectF& area);
 
 // ---------------------------------------------------------------- 看视频的进度
 // debrief 一边跑一边把 ①..⑥ 的分节标题打出来，这里认标题算进度，别的行不管。
@@ -942,183 +945,325 @@ static void PaintOverview(Graphics& g) {
 }
 
 // ---------------------------------------------------------------- B站
-static void PaintBili(Graphics& g) {
-    float x0 = S(236), y0 = S(22), W = (float)g_w - x0 - S(24), H = (float)g_h - S(44);
-    float lw = std::min(S(376), std::max(S(260), W * 0.38f));
-    RectF left(x0, y0, lw, H);
-    Round(g, left, S(14), C_PANEL, C_LINE);
-    Txt(g, L"今晚看什么", RectF(left.X + S(22), left.Y + S(16), S(180), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
-    Txt(g, g_feedBusy ? L"正在捞…" : g_feedNote, RectF(left.X + S(22), left.Y + S(42), left.Width - S(140), S(18)),
-        Fnt(HINT_SIZE, 1, 0), C_FAINT, 0);
-    Button(g, RectF(left.X + left.Width - S(88), left.Y + S(14), S(66), S(28)), g_feedBusy ? L"…" : L"换一批",
-           "btn:feed", 0, true, !g_feedBusy);
-    {
-        RectF b(left.X + left.Width - S(148), left.Y + S(18), S(52), S(22));
-        bool hov = Hov("bfiles");
-        Txt(g, L"产物", b, Fnt(MICRO_SIZE, hov ? 0 : 1, 0), hov ? C_ACCENT : C_ACCENT2, 2);
-        AddHit(b, "bfiles");
-    }
-    HLine(g, left.X + S(20), left.Y + S(66), left.X + left.Width - S(20), C_LINE2);
+// ---------------------------------------------------------------- B 站：选题 / 看片与读链接 / 结果 / 配置
+// 一整页，四个分区。原来两个浮层（bili-whale 配置、问一句）并进来之后，
+// 这个页签自己就装得下全部事：挑选题、粘链接、看结果、改配置。
+static const wchar_t* kBiliSecName[4] = {L"选题", L"看片与读链接", L"结果", L"配置"};
 
-    RectF list(left.X + S(8), left.Y + S(72), left.Width - S(16), left.Height - S(116));
+static void PaintBiliChips(Graphics& g, float x, float y) {
+    float cx = x;
+    for (int i = 0; i < 4; i++) {
+        const wchar_t* nm = kBiliSecName[i];
+        float cw = S(88) + S(8) * (float)wcslen(nm) / 4.0f;
+        if (i == 1) cw = S(132);
+        if (i == 0 || i == 2 || i == 3) cw = S(84);
+        RectF r(cx, y, cw, S(32));
+        std::string id = "bsec:" + std::to_string(i);
+        bool sel = (g_bSec == i);
+        Round(g, r, S(9), sel ? C_ACCENT_S : (Hov(id) ? 0xFFF4F8FF : C_PANEL), sel ? 0x00000000 : C_LINE);
+        Txt(g, nm, r, Fnt(SUBTITLE_SIZE, sel ? 0 : 1, 0), sel ? C_ACCENT : C_SUB, 1);
+        AddHit(r, id);
+        cx += cw + S(7);
+    }
+}
+
+// ---- 分区一：选题
+static void PaintBiliFeed(Graphics& g, const RectF& body) {
+    Round(g, body, S(14), C_PANEL, C_LINE);
+    Txt(g, L"今晚看什么", RectF(body.X + S(22), body.Y + S(16), S(200), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
+    wstring note = g_feedBusy ? wstring(L"正在捞…") : (g_feedNote.empty() ? wstring(L"她按你的口味挑的") : g_feedNote);
+    Txt(g, note, RectF(body.X + S(22), body.Y + S(46), body.Width - S(260), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
+    Button(g, RectF(body.X + body.Width - S(112), body.Y + S(14), S(88), S(30)), g_feedBusy ? L"…" : L"换一批",
+           "btn:feed", 0, true, !g_feedBusy);
+
+    const float gap = S(12);
+    const float cw = (body.Width - S(40) - gap) / 2;
+    const float ch = S(94);
+    RectF list(body.X + S(10), body.Y + S(72), body.Width - S(20), body.Height - S(72) - S(52));
     g_rcFeed = list;
+    int rows = ((int)g_feed.size() + 1) / 2;
+    float totalH = rows > 0 ? rows * (ch + gap) : 0;
+    float maxScroll = std::max(0.0f, totalH - list.Height);
+    if (g_feedScroll > maxScroll) g_feedScroll = maxScroll;
+    if (g_feedScroll < 0) g_feedScroll = 0;
+
     g.SetClip(list);
-    float iy = list.Y - g_feedScroll;
     for (int i = 0; i < (int)g_feed.size(); i++) {
         FeedItem& f = g_feed[i];
-        RectF r(list.X + S(6), iy + S(3), list.Width - S(12), S(78));
+        float cx = list.X + S(10) + (i % 2) * (cw + gap);
+        float cy = list.Y + S(3) + (i / 2) * (ch + gap) - g_feedScroll;
+        RectF r(cx, cy, cw, ch);
+        if (r.Y + r.Height < list.Y - S(4) || r.Y > list.Y + list.Height + S(4)) continue;
         std::string id = "feed:" + std::to_string(i);
         bool sel = (g_feedSel == i);
-        if (sel) Round(g, r, S(11), C_ACCENT_S, 0x00000000);
-        else if (Hov(id)) Round(g, r, S(11), 0xFFF4F8FF, 0x00000000);
-        if (sel) Round(g, RectF(r.X + S(2), r.Y + S(18), S(2.6f), S(40)), S(1.3f), C_ACCENT, 0);
-        Txt(g, f.title, RectF(r.X + S(16), r.Y + S(12), r.Width - S(96), S(40)), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT, 0, true);
-        wstring meta = f.up.empty() ? f.bv : (f.up + L"  ·  " + f.bv);
-        Txt(g, meta, RectF(r.X + S(16), r.Y + S(52), r.Width - S(28), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
-        wstring right;
+        Round(g, r, S(11), sel ? C_ACCENT_S : (Hov(id) ? 0xFFF7FAFF : C_PANEL2), sel ? C_ACCENT2 : C_LINE2);
+        TxtWrap(g, f.title, RectF(r.X + S(14), r.Y + S(12), r.Width - S(84), S(38)), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT);
         if (!f.dur.empty()) {
             int sec = _wtoi(f.dur.c_str());
-            right = Num(sec / 60) + L":" + Pad2(sec % 60);
+            wstring dur = Num(sec / 60) + L":" + Pad2(sec % 60);
+            RectF db(r.X + r.Width - S(58), r.Y + S(10), S(46), S(18));
+            Round(g, db, S(9), 0x22000000, 0x00000000);
+            Txt(g, dur, db, Fnt(MICRO_SIZE, 0, 0), C_SUB, 1);
         }
-        Txt(g, right, RectF(r.X + r.Width - S(60), r.Y + S(12), S(46), S(18)), Fnt(HINT_SIZE, 1, 0), C_ACCENT2, 2);
+        wstring meta = f.up;
+        if (!f.play.empty()) meta += (meta.empty() ? L"" : L"  ·  ") + f.play + L"播放";
+        if (!f.dm.empty()) meta += L"  ·  " + f.dm + L"弹幕";
+        if (meta.empty()) meta = f.bv;
+        Txt(g, meta, RectF(r.X + S(14), r.Y + S(56), r.Width - S(28), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
+        Txt(g, f.bv, RectF(r.X + S(14), r.Y + r.Height - S(20), r.Width - S(28), S(14)), Fnt(MICRO_SIZE, 1, 1), C_FAINT, 0, true);
         AddHit(r, id);
-        iy += S(82);
     }
     g.ResetClip();
-    ScrollBar(g, list, g_feedScroll, S(82) * g_feed.size());
+    ScrollBar(g, list, g_feedScroll, totalH);
+
     if (g_feed.empty()) {
-        Txt(g, g_feedBusy ? L"正在筛…" : L"点右上「换一批」捞选题",
-            RectF(list.X, list.Y + S(40), list.Width, S(24)), Fnt(BODY_SIZE, 1, 0), C_FAINT, 1);
+        Image* em = LoadImg(g_artEmpty);
+        float ih = std::min(list.Height - S(80), S(220) * g_scale);
+        if (em && ih > S(70)) {
+            float iw = ih * (float)em->GetWidth() / (float)em->GetHeight();
+            DrawImgFill(g, em, RectF(list.X + list.Width / 2 - iw / 2, list.Y + S(10), iw, ih), 0, 0, 1, 1);
+        }
+        Txt(g, g_feedBusy ? L"正在筛…" : L"点右上「换一批」捞选题", RectF(list.X, list.Y + list.Height - S(46), list.Width, S(24)),
+            Fnt(BODY_SIZE, 1, 0), C_FAINT, 1);
     }
 
-    // ---- 底部：当前工作区（产物落这里，点一下可以换）
-    {
-        float wy = left.Y + left.Height - S(38);
-        HLine(g, left.X + S(20), wy - S(8), left.X + left.Width - S(20), C_LINE2);
-        Txt(g, L"工作区", RectF(left.X + S(20), wy, S(52), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0);
-        Txt(g, WorkspaceDir(), RectF(left.X + S(20) + S(50), wy, left.Width - S(150), S(16)), Fnt(MICRO_SIZE, 1, 0),
-            C_SUB, 0, true);
-        RectF b(left.X + left.Width - S(92), wy - S(5), S(72), S(26));
-        bool hov = Hov("ws:pick");
-        Round(g, b, S(8), hov ? C_ACCENT_S : 0x00000000, 0x00000000);
-        Txt(g, L"换工作区", b, Fnt(MICRO_SIZE, hov ? 0 : 1, 0), hov ? C_ACCENT : C_ACCENT2, 1);
-        AddHit(b, "ws:pick");
-    }
+    // 底部：当前工作区（产物落这里，点一下可以换）
+    float wy = body.Y + body.Height - S(34);
+    HLine(g, body.X + S(20), wy - S(10), body.X + body.Width - S(20), C_LINE2);
+    Txt(g, L"工作区", RectF(body.X + S(20), wy, S(52), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0);
+    Txt(g, WorkspaceDir(), RectF(body.X + S(20) + S(50), wy, body.Width - S(190), S(16)), Fnt(MICRO_SIZE, 1, 0), C_SUB, 0,
+        true);
+    RectF b(body.X + body.Width - S(96), wy - S(5), S(76), S(26));
+    bool hov = Hov("ws:pick");
+    Round(g, b, S(8), hov ? C_ACCENT_S : 0x00000000, 0x00000000);
+    Txt(g, L"换工作区", b, Fnt(MICRO_SIZE, hov ? 0 : 1, 0), hov ? C_ACCENT : C_ACCENT2, 1);
+    AddHit(b, "ws:pick");
+    Button(g, RectF(body.X + body.Width - S(196), wy - S(5), S(88), S(26)), L"打开产物", "bfiles", 0, true);
+}
 
-    float rx = x0 + lw + S(16);
-    float rw = (float)g_w - rx - S(24);
-    RectF ed(rx, y0, rw - S(122), S(46));
+// ---- 分区二：看片与读链接
+static void PaintBiliWork(Graphics& g, const RectF& body) {
+    RectF top(body.X, body.Y, body.Width, S(152));
+    Round(g, top, S(14), C_PANEL, C_LINE);
+    Txt(g, L"看片与读链接", RectF(top.X + S(22), top.Y + S(14), S(200), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
+    Txt(g, L"粘 B 站 链接 / BV、普通网页链接或分享文本，回车就开跑", RectF(top.X + S(130), top.Y + S(20), top.Width - S(160), S(18)),
+        Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
+
+    RectF ed(top.X + S(22), top.Y + S(48), top.Width - S(22) * 2 - S(128), S(52));
     g_rcInput = ed;
-    Round(g, ed, S(12), g_editFocus ? 0xFFFFFFFF : C_PANEL2, g_editFocus ? C_ACCENT2 : C_LINE);
+    Round(g, ed, S(11), g_editFocus ? 0xFFFFFFFF : C_PANEL2, g_editFocus ? C_ACCENT2 : C_LINE);
     float txx = ed.X + S(16);
     if (g_bvInput.empty()) {
         Txt(g, L"粘 B站 链接 / BV，或者别的网页链接、分享文本…（Ctrl+V / 右键）", RectF(txx, ed.Y, ed.Width - S(24), ed.Height),
-            Fnt(SUBTITLE_SIZE, 1, 0), 0xFFAAB5C9, 0);
+            Fnt(SUBTITLE_SIZE, 1, 0), 0xFFAAB5C9, 0, true);
     } else {
         RectF tr(txx, ed.Y, ed.Width - S(24), ed.Height);
-        if (g_inputSelAll) Round(g, RectF(ed.X + S(3), ed.Y + S(3), ed.Width - S(6), ed.Height - S(6)), S(9),
-                                 0x2E3E5FBF, 0x00000000);
+        if (g_inputSelAll)
+            Round(g, RectF(ed.X + S(3), ed.Y + S(3), ed.Width - S(6), ed.Height - S(6)), S(9), 0x2E3E5FBF, 0x00000000);
         Txt(g, g_bvInput, tr, Fnt(SUBTITLE_SIZE, 0, 0), g_inputSelAll ? C_ACCENT : C_TEXT, 0, true);
     }
     AddHit(ed, "edit:bv");
-    Button(g, RectF(ed.X + ed.Width + S(12), y0, S(110), S(46)), g_watchBusy ? L"看着呢…" : L"让她看", "btn:watch", 1,
+    Button(g, RectF(ed.X + ed.Width + S(12), ed.Y, S(116), S(52)), g_watchBusy ? L"看着呢…" : L"让她看", "btn:watch", 1,
            false, !g_watchBusy);
 
     wstring status = g_watchBusy ? g_watchStatus
-                         : (g_hasResult ? (g_linkMode ? L"读完了 · 结果在下面" : L"看完了 · 结果在下面")
-                                        : (g_linkMode ? L"读标题和正文摘要；B 站链接照旧走看片" : L"读字幕、弹幕、热评，再看几帧画面"));
-    if (!g_watchStatus.empty() && g_watchBusy) status = g_watchStatus;
-    Txt(g, status, RectF(rx, y0 + S(54), rw, S(20)), Fnt(HINT_SIZE, 1, 0), g_watchBusy ? C_ACCENT : C_FAINT, 0, true);
+                                 : (g_hasResult ? (g_linkMode ? L"读完了 · 结果在「结果」分区" : L"看完了 · 结果在「结果」分区")
+                                                : (g_linkMode ? L"读标题和正文摘要；B 站链接照旧走看片" : L"读字幕、弹幕、热评，再看几帧画面"));
+    Txt(g, status, RectF(top.X + S(22), top.Y + S(108), top.Width - S(44), S(18)), Fnt(HINT_SIZE, 1, 0),
+        g_watchBusy ? C_ACCENT : C_FAINT, 0, true);
     if (g_watchBusy) {
-        RectF bar(rx, y0 + S(76), rw, S(3));
+        RectF bar(top.X + S(22), top.Y + S(132), top.Width - S(44), S(3));
         Round(g, bar, S(1.5f), 0x1A3E5FBF, 0, 0);
-        float wd = rw * (g_watchPct / 100.0f);
-        if (wd > S(3)) Round(g, RectF(rx, y0 + S(76), wd, S(3)), S(1.5f), C_ACCENT, 0, 0);
+        float wd = (top.Width - S(44)) * (g_watchPct / 100.0f);
+        if (wd > S(3)) Round(g, RectF(bar.X, bar.Y, wd, S(3)), S(1.5f), C_ACCENT, 0, 0);
+    } else {
+        HLine(g, top.X + S(22), top.Y + S(133), top.X + top.Width - S(22), C_LINE2);
     }
 
-    // ---- B 站相关的入口都收在这一条上：配置、诊断（登录/配额/风控/自检）、产物
-    {
-        float sy = y0 + S(86), bh = S(28), sx = rx;
-        Button(g, RectF(sx, sy, S(120), bh), L"bili-whale 配置", "bcfg", 0, true);
-        sx += S(128);
-        Button(g, RectF(sx, sy, S(108), bh), L"链接与应用", "lcfg", 0, true);
-        sx += S(116);
-        const wchar_t* diag[] = {L"登录", L"配额", L"风控", L"自检"};
-        const int dact[] = {0, 2, 3, 4};
-        for (int i = 0; i < 4; i++) {
-            Button(g, RectF(sx, sy, S(56), bh), diag[i], "bchk:" + std::to_string(dact[i]), 0, true);
-            sx += S(62);
+    // 最近一次（结果分区是全文，这里只给一眼）
+    float ly = top.Y + top.Height + S(14);
+    RectF last(body.X, ly, body.Width, body.Height - (ly - body.Y) - S(66));
+    Round(g, last, S(14), C_PANEL, C_LINE);
+    Txt(g, L"最近一次", RectF(last.X + S(22), last.Y + S(14), S(160), S(22)), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT, 0);
+    if (!g_hasResult) {
+        Image* em = LoadImg(g_artEmpty);
+        float ih = std::min(last.Height - S(130), S(190) * g_scale);
+        float blockH = ih + S(46);
+        float iy = last.Y + S(40) + std::max(0.0f, (last.Height - S(140) - blockH) / 2.0f);
+        if (em && ih > S(64)) {
+            float iw = ih * (float)em->GetWidth() / (float)em->GetHeight();
+            DrawImgFill(g, em, RectF(last.X + last.Width / 2 - iw / 2, iy, iw, ih), 0, 0, 1, 1);
         }
-        if (sx + S(60) < rx + rw) Button(g, RectF(sx, sy, S(56), bh), L"产物", "bfiles", 0, true);
-        sx += S(62);
-        if (sx + S(72) < rx + rw) Button(g, RectF(sx, sy, S(72), bh), L"问一句", "bdsh", 0, true);
+        wstring word = g_linkMode ? wstring(L"她还没读过网页") : wstring(L"她还没看过视频");
+        Txt(g, word, RectF(last.X, iy + ih + S(10), last.Width, S(22)), Fnt(BODY_SIZE, 0, 0), C_SUB, 1);
+        Txt(g, L"上面粘一条，或者去「选题」里挑一个", RectF(last.X, iy + ih + S(34), last.Width, S(18)), Fnt(MICRO_SIZE, 1, 0),
+            C_FAINT, 1);
+    } else {
+        wstring kind = g_linkMode ? L"读链接" : L"看视频";
+        Chip(g, RectF(last.X + S(100), last.Y + S(16), S(58), S(20)), kind, C_ACCENT, C_ACCENT_S);
+        Txt(g, g_result.title.empty() ? L"（无标题）" : g_result.title,
+            RectF(last.X + S(22), last.Y + S(46), last.Width - S(44), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0, true);
+        wstring meta = g_result.up;
+        if (g_result.seconds > 0) meta += (meta.empty() ? L"" : L"  ·  ") + Num((long long)g_result.seconds) + L" 秒";
+        Txt(g, meta, RectF(last.X + S(22), last.Y + S(76), last.Width - S(44), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
+        // 摘要：优先用站点写的 description，没有就取正文前两行
+        wstring brief;
+        for (auto& ln : SplitLines(g_result.raw)) {
+            if (ln.find(L"══════") != wstring::npos) continue;
+            if (ln.rfind(L"标题:", 0) == 0 || ln.rfind(L"来源:", 0) == 0 || ln.rfind(L"地址:", 0) == 0 ||
+                ln.rfind(L"状态:", 0) == 0 || ln.rfind(L"耗时:", 0) == 0 || ln.rfind(L"注意:", 0) == 0)
+                continue;
+            if (Trim(ln).empty()) continue;
+            brief = Trim(ln);
+            break;
+        }
+        if (brief.size() > 160) brief = brief.substr(0, 160) + L"…";
+        TxtWrap(g, brief, RectF(last.X + S(22), last.Y + S(102), last.Width - S(44), std::min(S(60), last.Height - S(150))),
+                Fnt(BODY_SIZE, 1, 0), C_SUB);
+        Button(g, RectF(last.X + last.Width - S(112), last.Y + S(46), S(90), S(30)), L"看全文", "bsec:2", 0, true);
+        Button(g, RectF(last.X + last.Width - S(112), last.Y + S(82), S(90), S(30)), L"复制全文", "btn:copy", 0, true);
+        Button(g, RectF(last.X + last.Width - S(112), last.Y + S(118), S(90), S(30)), L"打开文件夹", "btn:open_shotdir", 0,
+               true);
     }
 
-    RectF res(rx, y0 + S(122), rw, H - S(122));
-    Round(g, res, S(14), C_PANEL, C_LINE);
+    // 一键入口：配置两个、诊断四个、产物
+    float qy = body.Y + body.Height - S(54);
+    float sx = body.X;
+    Button(g, RectF(sx, qy, S(120), S(32)), L"bili-whale 配置", "bcfg", 0, true);
+    sx += S(128);
+    Button(g, RectF(sx, qy, S(104), S(32)), L"链接与应用", "lcfg", 0, true);
+    sx += S(112);
+    const wchar_t* diag[] = {L"登录", L"配额", L"风控", L"自检"};
+    const int dact[] = {0, 2, 3, 4};
+    for (int i = 0; i < 4; i++) {
+        Button(g, RectF(sx, qy, S(58), S(32)), diag[i], "bchk:" + std::to_string(dact[i]), 0, true);
+        sx += S(64);
+    }
+    if (sx + S(64) < body.X + body.Width) Button(g, RectF(sx, qy, S(60), S(32)), L"产物", "bfiles", 0, true);
+}
 
-    bool hasArt = g_hasResult && (!g_result.sheet.empty() || !g_result.cover.empty());
-    float artW = hasArt ? S(268) : 0;
-    RectF textArea(res.X + S(22), res.Y + S(18), res.Width - S(44) - artW, res.Height - S(36));
+// ---- 分区三：结果（「问一句」现在也长在这里，不再是浮层）
+static void PaintBiliResult(Graphics& g, const RectF& body) {
+    Round(g, body, S(14), C_PANEL, C_LINE);
+    wstring kind = g_linkMode ? L"读链接" : L"看视频";
+    Txt(g, L"结果", RectF(body.X + S(22), body.Y + S(12), S(80), S(24)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
+    if (g_hasResult) Chip(g, RectF(body.X + S(76), body.Y + S(15), S(58), S(20)), kind, C_ACCENT, C_ACCENT_S);
+
+    float bx = body.X + body.Width;
+    Button(g, RectF(bx - S(98), body.Y + S(10), S(84), S(28)), L"问一句", "bdsh", 0, true, g_hasResult || g_dshOpen);
+    Button(g, RectF(bx - S(190), body.Y + S(10), S(84), S(28)), L"复制全文", "btn:copy", 0, true, g_hasResult);
+    Button(g, RectF(bx - S(290), body.Y + S(10), S(92), S(28)), L"打开文件夹", "btn:open_shotdir", 0, true, g_hasResult);
+    HLine(g, body.X + S(20), body.Y + S(48), bx - S(20), C_LINE2);
+
+    RectF area(body.X + S(10), body.Y + S(54), body.Width - S(20), body.Height - S(54) - S(10));
+    float askW = g_dshOpen ? std::min(S(400), area.Width * 0.42f) : 0;
+    RectF textArea = area;
+    if (askW > 0) textArea.Width = area.Width - askW - S(14);
     g_rcWatch = textArea;
     g_watchViewH = textArea.Height;
 
     if (!g_hasResult) {
         Image* em = LoadImg(g_artEmpty);
-        float ih = std::min(res.Height - S(110), S(300) * g_scale);
+        float ih = std::min(area.Height - S(190), S(210) * g_scale);
+        float blockH = ih + S(96);
+        float iy = area.Y + std::max(S(12), (area.Height - blockH) / 2.0f);
         if (em && ih > S(80)) {
             float iw = ih * (float)em->GetWidth() / (float)em->GetHeight();
-            DrawImgFill(g, em, RectF(res.X + res.Width / 2 - iw / 2, res.Y + S(46), iw, ih), 0.0f, 0.0f, 1.0f, 1.0f);
+            DrawImgFill(g, em, RectF(area.X + area.Width / 2 - iw / 2, iy, iw, ih), 0, 0, 1, 1);
         }
-        wstring emptyWord = g_linkMode ? (g_watchBusy ? L"正在读… " : L"她还没读过网页") : (g_watchBusy ? L"正在看… " : L"她还没看过视频");
+        wstring emptyWord = g_linkMode ? (g_watchBusy ? L"正在读… " : L"她还没读过网页")
+                                       : (g_watchBusy ? L"正在看… " : L"她还没看过视频");
         if (g_watchBusy) emptyWord += Num((long long)g_watchPct) + L"%";
-        Txt(g, emptyWord, RectF(res.X, res.Y + res.Height - S(58), res.Width, S(24)),
-            Fnt(TITLE_SIZE, 0, 0), C_SUB, 1);
+        Txt(g, emptyWord, RectF(area.X, iy + ih + S(12), area.Width, S(24)), Fnt(TITLE_SIZE, 0, 0), C_SUB, 1);
+        Button(g, RectF(area.X + area.Width / 2 - S(60), iy + ih + S(46), S(120), S(32)), L"去粘一条",
+               "bsec:1", 1, true);
     } else {
         float total = DrawRich(g, g_result.raw, textArea, g_watchScroll);
         g_watchContentH = total;
         ScrollBar(g, textArea, g_watchScroll, total);
-        if (hasArt) {
-            float ax = res.X + res.Width - artW + S(6);
-            float ay = res.Y + S(20);
-            Image* cover = g_result.cover.empty() ? nullptr : LoadImg(g_result.cover);
-            if (cover) {
-                Round(g, RectF(ax, ay, artW - S(20), S(150)), S(10), C_PANEL2, C_LINE);
-                GraphicsPath cp;
-                cp.AddArc(ax, ay, S(20), S(20), 180, 90);
-                cp.AddArc(ax + artW - S(20) - S(20), ay, S(20), S(20), 270, 90);
-                cp.AddArc(ax + artW - S(20) - S(20), ay + S(150) - S(20), S(20), S(20), 0, 90);
-                cp.AddArc(ax, ay + S(150) - S(20), S(20), S(20), 90, 90);
-                cp.CloseFigure();
-                g.SetClip(&cp);
-                DrawImgFill(g, cover, RectF(ax, ay, artW - S(20), S(150)), 0, 0, 1, 1);
-                g.ResetClip();
-                AddHit(RectF(ax, ay, artW - S(20), S(150)), "btn:open_cover");
-                ay += S(162);
-            }
-            Image* sheet = g_result.sheet.empty() ? nullptr : LoadImg(g_result.sheet);
-            if (sheet) {
-                float sh = artW - S(20);
-                float ih2 = sh * (float)sheet->GetHeight() / (float)sheet->GetWidth();
-                Round(g, RectF(ax, ay, sh, ih2), S(10), C_PANEL2, C_LINE);
-                GraphicsPath sp;
-                sp.AddEllipse(-1, -1, 1, 1);
-                g.SetClip(RectF(ax, ay, sh, ih2));
-                DrawImgFill(g, sheet, RectF(ax, ay, sh, ih2), 0, 0, 1, 1);
-                g.ResetClip();
-                AddHit(RectF(ax, ay, sh, ih2), "btn:open_sheet");
-                ay += ih2 + S(10);
-            }
-            if (ay + S(64) < res.Y + res.Height) {
-                Button(g, RectF(ax, ay, (artW - S(28)) / 2, S(30)), L"打开文件夹", "btn:open_shotdir", 0, true);
-                Button(g, RectF(ax + (artW - S(28)) / 2 + S(8), ay, (artW - S(28)) / 2, S(30)), L"复制全文",
-                       "btn:copy", 0, true);
+        if (askW <= 0) {
+            bool hasArt = (!g_result.sheet.empty() || !g_result.cover.empty());
+            if (hasArt) {
+                float artW = std::min(S(260), area.Width * 0.3f);
+                float ax = area.X + area.Width - artW;
+                float ay = area.Y;
+                Image* cover = g_result.cover.empty() ? nullptr : LoadImg(g_result.cover);
+                if (cover) {
+                    float cw = artW, chh = cw * 0.5625f;
+                    Round(g, RectF(ax, ay, cw, chh), S(10), C_PANEL2, C_LINE);
+                    GraphicsPath cp;
+                    cp.AddArc(ax, ay, S(20), S(20), 180, 90);
+                    cp.AddArc(ax + cw - S(20), ay, S(20), S(20), 270, 90);
+                    cp.AddArc(ax + cw - S(20), ay + chh - S(20), S(20), S(20), 0, 90);
+                    cp.AddArc(ax, ay + chh - S(20), S(20), S(20), 90, 90);
+                    cp.CloseFigure();
+                    g.SetClip(&cp);
+                    DrawImgFill(g, cover, RectF(ax, ay, cw, chh), 0, 0, 1, 1);
+                    g.ResetClip();
+                    AddHit(RectF(ax, ay, cw, chh), "btn:open_cover");
+                    ay += chh + S(10);
+                }
+                Image* sheet = g_result.sheet.empty() ? nullptr : LoadImg(g_result.sheet);
+                if (sheet) {
+                    float sh = artW;
+                    float ih2 = sh * (float)sheet->GetHeight() / (float)sheet->GetWidth();
+                    if (ay + ih2 > area.Y + area.Height) ih2 = std::max(S(80), area.Y + area.Height - ay);
+                    Round(g, RectF(ax, ay, sh, ih2), S(10), C_PANEL2, C_LINE);
+                    g.SetClip(RectF(ax, ay, sh, ih2));
+                    DrawImgFill(g, sheet, RectF(ax, ay, sh, ih2), 0, 0, 1, 1);
+                    g.ResetClip();
+                    AddHit(RectF(ax, ay, sh, ih2), "btn:open_sheet");
+                }
             }
         }
     }
-    if (g_bcfgOpen) PaintBiliCfg(g);   // 配置浮层最后画，命中区盖在最上面
-    if (g_lcOpen) PaintLinkCfg(g);
-    if (g_dshOpen) PaintDshAsk(g);
+    if (askW > 0) {
+        RectF ask(area.X + area.Width - askW, area.Y, askW, area.Height);
+        PaintDshAsk(g, ask);
+    }
+}
+
+// ---- 分区四：配置（bili-whale / 链接与应用）
+static void PaintBiliCfgArea(Graphics& g, const RectF& body) {
+    const wchar_t* nm[2] = {L"bili-whale", L"链接与应用"};
+    float cx = body.X;
+    for (int i = 0; i < 2; i++) {
+        float cw = i == 0 ? S(112) : S(104);
+        RectF r(cx, body.Y, cw, S(30));
+        std::string id = "bcfgsub:" + std::to_string(i);
+        bool sel = (g_bCfgSub == i);
+        Round(g, r, S(9), sel ? C_ACCENT_S : (Hov(id) ? 0xFFF4F8FF : C_PANEL), sel ? 0x00000000 : C_LINE);
+        Txt(g, nm[i], r, Fnt(HINT_SIZE, sel ? 0 : 1, 0), sel ? C_ACCENT : C_SUB, 1);
+        AddHit(r, id);
+        cx += cw + S(8);
+    }
+    Txt(g, L"改完点保存；旧配置备份成 .bak-时间", RectF(body.X + S(240), body.Y + S(6), body.Width - S(240), S(18)),
+        Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0, true);
+    RectF card(body.X, body.Y + S(38), body.Width, body.Height - S(38));
+    if (g_bCfgSub == 0) PaintBiliCfg(g, card);
+    else PaintLinkCfg(g, card);
+}
+
+static void PaintBili(Graphics& g) {
+    float x0 = S(236), y0 = S(22), W = (float)g_w - x0 - S(24), H = (float)g_h - S(44);
+    g_rcFeed = RectF();
+    g_rcInput = RectF();
+    g_rcWatch = RectF();
+
+    PaintBiliChips(g, x0, y0);
+    {
+        wstring right = g_watchBusy ? (g_watchStatus.empty() ? wstring(L"正在跑…") : g_watchStatus)
+                                    : (g_hasResult ? (g_linkMode ? wstring(L"刚读完一条链接") : wstring(L"刚看完一条视频"))
+                                                   : wstring(L"粘链接、挑选题，都从这一页开始"));
+        Txt(g, right, RectF(x0 + S(390), y0 + S(7), W - S(390), S(18)), Fnt(HINT_SIZE, 1, 0), C_FAINT, 2, true);
+    }
+    RectF body(x0, y0 + S(42), W, H - S(42));
+    switch (g_bSec) {
+        case 0: PaintBiliFeed(g, body); break;
+        case 2: PaintBiliResult(g, body); break;
+        case 3: PaintBiliCfgArea(g, body); break;
+        default: PaintBiliWork(g, body); break;
+    }
 }
 
 // ---------------------------------------------------------------- 队列
@@ -1357,24 +1502,14 @@ static void SwitchWorkspace() {
 
 void UiOnClick(int x, int y) {
     std::string id = HitAt(x, y);
-    if (g_dshOpen) {   // 「问一句」浮层开着：点哪儿都先归它
-        DshClick(id);
-        return;
-    }
-    if (g_lcOpen) {   // 「链接与应用」开着：点哪儿都先归它
-        if (id.empty()) LinkCfgClick(id);
-        LinkCfgClick(id);
-        return;
-    }
-    if (g_bcfgOpen) {   // 配置浮层开着：点哪儿都先归它，别让下面的页签偷偷响应
-        if (id.empty()) BiliCfgEndEdit(true);   // 点空白 = 这一格就这样
-        BiliCfgClick(id);
-        return;
-    }
     if (id.empty()) {
         if (g_askEditor) {   // 点空白等于「就这样」：存下来再收
             CloseAskEditor(true);
             return;
+        }
+        if (g_tab == 1 && g_bSec == 3) {   // 配置分区：点空白 = 这一格就这样
+            if (g_bCfgSub == 0) BiliCfgEndEdit(true);
+            else LinkCfgEndEdit(true);
         }
         g_editFocus = 0;
         UiRequestRepaint();
@@ -1382,6 +1517,45 @@ void UiOnClick(int x, int y) {
     }
     vector<std::string> p = SplitId(id, ':');
     if (UiNotifyClick(id)) return;   // 右上角横幅上的按钮
+
+    // ---- B 站页自己的分区切换与配置归属
+    if (p[0] == "bsec" && p.size() > 1) {
+        int sec = std::atoi(p[1].c_str());
+        if (sec < 0 || sec > 3) return;
+        if (g_tab == 1 && g_bSec == 3 && sec != 3) {   // 离开配置前把正在编辑的格子收进内存
+            if (g_bCfgSub == 0) BiliCfgEndEdit(true);
+            else LinkCfgEndEdit(true);
+        }
+        g_bSec = sec;
+        if (g_bSec == 3) {
+            if (g_bCfgSub == 0) BiliCfgOpen();
+            else LinkCfgOpen();
+        }
+        g_editFocus = 0;
+        UiRequestRepaint();
+        return;
+    }
+    if (p[0] == "bcfgsub" && p.size() > 1) {
+        int sub = std::atoi(p[1].c_str());
+        if (sub == g_bCfgSub) return;
+        if (g_bCfgSub == 0) BiliCfgEndEdit(true);
+        else LinkCfgEndEdit(true);
+        g_bCfgSub = sub ? 1 : 0;
+        if (g_bCfgSub == 0) BiliCfgOpen();
+        else LinkCfgOpen();
+        UiRequestRepaint();
+        return;
+    }
+    if (g_tab == 1 && g_bSec == 3) {   // 配置分区里，行和按钮都归配置自己
+        if (g_bCfgSub == 0) BiliCfgClick(id);
+        else LinkCfgClick(id);
+        return;
+    }
+    if (g_tab == 1 && g_bSec == 2 && p[0] == "dsh") {   // 「问一句」长在结果分区里
+        DshClick(id);
+        return;
+    }
+
     if (p[0] == "tab") {
         g_tab = std::atoi(p[1].c_str());
         if (g_tab == 1 && g_feed.empty() && !g_feedBusy) RefreshFeed();
@@ -1413,13 +1587,21 @@ void UiOnClick(int x, int y) {
         return;
     }
     if (p[0] == "bcfg") {
+        g_tab = 1;
+        g_bSec = 3;
+        g_bCfgSub = 0;
         BiliCfgOpen();
         g_editFocus = 0;
+        UiRequestRepaint();
         return;
     }
     if (p[0] == "lcfg") {
+        g_tab = 1;
+        g_bSec = 3;
+        g_bCfgSub = 1;
         LinkCfgOpen();
         g_editFocus = 0;
+        UiRequestRepaint();
         return;
     }
     if (p[0] == "bchk" && p.size() > 1) {
@@ -1436,7 +1618,12 @@ void UiOnClick(int x, int y) {
         return;
     }
     if (p[0] == "bdsh") {
-        DshAsk();
+        if (g_dshOpen) {
+            DshClose();
+        } else {
+            g_bSec = 2;
+            DshAsk();
+        }
         g_editFocus = 0;
         return;
     }
@@ -1444,6 +1631,7 @@ void UiOnClick(int x, int y) {
         g_feedSel = std::atoi(p[1].c_str());
         if (g_feedSel >= 0 && g_feedSel < (int)g_feed.size()) {
             g_bvInput = g_feed[g_feedSel].bv;
+            g_bSec = 1;   // 挑好了就去看片那个分区，直接点「让她看」
             g_editFocus = 0;
         }
         UiRequestRepaint();
@@ -1636,8 +1824,8 @@ void UiOnClick(int x, int y) {
 // 输入框上的右键菜单。自绘输入框没有原生 EDIT 的默认菜单，这里补一个：
 // 粘贴 / 复制 / 剪切 / 全选，快捷键提示直接写在菜单项里。
 void UiOnRClick(int x, int y) {
-    if (g_bcfgOpen || g_lcOpen || g_dshOpen) return;
     if (g_tab != 1) return;
+    if (g_bSec == 3) return;   // 配置分区的格子有自己的原生编辑框
     if (!g_rcInput.Contains(PointF((float)x, (float)y))) return;
 
     HMENU m = CreatePopupMenu();
@@ -1687,6 +1875,7 @@ void UiOnMove(int x, int y) {
                                     id.rfind("up:", 0) == 0 || id.rfind("upact:", 0) == 0 ||
                                     id.rfind("bcfg", 0) == 0 || id.rfind("bfiles", 0) == 0 ||
                                     id.rfind("bcfgrow:", 0) == 0 || id.rfind("bdsh", 0) == 0 ||
+                                    id.rfind("bsec:", 0) == 0 ||
                                     id.rfind("lc:", 0) == 0 || id.rfind("lcrow:", 0) == 0 ||
                                     id.rfind("askedit:", 0) == 0 || id.rfind("askeditor:", 0) == 0 ||
                                     id.rfind("notify:", 0) == 0);
@@ -1696,24 +1885,28 @@ void UiOnMove(int x, int y) {
 }
 
 bool UiOnWheel(int x, int y, int delta) {
-    if (g_dshOpen) return DshWheel(delta);
-    if (g_lcOpen) return LinkCfgWheel(delta);
-    if (g_bcfgOpen) return BiliCfgWheel(delta);
     float step = -delta / 120.0f * S(52);
     auto clampf = [](float v, float content, float view) {
         float maxv = std::max(0.0f, content - view);
         return std::max(0.0f, std::min(v, maxv));
     };
     PointF pt((float)x, (float)y);
-    if (g_tab == 1 && g_rcFeed.Contains(pt)) {
-        g_feedScroll = clampf(g_feedScroll + step, S(82) * g_feed.size(), g_rcFeed.Height);
-        UiRequestRepaint();
-        return true;
-    }
-    if (g_tab == 1 && g_rcWatch.Contains(pt)) {
-        g_watchScroll = clampf(g_watchScroll + step, g_watchContentH, g_watchViewH);
-        UiRequestRepaint();
-        return true;
+    if (g_tab == 1) {
+        if (g_bSec == 0 && g_rcFeed.Contains(pt)) {
+            g_feedScroll = clampf(g_feedScroll + step, S(102) * ((g_feed.size() + 1) / 2), g_rcFeed.Height);
+            UiRequestRepaint();
+            return true;
+        }
+        if (g_bSec == 2) {
+            if (g_dshOpen && g_rcDsh.Contains(pt)) return DshWheel(delta);
+            if (g_rcWatch.Contains(pt)) {
+                g_watchScroll = clampf(g_watchScroll + step, g_watchContentH, g_watchViewH);
+                UiRequestRepaint();
+                return true;
+            }
+        }
+        if (g_bSec == 3) return g_bCfgSub == 0 ? BiliCfgWheel(delta) : LinkCfgWheel(delta);
+        return false;
     }
     if (g_tab == 2 && g_rcJobs.Contains(pt)) {
         g_jobsScroll = clampf(g_jobsScroll + step, S(38) * g_jobs.size(), g_rcJobs.Height);
@@ -1760,9 +1953,8 @@ bool UiOnWheel(int x, int y, int delta) {
 
 void UiOnChar(unsigned int ch) {
     if (g_askEditor) return;   // 正在输入框里打字
-    if (g_bcfgOpen) return;    // 配置浮层：字符归它自己的 EDIT
-    if (g_lcOpen) return;      // 「链接与应用」：同上
-    if (g_dshOpen) return;     // 「问一句」浮层：不接受输入
+    if (g_tab == 1 && g_bSec == 3) return;   // 配置分区：字符归它自己的 EDIT
+    if (g_tab == 1 && g_bSec == 2 && g_dshOpen) return;   // 「问一句」面板不接受输入
     if (!g_editFocus) return;
     if (ch == 8) {
         if (g_inputSelAll) {
@@ -1792,16 +1984,18 @@ void UiOnChar(unsigned int ch) {
 
 void UiOnKeyDown(int vk) {
     if (g_askEditor) return;   // 编辑卡片时按键归输入框
-    if (g_dshOpen) {           // 「问一句」浮层：Esc 关掉，1–9 不切页
+    if (g_tab == 1 && g_bSec == 3) {
+        // 配置分区：Esc 回看片那边；正在编辑的格子先落进内存
+        if (vk == VK_ESCAPE) {
+            if (g_bCfgSub == 0) BiliCfgEndEdit(true);
+            else LinkCfgEndEdit(true);
+            g_bSec = 1;
+            UiRequestRepaint();
+        }
+        return;
+    }
+    if (g_tab == 1 && g_bSec == 2 && g_dshOpen) {   // 「问一句」开着：Esc 收起
         if (vk == VK_ESCAPE) DshClose();
-        return;
-    }
-    if (g_lcOpen) {            // 「链接与应用」：Esc 关掉，1–9 不切页
-        if (vk == VK_ESCAPE) LinkCfgClose(false);
-        return;
-    }
-    if (g_bcfgOpen) {          // 配置浮层：Esc 关掉，1–9 照样不切页
-        if (vk == VK_ESCAPE) BiliCfgClose(false);
         return;
     }
     if (g_editFocus) {
@@ -1912,6 +2106,10 @@ void UiOnTask(TaskData* d) {
             g_watchStatus.clear();
             g_watchPct = 100;
             g_watchStage.clear();
+            if (g_hasResult && g_tab == 1) {
+                g_bSec = 2;      // 跑完就把结果推到眼前，不用自己点分区
+                g_dshOpen = false;
+            }
             JobRec j;
             j.t = NowUnix();
             j.bv = d->bv;

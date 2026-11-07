@@ -259,12 +259,9 @@ static void LinkCfgTest() {
 }
 
 // ---------------------------------------------------------------- 开 / 关
+// 配置是 B 站页里的一个分区，不再是浮层：进来就重新从盘上读一遍
 static void LinkCfgOpen() {
-    if (g_lcOpen) {
-        UiRequestRepaint();
-        return;
-    }
-    if (g_bcfgOpen) BiliCfgClose(false);   // 两个面板不同时开
+    BiliCfgEndEdit(true);   // 另一个分区可能正开着编辑框
     LcBuildRows();
     g_lcLink = LinkLoad();
     g_lcApi = DshApiLoad();
@@ -275,41 +272,41 @@ static void LinkCfgOpen() {
     UiRequestRepaint();
 }
 
-// 被别的面板叫去关掉（不落盘）
+// 切到 bili-whale 分区时收掉这边的编辑框
 static void LinkCfgClosePanel() {
-    if (!g_lcOpen) return;
-    LinkCfgEndEdit(false);
+    LinkCfgEndEdit(true);
     g_lcOpen = false;
-    g_lcScroll = 0;
 }
 
 static void LinkCfgClose(bool save) {
     LinkCfgEndEdit(save);
-    if (save) {
-        wstring err;
-        if (!LinkSave(g_lcLink, &err)) {
-            UiToast(L"读链接的设置没保存成：" + err);
-        } else if (!DshApiSave(g_lcApi, &err)) {
-            UiToast(L"读链接存了，但对话 API 没存成：" + err);
-        } else {
-            UiToast(L"存好了，旧文件备份成 .bak-时间");
-        }
+    if (!save) {
+        LinkCfgOpen();
+        return;
     }
-    g_lcOpen = false;
-    g_lcScroll = 0;
+    wstring err;
+    if (!LinkSave(g_lcLink, &err)) {
+        g_lcMsg = err;
+        g_lcMsgAt = GetTickCount();
+        UiToast(L"读链接的设置没保存成：" + err);
+    } else if (!DshApiSave(g_lcApi, &err)) {
+        g_lcMsg = err;
+        g_lcMsgAt = GetTickCount();
+        UiToast(L"读链接存了，但对话 API 没存成：" + err);
+    } else {
+        g_lcMsg = L"存好了，旧文件备份成 .bak-时间";
+        g_lcMsgAt = GetTickCount();
+        UiToast(L"存好了，旧文件备份成 .bak-时间");
+    }
     UiRequestRepaint();
 }
 
-// ---------------------------------------------------------------- 绘制
-static void PaintLinkCfg(Graphics& g) {
-    SolidBrush dim(Color(0x7A, 0x15, 0x20, 0x38));
-    g.FillRectangle(&dim, 0, 0, (int)g_w, (int)g_h);
-
-    float pw = std::min(S(860), (float)g_w - S(80));
-    float ph = std::min(S(700), (float)g_h - S(80));
-    RectF panel(((float)g_w - pw) / 2, ((float)g_h - ph) / 2, pw, ph);
+// ---------------------------------------------------------------- 绘制（画进 B 站页给的那块地方）
+static void PaintLinkCfg(Graphics& g, const RectF& panel) {
+    const float pw = panel.Width;
+    const float ph = panel.Height;
     g_rcLc = panel;
-    Round(g, panel, S(16), C_PANEL, C_LINE);
+    Round(g, panel, S(14), C_PANEL, C_LINE);
     Txt(g, L"链接与应用", RectF(panel.X + S(26), panel.Y + S(14), pw - S(52), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
     Txt(g, L"读网页链接的规矩，和「问一句」用的对话 API", RectF(panel.X + S(26), panel.Y + S(42), pw - S(52), S(16)),
         Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0, true);
@@ -375,7 +372,7 @@ static void PaintLinkCfg(Graphics& g) {
     Button(g, RectF(panel.X + pw - S(322), by, S(96), S(30)), g_lcTestBusy ? L"测试中…" : L"测试连接", "lc:test", 0,
            true, !g_lcTestBusy);
     Button(g, RectF(panel.X + pw - S(214), by, S(96), S(30)), L"保存", "lc:save", 1, true);
-    Button(g, RectF(panel.X + pw - S(110), by, S(84), S(30)), L"取消", "lc:cancel", 0, true);
+    Button(g, RectF(panel.X + pw - S(110), by, S(84), S(30)), L"重新读", "lc:reload", 0, true);
 }
 
 // ---------------------------------------------------------------- 点击 / 滚轮
@@ -389,6 +386,7 @@ static bool LinkCfgClick(const std::string& id) {
     if (p[0] == "lc") {
         if (p.size() > 1 && p[1] == "save") LinkCfgClose(true);
         else if (p.size() > 1 && p[1] == "cancel") LinkCfgClose(false);
+        else if (p.size() > 1 && p[1] == "reload") LinkCfgOpen();
         else if (p.size() > 1 && p[1] == "test") LinkCfgTest();
         return true;
     }

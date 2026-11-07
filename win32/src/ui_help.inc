@@ -142,13 +142,9 @@ static void OpenAskEditor(int i) {
     UiRequestRepaint();
 }
 
-bool UiAskEditorBusy() { return g_askEditor != nullptr || g_bcfgOpen; }
+bool UiAskEditorBusy() { return g_askEditor != nullptr; }
 
 void UiAskEditorClose(bool save) {
-    if (g_bcfgOpen) {   // 配置浮层也算「有浮层开着」，Esc 先收它
-        BiliCfgClose(save);
-        return;
-    }
     CloseAskEditor(save);
 }
 

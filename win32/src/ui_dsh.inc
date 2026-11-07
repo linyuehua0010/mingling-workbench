@@ -110,22 +110,18 @@ static bool DshWheel(int delta) {
     return true;
 }
 
-static void PaintDshAsk(Graphics& g) {
-    SolidBrush dim(Color(0x7A, 0x15, 0x20, 0x38));
-    g.FillRectangle(&dim, 0, 0, (int)g_w, (int)g_h);
-
+static void PaintDshAsk(Graphics& g, const RectF& panel) {
     DshApiCfg cfg = DshApiLoad();
-    float pw = std::min(S(760), (float)g_w - S(80));
-    float ph = std::min(S(560), (float)g_h - S(80));
-    RectF panel(((float)g_w - pw) / 2, ((float)g_h - ph) / 2, pw, ph);
+    const float pw = panel.Width;
+    const float ph = panel.Height;
     g_rcDsh = panel;
-    Round(g, panel, S(16), C_PANEL, C_LINE);
-    Txt(g, L"问一句", RectF(panel.X + S(26), panel.Y + S(14), pw - S(52), S(26)), Fnt(TITLE_SIZE, 0, 0), C_TEXT, 0);
+    Round(g, panel, S(12), C_PANEL2, C_LINE);
+    Txt(g, L"问一句", RectF(panel.X + S(20), panel.Y + S(12), pw - S(40), S(24)), Fnt(SUBTITLE_SIZE, 0, 0), C_TEXT, 0);
     wstring sub = cfg.model.empty() ? wstring(L"对话 API") : (L"对话 API · " + cfg.model);
-    Txt(g, sub, RectF(panel.X + S(26), panel.Y + S(42), pw - S(52), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0, true);
-    HLine(g, panel.X + S(24), panel.Y + S(64), panel.X + panel.Width - S(24), C_LINE2);
+    Txt(g, sub, RectF(panel.X + S(20), panel.Y + S(38), pw - S(40), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT, 0, true);
+    HLine(g, panel.X + S(18), panel.Y + S(58), panel.X + panel.Width - S(18), C_LINE2);
 
-    RectF body(panel.X + S(26), panel.Y + S(78), panel.Width - S(52), ph - S(78) - S(60));
+    RectF body(panel.X + S(20), panel.Y + S(70), panel.Width - S(40), ph - S(70) - S(52));
     g_dshViewH = body.Height;
     float total = 0;
     if (g_dshBusy) {
@@ -136,11 +132,11 @@ static void PaintDshAsk(Graphics& g) {
         ScrollBar(g, body, g_dshScroll, total);
     }
     if (!g_dshErr.empty())
-        Txt(g, g_dshErr, RectF(panel.X + S(26), panel.Y + ph - S(58), pw - S(240), S(18)), Fnt(HINT_SIZE, 1, 0),
+        Txt(g, g_dshErr, RectF(panel.X + S(20), panel.Y + ph - S(50), pw - S(200), S(18)), Fnt(HINT_SIZE, 1, 0),
             C_ERR, 0, true);
 
-    float by = panel.Y + ph - S(44);
-    Button(g, RectF(panel.X + pw - S(300), by, S(84), S(30)), L"复制", "dsh:copy", 0, true, !g_dshBusy);
-    Button(g, RectF(panel.X + pw - S(208), by, S(84), S(30)), L"再问一次", "dsh:again", 0, true, !g_dshBusy);
-    Button(g, RectF(panel.X + pw - S(116), by, S(90), S(30)), L"收起", "dsh:close", 1, true);
+    float by = panel.Y + ph - S(40);
+    Button(g, RectF(panel.X + pw - S(280), by, S(80), S(28)), L"复制", "dsh:copy", 0, true, !g_dshBusy);
+    Button(g, RectF(panel.X + pw - S(192), by, S(88), S(28)), L"再问一次", "dsh:again", 0, true, !g_dshBusy);
+    Button(g, RectF(panel.X + pw - S(96), by, S(76), S(28)), L"收起", "dsh:close", 1, true);
 }

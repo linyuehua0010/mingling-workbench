@@ -127,13 +127,10 @@ static void BiliCfgBeginEdit(int row) {
     UiRequestRepaint();
 }
 
-// ---------------------------------------------------------------- 开 / 关
+// ---------------------------------------------------------------- 开 / 存
+// 配置现在是 B 站页里的一个分区，不再是浮层：进来就重新从盘上读一遍。
 static void BiliCfgOpen() {
-    if (g_bcfgOpen) {
-        UiRequestRepaint();
-        return;
-    }
-    LinkCfgClosePanel();   // 两个面板不同时开
+    LinkCfgClosePanel();   // 两个分区各画各的，编辑控件只留一个
     wstring err;
     BcfgBuildRows();
     BiliCfgLoad(g_bcfgRoot, &err);
@@ -145,31 +142,32 @@ static void BiliCfgOpen() {
     UiRequestRepaint();
 }
 
+// 保存 / 重新读入：分区一直开着，成功与否都留在原地
 static void BiliCfgClose(bool save) {
     BiliCfgEndEdit(save);   // 取消时正在编辑的那格不写进内存
-    if (save) {
-        wstring err;
-        if (!BiliCfgSave(g_bcfgRoot, &err)) {
-            UiToast(L"没保存成：" + err);
-        } else {
-            UiToast(L"bili-whale 配置已保存，旧文件备份成 .bak-时间");
-        }
+    if (!save) {
+        BiliCfgOpen();
+        return;
     }
-    g_bcfgOpen = false;
-    g_bcfgScroll = 0;
+    wstring err;
+    if (!BiliCfgSave(g_bcfgRoot, &err)) {
+        g_bcfgMsg = err;
+        g_bcfgMsgAt = GetTickCount();
+        UiToast(L"没保存成：" + err);
+    } else {
+        g_bcfgMsg = L"存好了，旧文件备份成 .bak-时间";
+        g_bcfgMsgAt = GetTickCount();
+        UiToast(L"bili-whale 配置已保存，旧文件备份成 .bak-时间");
+    }
     UiRequestRepaint();
 }
 
-// ---------------------------------------------------------------- 绘制
-static void PaintBiliCfg(Graphics& g) {
-    SolidBrush dim(Color(0x7A, 0x15, 0x20, 0x38));
-    g.FillRectangle(&dim, 0, 0, (int)g_w, (int)g_h);
-
-    float pw = std::min(S(820), (float)g_w - S(80));
-    float ph = std::min(S(680), (float)g_h - S(80));
-    RectF panel(((float)g_w - pw) / 2, ((float)g_h - ph) / 2, pw, ph);
+// ---------------------------------------------------------------- 绘制（画进 B 站页给的那块地方）
+static void PaintBiliCfg(Graphics& g, const RectF& panel) {
+    const float pw = panel.Width;
+    const float ph = panel.Height;
     g_rcBcfg = panel;
-    Round(g, panel, S(16), C_PANEL, C_LINE);
+    Round(g, panel, S(14), C_PANEL, C_LINE);
     Txt(g, L"bili-whale 配置", RectF(panel.X + S(26), panel.Y + S(14), pw - S(52), S(26)), Fnt(TITLE_SIZE, 0, 0),
         C_TEXT, 0);
     Txt(g, g_bcfgPath, RectF(panel.X + S(26), panel.Y + S(42), pw - S(52), S(16)), Fnt(MICRO_SIZE, 1, 0), C_FAINT,
@@ -238,7 +236,7 @@ static void PaintBiliCfg(Graphics& g) {
             Fnt(HINT_SIZE, 1, 0), C_FAINT, 0, true);
     }
     Button(g, RectF(panel.X + pw - S(214), by, S(96), S(30)), L"保存", "bcfg:save", 1, true);
-    Button(g, RectF(panel.X + pw - S(110), by, S(84), S(30)), L"取消", "bcfg:cancel", 0, true);
+    Button(g, RectF(panel.X + pw - S(110), by, S(84), S(30)), L"重新读", "bcfg:reload", 0, true);
 }
 
 // ---------------------------------------------------------------- 点击 / 滚轮 / 按键
@@ -252,6 +250,7 @@ static bool BiliCfgClick(const std::string& id) {
     if (p[0] == "bcfg") {
         if (p.size() > 1 && p[1] == "save") BiliCfgClose(true);
         else if (p.size() > 1 && p[1] == "cancel") BiliCfgClose(false);
+        else if (p.size() > 1 && p[1] == "reload") BiliCfgOpen();
         return true;
     }
     if (p[0] == "bcfgrow" && p.size() > 1) {
