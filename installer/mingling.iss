@@ -199,8 +199,16 @@ begin
     ForceDirectories(WsPath + '\tmp');
     ForceDirectories(WsPath + '\logs\jobs');
     ForceDirectories(dir);
-    b := ExtractFileDir(WsPath);
-    if b = '' then b := WsPath;
+    { 工作区自己就是机器人根（下面已经有 private\ / answers.json / bots\）时，base 就是它自己。
+      老布局（工作区是 <机器人根>\bili）才取上一级。猜错的话自设定会去 <上一级>\private\backend.txt
+      找登录信息，后台永远连不上。 }
+    if DirExists(WsPath + '\private') or DirExists(WsPath + '\bots') or FileExists(WsPath + '\answers.json') then
+      b := WsPath
+    else
+    begin
+      b := ExtractFileDir(WsPath);
+      if b = '' then b := WsPath;
+    end;
     w1 := WsPath;
     w2 := b;
     StringChangeEx(w1, '\', '/', True);

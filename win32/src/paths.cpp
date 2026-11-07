@@ -269,12 +269,37 @@ wstring BotRoot() {
 wstring BotDir(const wstring& name) { return JoinPath(BotRoot(), name); }
 
 
+// 「这个目录里真有机器人」的现场特征：answers.json、private\backend.txt、bots\，
+// 或者组件目录本身（新布局在 <工作区>\bots 下，老布局直接在机器人根下）。
+// 只看 private\ 不算数——根算错的时候，自设定会在工作区旁边也建一个 private\，那是脏东西。
+static bool HasBotBits(const wstring& dir) {
+    if (dir.empty()) return false;
+    if (FileExists(JoinPath(dir, L"answers.json"))) return true;
+    if (FileExists(JoinPath(dir, L"private\\backend.txt"))) return true;
+    if (DirExists(JoinPath(dir, L"bots"))) return true;
+    static const wchar_t* kDirs[] = {L"AstrBot", L"astrbot", L"SnowLuma", L"snowluma",
+                                     L"NapCat",  L"napcat",  L"uv",       L"breeze-tts"};
+    for (const wchar_t* d : kDirs)
+        if (DirExists(JoinPath(dir, d))) return true;
+    return false;
+}
+
 // 机器人根目录：SnowLuma / AstrBot / private / uv 的上一级。
 // 默认跟工作区同级（工作区 = <机器人根>\bili），可用 base 覆盖。
+// 新布局（工作区自己就是机器人根）里，settings 存的 base 可能是安装器按老规矩猜的
+// 「工作区的上一级」。拿它跑自设定，脚本会去 <上一级>\private\backend.txt 找登录信息，
+// 找不到就永远报「后台没连上」。所以存着的那份要跟现场对一遍：它里面没有机器人的痕迹、
+// 而工作区里有，就说明这份存错了，用工作区。
 wstring BaseDir() {
+    wstring ws = WorkspaceDir();
     wstring b = SettingGet(L"base");
-    if (!b.empty() && DirExists(b)) return b;
-    return ParentDir(WorkspaceDir());
+    if (!b.empty() && DirExists(b)) {
+        if (HasBotBits(b) || !HasBotBits(ws)) return b;
+        SettingSet(L"base", ws);   // 存的是错的，顺手改回来，脚本读 settings.json 的 base 时也不会再踩
+        return ws;
+    }
+    if (HasBotBits(ws)) return ws;
+    return ParentDir(ws);
 }
 
 void SetBaseDir(const wstring& dir) {
