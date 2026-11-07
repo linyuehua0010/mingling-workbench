@@ -38,6 +38,23 @@ static void Fail(HRESULT hr) {
     MessageBoxW(host, msg.c_str(), L"冥零 · 界面启动失败", MB_OK | MB_ICONERROR);
 }
 bool WebUiActive() { return view != nullptr; }
+// 界面是深夜蓝，系统默认的白色标题栏会像在画上贴了块膏药，所以把边框也刷成同一个色。
+static void PaintFrameDark(HWND hwnd) {
+    using DwmSet = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    static DwmSet dwm = [] {
+        HMODULE m = LoadLibraryW(L"dwmapi.dll");
+        return m ? reinterpret_cast<DwmSet>(GetProcAddress(m, "DwmSetWindowAttribute")) : (DwmSet) nullptr;
+    }();
+    if (!dwm) return;
+    BOOL on = TRUE;
+    // 20 是 Win10 20H1+ 的编号，19 是 1809 之前的，认哪个用哪个。
+    if (FAILED(dwm(hwnd, 20, &on, sizeof(on)))) dwm(hwnd, 19, &on, sizeof(on));
+    COLORREF caption = RGB(0x08, 0x0e, 0x1a), text = RGB(0xe9, 0xef, 0xfc), border = RGB(0x17, 0x24, 0x40);
+    // 下面三条是 Win11 才认；Win10 返回失败，标题栏还是靠上面那条变深。
+    dwm(hwnd, 35, &caption, sizeof(caption));
+    dwm(hwnd, 36, &text, sizeof(text));
+    dwm(hwnd, 34, &border, sizeof(border));
+}
 void WebUiResize() {
     if (controller) { RECT rc; GetClientRect(host, &rc); controller->put_Bounds(rc); }
 }
@@ -68,6 +85,14 @@ void WebUiInit(HWND hwnd) {
                     if (closing) return S_OK;
                     if (FAILED(result) || !ctl) { Fail(result); return S_OK; }
                     controller = ctl; ctl->AddRef(); ctl->get_CoreWebView2(&view);
+                    PaintFrameDark(host);
+                    // 页面第一次绘制前先把底色压成深夜蓝，免得一闪白。
+                    ICoreWebView2Controller2* ctl2 = nullptr;
+                    if (SUCCEEDED(ctl->QueryInterface(IID_ICoreWebView2Controller2, (void**)&ctl2)) && ctl2) {
+                        COREWEBVIEW2_COLOR bg{255, 0x07, 0x0d, 0x18};
+                        ctl2->put_DefaultBackgroundColor(bg);
+                        ctl2->Release();
+                    }
                     ICoreWebView2Settings* settings = nullptr;
                     if (SUCCEEDED(view->get_Settings(&settings))) {
                         settings->put_AreDefaultContextMenusEnabled(FALSE);
