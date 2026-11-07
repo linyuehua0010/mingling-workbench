@@ -154,105 +154,196 @@ std::wstring Sha256File(const std::wstring& path, std::wstring* err) {
 }
 
 // ---------------------------------------------------------------- HTTP
+static std::wstring UrlHost(const std::wstring& url) {
+    wchar_t host[256] = {0};
+    URL_COMPONENTS uc = {};
+    uc.dwStructSize = sizeof(uc);
+    uc.lpszHostName = host;
+    uc.dwHostNameLength = 255;
+    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc)) return L"";
+    std::wstring h(host);
+    for (wchar_t& ch : h) ch = (wchar_t)towlower(ch);
+    return h;
+}
+
+static bool IsGithubHost(const std::wstring& host) {
+    return host == L"github.com" || host == L"api.github.com" ||
+           (host.size() > 11 && host.compare(host.size() - 11, 11, L".github.com") == 0);
+}
+
+// 从原始响应头里抠一行。Location 没有「按名字取」的稳妥写法，统一走 RAW_HEADERS。
+static std::wstring HeaderLine(HINTERNET r, const std::wstring& name) {
+    // Location 有专门的查询号，先走它，省得自己去啃原始头
+    if (_wcsicmp(name.c_str(), L"Location") == 0) {
+        DWORD sz = 0;
+        if (!WinHttpQueryHeaders(r, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, WINHTTP_NO_OUTPUT_BUFFER, &sz,
+                                 WINHTTP_NO_HEADER_INDEX) &&
+            GetLastError() == ERROR_INSUFFICIENT_BUFFER && sz > 0) {
+            std::vector<wchar_t> b(sz / sizeof(wchar_t) + 2, 0);
+            if (WinHttpQueryHeaders(r, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, b.data(), &sz,
+                                    WINHTTP_NO_HEADER_INDEX))
+                return Trim(std::wstring(b.data()));
+        }
+    }
+    DWORD sz = 0;
+    if (!WinHttpQueryHeaders(r, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, WINHTTP_NO_OUTPUT_BUFFER,
+                             &sz, WINHTTP_NO_HEADER_INDEX) &&
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER)
+        return L"";
+    if (sz == 0) return L"";
+    std::vector<wchar_t> buf(sz / sizeof(wchar_t) + 2, 0);
+    if (!WinHttpQueryHeaders(r, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, buf.data(), &sz,
+                             WINHTTP_NO_HEADER_INDEX))
+        return L"";
+    std::wstring raw(buf.data());
+    std::wstring want = name + L":";
+    for (wchar_t& ch : want) ch = (wchar_t)towlower(ch);
+    size_t pos = 0;
+    while (pos < raw.size()) {
+        size_t eol = raw.find(L"\r\n", pos);
+        if (eol == std::wstring::npos) eol = raw.size();
+        std::wstring line = raw.substr(pos, eol - pos);
+        if (line.size() > want.size()) {
+            std::wstring head = line.substr(0, want.size());
+            for (wchar_t& ch : head) ch = (wchar_t)towlower(ch);
+            if (head == want) return Trim(line.substr(want.size()));
+        }
+        pos = eol + 2;
+    }
+    return L"";
+}
+
+// 私有仓库的资产要先带 token 请求，GitHub 再 302 到 objects.githubusercontent.com 的签名地址；
+// 那一跳不能再带 Authorization（S3 会嫌「两种认证并存」），所以跳转自己走，换主机就摘掉 token。
 static bool HttpGetBinary(const std::wstring& url, const std::wstring& path, unsigned long long* got,
                           std::wstring* err, const std::function<void(int)>& prog, int timeoutMs) {
     if (got) *got = 0;
-    URL_COMPONENTS uc = {};
-    uc.dwStructSize = sizeof(uc);
-    wchar_t host[256], obj[2048];
-    uc.lpszHostName = host;
-    uc.dwHostNameLength = 255;
-    uc.lpszUrlPath = obj;
-    uc.dwUrlPathLength = 2047;
-    if (!WinHttpCrackUrl(url.c_str(), 0, 0, &uc)) {
-        if (err) *err = L"下载地址不对：" + url;
-        return false;
-    }
-    bool https = uc.nScheme == INTERNET_SCHEME_HTTPS;
-    HINTERNET s = WinHttpOpen(L"MinglingWorkbench/updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME,
-                              WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!s) {
-        if (err) *err = L"网络没起来（WinHTTP 初始化失败）";
-        return false;
-    }
-    DWORD t = (DWORD)timeoutMs;
-    WinHttpSetTimeouts(s, t, t, t, t);
-    HINTERNET c = WinHttpConnect(s, host, uc.nPort, 0);
-    if (!c) {
-        WinHttpCloseHandle(s);
-        if (err) *err = L"连不上这个地址（域名解析或网络问题）";
-        return false;
-    }
-    DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
-    HINTERNET r = WinHttpOpenRequest(c, L"GET", obj, nullptr, WINHTTP_NO_REFERER,
-                                     WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
-    if (!r) {
+    const std::wstring tok = GithubTok();
+    std::wstring cur = url;
+    bool ok = false;
+    for (int hop = 0; hop < 6 && !ok; ++hop) {
+        wchar_t host[256] = {0}, obj[2048] = {0}, ext[2048] = {0};
+        URL_COMPONENTS uc = {};
+        uc.dwStructSize = sizeof(uc);
+        uc.lpszHostName = host;
+        uc.dwHostNameLength = 255;
+        uc.lpszUrlPath = obj;
+        uc.dwUrlPathLength = 2047; uc.lpszExtraInfo = ext; uc.dwExtraInfoLength = 2047;
+        if (!WinHttpCrackUrl(cur.c_str(), 0, 0, &uc)) {
+            if (err) *err = L"下载地址不对：" + cur;
+            return false;
+        }
+        const std::wstring hostS(host); const std::wstring reqPath = std::wstring(obj) + ext;
+        const bool https = uc.nScheme == INTERNET_SCHEME_HTTPS;
+        HINTERNET s = WinHttpOpen(L"MinglingWorkbench/updater", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (!s) {
+            if (err) *err = L"网络没起来（WinHTTP 初始化失败）";
+            return false;
+        }
+        DWORD t = (DWORD)timeoutMs;
+        WinHttpSetTimeouts(s, t, t, t, t);
+        HINTERNET c = WinHttpConnect(s, host, uc.nPort, 0);
+        if (!c) {
+            WinHttpCloseHandle(s);
+            if (err) *err = L"连不上这个地址（域名解析或网络问题）";
+            return false;
+        }
+        DWORD flags = https ? WINHTTP_FLAG_SECURE : 0;
+        HINTERNET r = WinHttpOpenRequest(c, L"GET", reqPath.c_str(), nullptr, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
+        if (!r) {
+            WinHttpCloseHandle(c);
+            WinHttpCloseHandle(s);
+            if (err) *err = L"请求没发出去";
+            return false;
+        }
+        DWORD pol = WINHTTP_OPTION_REDIRECT_POLICY_NEVER;
+        WinHttpSetOption(r, WINHTTP_OPTION_REDIRECT_POLICY, &pol, sizeof(pol));
+        DWORD decomp = WINHTTP_DECOMPRESSION_FLAG_ALL;
+        WinHttpSetOption(r, WINHTTP_OPTION_DECOMPRESSION, &decomp, sizeof(decomp));
+        if (!tok.empty() && IsGithubHost(hostS)) {
+            std::wstring auth = L"Authorization: token " + tok;
+            WinHttpAddRequestHeaders(r, auth.c_str(), (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD);
+        }
+        WinHttpAddRequestHeaders(r, L"Accept: application/octet-stream", (DWORD)-1L, WINHTTP_ADDREQ_FLAG_ADD);
+
+        std::wstring next;
+        do {
+            if (!WinHttpSendRequest(r, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) break;
+            if (!WinHttpReceiveResponse(r, nullptr)) break;
+            DWORD code = 0, clen = sizeof(code);
+            WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                                &code, &clen, WINHTTP_NO_HEADER_INDEX);
+            if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                std::wstring loc = HeaderLine(r, L"Location");
+                if (loc.empty()) {
+                    if (err) *err = L"跳转没给出地址（HTTP " + Num((long long)code) + L"）";
+                    break;
+                }
+                if (loc.size() > 1 && loc[0] == L'/') {
+                    next = (https ? L"https://" : L"http://") + hostS + loc;
+                } else {
+                    next = loc;
+                }
+                break;
+            }
+            if (code != 200) {
+                if (err) *err = L"下载被拒（HTTP " + Num((long long)code) + L"）";
+                break;
+            }
+            unsigned long long totalAll = 0;
+            {
+                wchar_t cl[64];
+                DWORD csz = sizeof(cl);
+                if (WinHttpQueryHeaders(r, WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX, cl, &csz,
+                                        WINHTTP_NO_HEADER_INDEX)) {
+                    totalAll = (unsigned long long)_wtoi64(cl);
+                }
+            }
+            HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (f == INVALID_HANDLE_VALUE) {
+                if (err) *err = L"下载不下来：写不进 " + path;
+                break;
+            }
+            bool wrOk = true;
+            for (;;) {
+                DWORD avail = 0;
+                if (!WinHttpQueryDataAvailable(r, &avail)) {
+                    wrOk = false;
+                    break;
+                }
+                if (avail == 0) break;
+                std::vector<char> chunk(avail);
+                DWORD read = 0;
+                if (!WinHttpReadData(r, chunk.data(), avail, &read) || read == 0) {
+                    wrOk = false;
+                    break;
+                }
+                DWORD written = 0;
+                if (!WriteFile(f, chunk.data(), read, &written, nullptr) || written != read) {
+                    wrOk = false;
+                    break;
+                }
+                if (got) *got += read;
+                if (prog && totalAll > 0) prog((int)((*got) * 100 / totalAll));
+            }
+            CloseHandle(f);
+            if (!wrOk) {
+                if (err) *err = L"下载到一半断了（网络不稳）";
+                break;
+            }
+            ok = true;
+        } while (false);
+
+        WinHttpCloseHandle(r);
         WinHttpCloseHandle(c);
         WinHttpCloseHandle(s);
-        if (err) *err = L"请求没发出去";
-        return false;
+        if (!next.empty()) {
+            cur = next;
+            continue;
+        }
     }
-    DWORD redir = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
-    WinHttpSetOption(r, WINHTTP_OPTION_REDIRECT_POLICY, &redir, sizeof(redir));
-    DWORD decomp = WINHTTP_DECOMPRESSION_FLAG_ALL;
-    WinHttpSetOption(r, WINHTTP_OPTION_DECOMPRESSION, &decomp, sizeof(decomp));
-    bool ok = false;
-    do {
-        if (!WinHttpSendRequest(r, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) break;
-        if (!WinHttpReceiveResponse(r, nullptr)) break;
-        DWORD code = 0, clen = sizeof(code);
-        WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
-                            &code, &clen, WINHTTP_NO_HEADER_INDEX);
-        if (code != 200) {
-            if (err) *err = L"下载被拒（HTTP " + Num((long long)code) + L"）";
-            break;
-        }
-        unsigned long long totalAll = 0;
-        {
-            wchar_t cl[64];
-            DWORD csz = sizeof(cl);
-            if (WinHttpQueryHeaders(r, WINHTTP_QUERY_CONTENT_LENGTH, WINHTTP_HEADER_NAME_BY_INDEX, cl, &csz,
-                                    WINHTTP_NO_HEADER_INDEX)) {
-                totalAll = (unsigned long long)_wtoi64(cl);
-            }
-        }
-        HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (f == INVALID_HANDLE_VALUE) {
-            if (err) *err = L"下载不下来：写不进 " + path;
-            break;
-        }
-        bool wrOk = true;
-        for (;;) {
-            DWORD avail = 0;
-            if (!WinHttpQueryDataAvailable(r, &avail)) {
-                wrOk = false;
-                break;
-            }
-            if (avail == 0) break;
-            std::vector<char> chunk(avail);
-            DWORD read = 0;
-            if (!WinHttpReadData(r, chunk.data(), avail, &read) || read == 0) {
-                wrOk = false;
-                break;
-            }
-            DWORD written = 0;
-            if (!WriteFile(f, chunk.data(), read, &written, nullptr) || written != read) {
-                wrOk = false;
-                break;
-            }
-            if (got) *got += read;
-            if (prog && totalAll > 0) prog((int)((*got) * 100 / totalAll));
-        }
-        CloseHandle(f);
-        if (!wrOk) {
-            if (err) *err = L"下载到一半断了（网络不稳）";
-            break;
-        }
-        ok = true;
-    } while (false);
-    WinHttpCloseHandle(r);
-    WinHttpCloseHandle(c);
-    WinHttpCloseHandle(s);
+    if (!ok && err && err->empty()) *err = L"下载没成（跳转太多，或者地址一直在换）";
     return ok;
 }
 
@@ -278,6 +369,7 @@ static bool GetRelJson(const std::wstring& url, J* out) {
 
 SetupAsset FindSetupAsset(const std::wstring& repo, const std::wstring& version) {
     SetupAsset a;
+    const wstring tok = GithubTok();
     if (repo.empty()) {
         a.err = L"还没配更新源（repo_snapshot），不知道去哪儿找安装包";
         return a;
@@ -320,7 +412,10 @@ SetupAsset FindSetupAsset(const std::wstring& repo, const std::wstring& version)
         if (low.size() > 4 && low.substr(low.size() - 4) == L".exe" && IContains(low, L"setup")) {
             if (!a.url.empty()) continue;   // 有多个时留第一个
             a.name = nm;
-            a.url = it.Str(L"browser_download_url");
+            const long long aid = it.Int(L"id", 0);
+            a.url = (tok.empty() || aid <= 0)
+                        ? it.Str(L"browser_download_url")
+                        : (L"https://api.github.com/repos/" + repo + L"/releases/assets/" + Num(aid));
             a.size = (unsigned long long)it.Int(L"size", 0);
             if (a.size == 0) {
                 const J* sz = it.Get(L"size");
@@ -335,7 +430,10 @@ SetupAsset FindSetupAsset(const std::wstring& repo, const std::wstring& version)
     for (const J& it : assets->a) {
         wstring nm = it.Str(L"name");
         if (nm == a.name + L".sha256" || nm == a.name + L".sha256.txt") {
-            a.shaUrl = it.Str(L"browser_download_url");
+            const long long sid = it.Int(L"id", 0);
+            a.shaUrl = (tok.empty() || sid <= 0)
+                           ? it.Str(L"browser_download_url")
+                           : (L"https://api.github.com/repos/" + repo + L"/releases/assets/" + Num(sid));
             break;
         }
     }

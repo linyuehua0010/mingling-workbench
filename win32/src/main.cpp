@@ -43,7 +43,7 @@ static void AttachConsoleIfAsked() {
                 wcscmp(argv[i], L"--bili") == 0 || wcscmp(argv[i], L"--link") == 0 || wcscmp(argv[i], L"--autosetup") == 0 ||
                 wcscmp(argv[i], L"--bots-setup") == 0 ||
                 wcscmp(argv[i], L"--selfsetup") == 0 ||
-                wcscmp(argv[i], L"--wb-update") == 0 ||
+                wcscmp(argv[i], L"--wb-get") == 0 || wcscmp(argv[i], L"--wb-update") == 0 ||
                 wcscmp(argv[i], L"--version") == 0) want = true;
         LocalFree(argv);
     }
@@ -443,7 +443,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
                     wcscmp(argv[i], L"--link") == 0 ||
                     wcscmp(argv[i], L"--autosetup") == 0 || wcscmp(argv[i], L"--bots-setup") == 0 ||
                     wcscmp(argv[i], L"--selfsetup") == 0 ||
-                    wcscmp(argv[i], L"--wb-update") == 0 || wcscmp(argv[i], L"--wb-update-run") == 0 ||
+                    wcscmp(argv[i], L"--wb-get") == 0 || wcscmp(argv[i], L"--wb-get") == 0 || wcscmp(argv[i], L"--wb-update") == 0 || wcscmp(argv[i], L"--wb-update-run") == 0 ||
                     wcscmp(argv[i], L"--version") == 0) cli = true;
             }
             LocalFree(argv);
@@ -455,6 +455,52 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
                     if (i + 5 >= (int)args.size()) return 2;
                     unsigned long pid = (unsigned long)_wtoi64(args[i + 4].c_str());
                     return her::RunUpdateHelper(args[i + 1], args[i + 2], args[i + 3], pid, args[i + 5]);
+                }
+            }
+            for (int i = 0; i < (int)args.size(); i++) {
+                if (args[i] == L"--wb-get") {
+                    if (i + 2 >= (int)args.size()) {
+                        Out(L"用法：--wb-get <owner/repo> <tag> [保存路径]");
+                        return 2;
+                    }
+                    const wstring repo = args[i + 1], tag = args[i + 2];
+                    her::SetupAsset a = her::FindSetupAsset(repo, tag);
+                    if (!a.ok) {
+                        Out(L"[下载] 没找到安装包：" + (a.err.empty() ? wstring(L"release 里没有") : a.err));
+                        return 3;
+                    }
+                    wstring dest = (i + 3 < (int)args.size()) ? args[i + 3] : JoinPath(ExeDir(), a.name);
+                    Out(L"[下载] " + a.name + L"（" + PrettyBytes((long long)a.size) + L"）→ " + dest);
+                    unsigned long long got = 0;
+                    wstring err;
+                    long long t0 = NowUnix();
+                    bool ok = her::DownloadFile(a.url, dest, &got, &err, [](int) {});
+                    if (!ok) {
+                        Out(L"[下载] 失败：" + err);
+                        return 4;
+                    }
+                    Out(L"[下载] 好了：" + PrettyBytes((long long)got) + L"，用时 " + Num(NowUnix() - t0) + L" 秒");
+                    if (a.size > 0 && got != a.size) {
+                        Out(L"[下载] 大小对不上：期望 " + PrettyBytes((long long)a.size) + L"，实际 " + PrettyBytes((long long)got));
+                        return 5;
+                    }
+                    if (!a.shaUrl.empty()) {
+                        wstring shaFile = dest + L".sha256";
+                        unsigned long long sgot = 0;
+                        if (her::DownloadFile(a.shaUrl, shaFile, &sgot, &err, [](int) {})) {
+                            wstring want = Trim(ReadTextFile(shaFile));
+                            const size_t sp = want.find_first_of(L" \t*");
+                            if (sp != wstring::npos) want = want.substr(0, sp);
+                            wstring have = her::Sha256File(dest, &err);
+                            if (!want.empty() && !have.empty() && _wcsicmp(want.c_str(), have.c_str()) != 0) {
+                                Out(L"[下载] 哈希对不上：期望 " + want + L"，实际 " + have);
+                                return 6;
+                            }
+                            Out(L"[下载] 哈希核对通过：" + have);
+                        }
+                    }
+                    Out(L"[下载] 完成。");
+                    return 0;
                 }
             }
             for (int i = 0; i < (int)args.size(); i++) {
