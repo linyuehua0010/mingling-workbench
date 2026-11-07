@@ -10,11 +10,13 @@ function fixture(){
   const element=id=>elements[id]??=( {id,children:[],innerHTML:'',textContent:'',value:'',open:false,onclick:null,
     matches:()=>false,blur(){document.activeElement={matches:()=>false}},showModal(){this.open=true},close(){this.open=false}} );
   const document={getElementById:id=>elements[id]||null,activeElement:{matches:()=>false},addEventListener:(name,fn)=>handlers[name]=fn};
+  const styles=new Map();
+  document.documentElement={dataset:{},style:{setProperty:(k,v)=>styles.set(k,v),removeProperty:k=>styles.delete(k)}};
   for(const id of ['nav','clock','workspace','connection','side-version','crumb','toast','notification','page','editor','save-ask','cancel-ask','ask-text'])element(id);
   const context=vm.createContext({document,window:{chrome:{webview:{postMessage:m=>messages.push(m),addEventListener(){}}},scrollTo(){}},setTimeout(){},console});
   vm.runInContext(script,context);
   const state={version:'V3-snapshot-3',tab:0,bsec:0,clock:'2026-11-07 20:00:00',workspace:'test-workspace',toast:'',stats:['0','0','0','0'],services:[{name:'AstrBot',desc:'对话',port:'6199',up:false,pid:0}],jobs:[],feed:[],items:[],features:[false,false,false,false],docs:[{title:'教程',hint:'离线',id:'guide'}],docsel:-1,asks:[{title:'帮助',body:'测试'}],updates:[],logsrc:0,check:'未检查',input:'',watchBusy:false,progress:0};
-  return {context,elements,handlers,messages,element,state,render:s=>{context.fixtureState=s;vm.runInContext('render(fixtureState)',context)}};
+  return {context,elements,handlers,messages,element,state,styles,render:s=>{context.fixtureState=s;vm.runInContext('render(fixtureState)',context)}};
 }
 test('all seven pages render without a backend or script errors',()=>{
   const f=fixture();assert.equal(f.messages[0].cmd,'ready');
@@ -58,4 +60,25 @@ test('unchanged fields are not submitted as edits',()=>{
   const fields=[{dataset:{row:'1'},type:'text',value:'original',defaultValue:'original'}, {dataset:{row:'2'},type:'checkbox',checked:true,defaultChecked:true}];
   f.handlers.submit({target:{id:'config-form',dataset:{kind:'bili'},querySelectorAll:s=>s.includes('password')?[]:fields},preventDefault(){}});
   assert.equal(f.messages.at(-1).fields.length,0);
+});
+
+test('custom colors apply safely and switching to daytime clears overrides',()=>{
+  const f=fixture();
+  f.render({...f.state,tab:5,theme:'custom',themeBase:'light',theme_bg:'#fbf6ed',theme_accent:'#883399',theme_ink:'url(evil)'});
+  assert.equal(f.context.document.documentElement.dataset.theme,'custom');
+  assert.equal(f.styles.get('--bg'),'#fbf6ed');
+  assert.equal(f.styles.get('--ink'),'#e9effc');
+  assert.match(f.elements.page.innerHTML,/应用自定义主题/);
+  f.render({...f.state,theme:'light'});
+  assert.equal(f.context.document.documentElement.dataset.theme,'light');
+  assert.equal(f.styles.has('--bg'),false);
+});
+
+test('theme form submits palette and base through the native settings bridge',()=>{
+  const f=fixture();f.render({...f.state,tab:5});
+  f.element('theme-base').value='light';
+  f.element('theme-bg').value='#fafafa';
+  f.handlers.submit({target:{id:'theme-form'},preventDefault(){}});
+  const m=f.messages.at(-1);
+  assert.equal(m.cmd,'theme');assert.equal(m.value,'custom');assert.equal(m.base,'light');assert.equal(m.bg,'#fafafa');
 });

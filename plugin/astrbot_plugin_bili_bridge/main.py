@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import importlib
+import uuid
+from contextlib import nullcontext
+from types import SimpleNamespace
 import os
 import re
 import sqlite3
@@ -63,6 +67,7 @@ DEFAULTS = {
     "same_bv_per_day": True,
     # 看完直接写 livingmemory
     "memory_write": True,
+    "owner_session": "",
 }
 
 # 读不到 AstrBot 人设时的兜底（真正的人格在 data_v4.db 的 personas 表里）
@@ -99,7 +104,7 @@ def _plugin_root() -> Path:
 
 def _state_dir() -> Path:
     """工作台的状态目录（日记、限额、bili-whale 配置都在这），不依赖任何外部宿主环境。"""
-    env = os.environ.get("MINGLING_STATE", "")
+    env = os.environ.get("MINGLING_STATE_DIR", "") or os.environ.get("MINGLING_STATE", "")
     if env.strip():
         return Path(env).expanduser()
     appdata = os.environ.get("APPDATA", "")
@@ -403,42 +408,81 @@ def _memory_text(bv: str, title: str, up: str, raw: str, body: str, media: Path)
         f"讲了什么：{said}\n"
         f"我的看法：{view}\n"
         f"关键点：{points}\n"
-        f"素材：{media}" + chr(92)
+        f"素材：{media}"
+    )
+
+
+def _scope_api(plugin):
+    package = type(plugin).__module__.rsplit(".", 1)[0]
+    return importlib.import_module(package + ".core.memory_scope")
+
+
+def _session_event(session_id: str, context=None, metadata=None):
+    platform, kind, identity = session_id.split(":", 2)
+    platform_name = platform
+    get_platform = getattr(context, "get_platform_inst", None)
+    if callable(get_platform):
+        instance = get_platform(platform)
+        if instance is None:
+            raise ValueError("来源平台还未就绪")
+        platform_name = instance.meta().name
+    metadata = metadata or {}
+    return SimpleNamespace(
+        unified_msg_origin=session_id,
+        get_platform_name=lambda: platform_name, get_platform_id=lambda: platform,
+        get_sender_id=lambda: identity if kind == "FriendMessage" else str(metadata.get("source_sender_id") or ""),
+        get_group_id=lambda: identity if kind == "GroupMessage" else "",
+        get_sender_name=lambda: str(metadata.get("source_sender_name") or ""),
     )
 
 
 async def _lm_remember(bv: str, content: str, session_id: str, meta: dict) -> str:
-    """写/更新一条记忆。返回 '' 表示成功，否则是失败原因。"""
+    """Use LivingMemory's own access/scope policy, and retain persona/source ownership."""
     plugin = _lm_plugin()
     if plugin is None:
         return "livingmemory 插件没加载（或没激活）"
     engine = getattr(getattr(plugin, "initializer", None), "memory_engine", None)
     if engine is None:
         return "livingmemory 的 memory_engine 还没初始化"
+    if not session_id or len(session_id.split(":", 2)) != 3 or not bv or not content.strip():
+        return "缺少来源、内容或有效的主人会话"
     try:
-        existing = await engine.list_memories_page(keyword=bv, page_size=50)
-    except Exception as exc:
-        return f"查重失败: {type(exc).__name__}: {exc}"
-    for item in (existing.get("items") or []):
-        raw_meta = item.get("metadata")
-        if isinstance(raw_meta, str):
-            try:
-                raw_meta = json.loads(raw_meta)
-            except Exception:
-                raw_meta = {}
-        if isinstance(raw_meta, dict) and str(raw_meta.get("bili_bv") or "") == bv:
-            try:
-                ok = await engine.update_memory(int(item["id"]), {
-                    "content": content,
-                    "importance": 0.62,
-                    "metadata": {**meta, "updated_at": int(time.time())},
-                })
-                return "" if ok else "update_memory 返回 False"
-            except Exception as exc:
-                return f"更新失败: {type(exc).__name__}: {exc}"
-    try:
-        await engine.add_memory(content, session_id=session_id, persona_id=None,
-                                importance=0.62, metadata=meta)
+        api = _scope_api(plugin)
+        config = plugin.config_manager
+        event = _session_event(session_id, getattr(plugin, "context", None), meta)
+        if not api.is_event_memory_allowed(config, event):
+            return "来源会话不在长期记忆白名单内"
+        scope = api.resolve_memory_scope(config, event) or session_id
+        persona = str(meta.get("persona_id") or "冥零")
+        metadata = {**meta, "source_session_id": session_id, "persona_id": persona,
+                    "session_id": scope, "adapter_id": session_id.split(":", 1)[0]}
+        adapter = getattr(api, "adapter_access", None)
+        with adapter(config, event, write=True) if adapter else nullcontext():
+            # Page through duplicates and only update within the same scope/persona.
+            page = 1
+            while True:
+                existing = await engine.list_memories_page(keyword=bv, session_id=scope, page=page, page_size=50)
+                items = existing.get("items") or []
+                for item in items:
+                    raw_meta = item.get("metadata") or {}
+                    if isinstance(raw_meta, str):
+                        raw_meta = json.loads(raw_meta)
+                    if (str(raw_meta.get("bili_bv") or "") == bv
+                            and raw_meta.get("session_id") == scope
+                            and raw_meta.get("persona_id") == persona
+                            and raw_meta.get("adapter_id", metadata["adapter_id"]) == metadata["adapter_id"]):
+                        ok = await engine.update_memory(int(item["id"]), {
+                            "content": content, "importance": 0.62,
+                            "metadata": {**raw_meta, **metadata, "updated_at": int(time.time())},
+                        })
+                        return "" if ok else "update_memory 返回 False"
+                if len(items) < 50:
+                    break
+                page += 1
+            memory_id = await engine.add_memory(content, session_id=scope, persona_id=persona,
+                                                importance=0.62, metadata=metadata)
+            if memory_id is None or memory_id is False:
+                return "add_memory 未返回成功记录"
         return ""
     except Exception as exc:
         return f"写入失败: {type(exc).__name__}: {exc}"
@@ -452,6 +496,9 @@ class BiliBridge(Star):
         _CFG_ROOT = str(self.cfg.get("bili_root") or "")
         self.whale = _find_whale_dir(str(self.cfg.get("whale_dir") or ""))
         self.node = _find_node(str(self.cfg.get("node_exe") or ""))
+        self._memory_task = None
+        self._memory_retry_after = {}
+        self._memory_lock = asyncio.Lock()
         self._busy: set[str] = set()          # 正在跑的 BV，防重复
         self._cache: dict[str, tuple[float, dict]] = {}   # bv -> (时间, 结果)
         self._soft_last: dict[str, float] = {}            # umo -> 上次软触发时间
@@ -459,6 +506,7 @@ class BiliBridge(Star):
 
     async def initialize(self) -> None:
         paths = _ensure_dirs()
+        self._memory_task = asyncio.create_task(self._memory_loop())
         logger.info(f"[bili_bridge] 产物根: out={paths['out']} tmp={paths['tmp']} logs={paths['logs']}")
         if self.whale:
             logger.info(f"[bili_bridge] bili-whale 就绪 → {self.whale}")
@@ -466,7 +514,128 @@ class BiliBridge(Star):
             logger.warning("[bili_bridge] 没找到内置 B 站组件（工作台 sidecar\\bili-whale），B 站链接会看不了")
 
     async def terminate(self) -> None:
+        if self._memory_task:
+            self._memory_task.cancel()
+            await asyncio.gather(self._memory_task, return_exceptions=True)
+            self._memory_task = None
         self._busy.clear()
+
+    def _owner_session(self) -> str:
+        configured = str(self.cfg.get("owner_session") or "").strip()
+        if configured:
+            return configured
+        # The setup allowlist contains the actual platform instance and owner session.
+        plugin = _lm_plugin()
+        config = getattr(plugin, "config_manager", None)
+        allowed = config.get("access_control.allowed_ids", "") if config else ""
+        values = allowed if isinstance(allowed, list) else re.split(r"[,;\n]", str(allowed))
+        private = [str(x).strip() for x in values if ":FriendMessage:" in str(x) and not str(x).startswith("webchat:")]
+        return private[0] if len(private) == 1 else ""
+
+    async def _flush_memory(self) -> tuple[int, int]:
+        async with self._memory_lock:
+            if not self.cfg.get("memory_write", True):
+                count = len(_pending_all()) + len(list((_paths()["logs"] / "memory-inbox").glob("*.json")))
+                self._memory_status(0, count, "长期记忆写入已关闭")
+                return 0, count
+            done, last_error = 0, ""
+            inbox = _paths()["logs"] / "memory-inbox"
+            inbox.mkdir(parents=True, exist_ok=True)
+            # Migrate the old queue synchronously before any await. Published files survive
+            # cancellation/crashes, and new producers never race with a JSONL rewrite.
+            remaining = []
+            for it in _pending_all():
+                try:
+                    self._publish_memory(inbox, it)
+                except OSError:
+                    remaining.append(it)
+            _pending_rewrite(remaining)
+            last_error = self._backfill_jobs(inbox) or ""
+            for path in [p for p in sorted(inbox.glob("*.json")) if self._memory_retry_after.get(p.name, 0) <= time.time()][:20]:
+                self._memory_retry_after[path.name] = time.time() + 60
+                try:
+                    it = json.loads(path.read_text(encoding="utf-8-sig"))
+                    meta = dict(it.get("metadata") or {})
+                    meta.setdefault("persona_id", self.cfg["persona_id"])
+                    err = await _lm_remember(str(it.get("bv", "")), str(it.get("content", "")),
+                                             str(it.get("session_id") or self._owner_session()), meta)
+                    if err:
+                        last_error = err
+                        logger.warning(f"[bili_bridge] 工作台记忆待补写: {err}")
+                    else:
+                        path.unlink()
+                        self._memory_retry_after.pop(path.name, None)
+                        done += 1
+                except Exception as exc:
+                    last_error = str(exc)
+                    logger.warning(f"[bili_bridge] 工作台记忆待补写 {path.name}: {exc}")
+            count = len(_pending_all()) + len(list(inbox.glob("*.json")))
+            self._memory_status(done, count, last_error)
+            return done, count
+
+    @staticmethod
+    def _memory_status(done: int, count: int, error: str):
+        path = _paths()["logs"] / "memory-status.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"updated": int(time.time()), "done": done, "pending": count,
+                                   "error": error}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    @staticmethod
+    def _publish_memory(inbox: Path, record: dict):
+        path = inbox / (uuid.uuid4().hex + ".json")
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
+
+    def _backfill_jobs(self, inbox: Path):
+        """Recover earlier successful workbench reads, including reads before this fix."""
+        logs = _paths()["logs"]
+        ledger, cursor = logs / "jobs.jsonl", logs / "memory-jobs.cursor"
+        if not ledger.is_file():
+            return
+        try:
+            offset = int(cursor.read_text()) if cursor.exists() else 0
+            if offset > ledger.stat().st_size:
+                offset = 0
+            with ledger.open("rb") as stream:
+                stream.seek(offset)
+                for _ in range(20):
+                    line = stream.readline()
+                    if not line or not line.endswith(b"\n"):
+                        break
+                    try:
+                        job = json.loads(line.decode("utf-8-sig"))
+                    except (ValueError, UnicodeError):
+                        offset = stream.tell()
+                        continue
+                    # New jobs already have an immutable queue entry.
+                    if job.get("source") == "console" and job.get("status") == "ok" and not job.get("memory_queued"):
+                        sink = Path(str(job.get("sink") or "")).resolve()
+                        if sink.is_file() and sink.is_relative_to((logs / "jobs").resolve()):
+                            content = sink.read_text(encoding="utf-8-sig")[:6000]
+                            self._publish_memory(inbox, {
+                                "bv": job.get("bv", ""),
+                                "content": f"【工作台阅读记录】{job.get('title', '')}\n来源：{job.get('bv', '')}\n{content}",
+                                "metadata": {"memory_origin": "workbench", "source": job.get("type") or "bilibili",
+                                             "bili_bv": job.get("bv", "")},
+                            })
+                    offset = stream.tell()
+            tmp = cursor.with_suffix(".tmp")
+            tmp.write_text(str(offset))
+            tmp.replace(cursor)
+        except (OSError, ValueError) as exc:
+            logger.warning(f"[bili_bridge] 历史阅读记忆等待补写: {exc}")
+            return str(exc)
+
+    async def _memory_loop(self):
+        while True:
+            try:
+                await self._flush_memory()
+            except Exception as exc:
+                logger.warning(f"[bili_bridge] 自动补写记忆失败: {exc}")
+            await asyncio.sleep(30)
+
 
     # ------------------------------------------------------------------ 入站
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -502,7 +671,7 @@ class BiliBridge(Star):
 
         umo = event.unified_msg_origin
         chat = _chat_label(event)
-        asyncio.create_task(self._handle(umo, chat, bv, url))
+        asyncio.create_task(self._handle(umo, chat, bv, url, {"source_sender_id": event.get_sender_id(), "source_sender_name": event.get_sender_name()}))
         yield event.plain_result("知道了知道了，我看一眼（看到字幕和弹幕，慢的话一两分钟）。")
 
     def _maybe_soft(self, event: AstrMessageEvent, bv: str, feed_only: bool = False) -> bool:
@@ -535,7 +704,7 @@ class BiliBridge(Star):
             req.system_prompt = (req.system_prompt or "") + SOFT_HINT_FEED
 
     # ------------------------------------------------------------------ 干活
-    async def _handle(self, umo: str, chat: str, bv: str, url: str) -> None:
+    async def _handle(self, umo: str, chat: str, bv: str, url: str, identity: dict | None = None) -> None:
         started = time.time()
         try:
             if not bv:
@@ -553,7 +722,7 @@ class BiliBridge(Star):
             body = await self._summarize_bounded(res["raw"], chat)
             self._cache[bv] = (time.time(), {**res, "body": body})
             if self.cfg.get("memory_write", True):
-                await self._remember(bv, res, body, umo)
+                await self._remember(bv, res, body, umo, identity)
             await self._deliver(umo, body, res.get("sheet", ""))
         except Exception:
             logger.exception("[bili_bridge] 处理失败")
@@ -598,15 +767,18 @@ class BiliBridge(Star):
         finally:
             self._busy.discard(bv)
 
-    async def _remember(self, bv: str, res: dict, body: str, umo: str) -> None:
+    async def _remember(self, bv: str, res: dict, body: str, umo: str, identity: dict | None = None) -> None:
         media = Path(res.get("out_dir") or (_paths()["out"] / bv))
         content = _memory_text(bv, res.get("title", ""), res.get("up", ""), res.get("raw", ""), body, media)
         meta = {
+            **(identity or {}),
             "bili_bv": bv, "bili_title": res.get("title", ""), "bili_up": res.get("up", ""),
             "bili_sheet": res.get("sheet", ""), "bili_out_dir": str(media),
             "memory_origin": "bili_bridge", "source": "bilibili",
+            "persona_id": self.cfg["persona_id"],
         }
-        err = await _lm_remember(bv, content, umo, meta)
+        async with self._memory_lock:
+            err = await _lm_remember(bv, content, umo, meta)
         if err:
             logger.warning(f"[bili_bridge] 写记忆失败（{bv}）：{err}")
             _pending_add({"t": int(time.time()), "bv": bv, "content": content,
@@ -748,7 +920,7 @@ class BiliBridge(Star):
                                "message": res.get("message", "没看成"), "bv": bv})
         body = await self._summarize_bounded(res["raw"], chat)
         if self.cfg.get("memory_write", True):
-            await self._remember(bv, res, body, umo)
+            await self._remember(bv, res, body, umo, {"source_sender_id": event.get_sender_id(), "source_sender_name": event.get_sender_name()})
         await self._deliver(umo, body, res.get("sheet", ""))
         said, _, points = _memory_parts(res["raw"], body)
         return _tool_json({
@@ -803,21 +975,9 @@ class BiliBridge(Star):
     @filter.command("bili_mem")
     async def bili_mem_cmd(self, event: AstrMessageEvent):
         """把 memory-pending.jsonl 里的记忆补写进 livingmemory。/bili_mem flush"""
-        items = _pending_all()
-        if not items:
-            yield event.plain_result("没有待补写的记忆。")
-            return
-        left, done = [], 0
-        for it in items:
-            err = await _lm_remember(str(it.get("bv", "")), str(it.get("content", "")),
-                                     str(it.get("session_id", "")), dict(it.get("metadata") or {}))
-            if err:
-                it["error"] = err
-                left.append(it)
-            else:
-                done += 1
-        _pending_rewrite(left)
-        yield event.plain_result(f"补写完成：成功 {done} 条，还剩 {len(left)} 条。")
+        done, remaining = await self._flush_memory()
+        yield event.plain_result(f"补写完成：成功 {done} 条，还剩 {remaining} 条。")
+
 
 
 # ──────────────────────────────────────────────────────────── 工具函数

@@ -28,7 +28,10 @@ static const wchar_t* APP_USER_MODEL_ID = L"Mingling.Workbench.snapshot";
 static const wchar_t* CLS_NAME = L"MinglingWorkbench";
 static const wchar_t* APP_USER_MODEL_ID = L"Mingling.Workbench.2";
 #endif
-static const wchar_t* WIN_TITLE = L"冥零工作台 " APP_VERSION;
+// Keep one native set of window controls, with no caption text or small icon.
+static const wchar_t* WIN_TITLE = L"";
+static constexpr DWORD WINDOW_STYLE = WS_OVERLAPPEDWINDOW;
+static constexpr DWORD WINDOW_EX_STYLE = WS_EX_DLGMODALFRAME;
 
 static FILE* g_out = nullptr;
 
@@ -147,31 +150,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_MOUSEMOVE:
-            UiOnMove(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            if (WebUiFallback()) UiOnMove(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             return 0;
 
         case WM_LBUTTONDOWN:
             SetFocus(hwnd);
-            UiOnClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            if (WebUiFallback()) UiOnClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             return 0;
 
         case WM_RBUTTONUP:   // 输入框上的右键菜单：粘贴 / 复制 / 剪切 / 全选
-            UiOnRClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
+            if (WebUiFallback()) UiOnRClick(GET_X_LPARAM(lp), GET_Y_LPARAM(lp));
             return 0;
 
         case WM_MOUSEWHEEL: {
             POINT pt = {GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             ScreenToClient(hwnd, &pt);
-            UiOnWheel(pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wp));
+            if (WebUiFallback()) UiOnWheel(pt.x, pt.y, GET_WHEEL_DELTA_WPARAM(wp));
             return 0;
         }
 
         case WM_CHAR:
-            UiOnChar((unsigned int)wp);
+            if (WebUiFallback()) UiOnChar((unsigned int)wp);
             return 0;
 
         case WM_KEYDOWN:
-            UiOnKeyDown((int)wp);
+            if (WebUiFallback()) UiOnKeyDown((int)wp);
             return 0;
 
         case WM_SETCURSOR:
@@ -600,7 +603,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     if (w > (int)(swScreen * 0.90f)) w = (int)(swScreen * 0.90f);
     if (h > (int)(shScreen * 0.86f)) h = (int)(shScreen * 0.86f);
     RECT want = {0, 0, w, h};
-    AdjustWindowRectEx(&want, WS_OVERLAPPEDWINDOW, FALSE, 0);
+    AdjustWindowRectEx(&want, WINDOW_STYLE, FALSE, WINDOW_EX_STYLE);
     int ww = want.right - want.left, wh = want.bottom - want.top;
     int sx = (GetSystemMetrics(SM_CXSCREEN) - ww) / 2;
     int sy = (GetSystemMetrics(SM_CYSCREEN) - wh) / 2 - 20;
@@ -609,7 +612,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
     HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(comResult)) return 1;
 
-    HWND hwnd = CreateWindowExW(0, CLS_NAME, WIN_TITLE, WS_OVERLAPPEDWINDOW, sx, sy, ww, wh, nullptr, nullptr, inst,
+    HWND hwnd = CreateWindowExW(WINDOW_EX_STYLE, CLS_NAME, WIN_TITLE, WINDOW_STYLE, sx, sy, ww, wh, nullptr, nullptr, inst,
                                 nullptr);
     if (!hwnd) {
         GdiplusShutdown(token);

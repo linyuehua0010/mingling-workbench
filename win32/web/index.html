@@ -254,6 +254,41 @@ dialog .actions{justify-content:flex-end}
   .form-row input[type=checkbox]{justify-self:start}
   .grid{grid-template-columns:1fr}
 }
+
+/* Daylight uses porcelain surfaces and blue ink; custom shares its surface system. */
+:root[data-theme="light"]{color-scheme:light;--bg:#eef3fb;--panel:#ffffff;--ink:#20304a;--acc:#3269d6}
+:root[data-theme="custom"][data-base="light"]{color-scheme:light}
+:root[data-theme="custom"][data-base="dark"],:root[data-theme="dark"]{color-scheme:dark}
+:root[data-theme="light"],:root[data-theme="custom"]{
+ --panel-2:color-mix(in srgb,var(--panel) 92%,var(--acc));--sub:color-mix(in srgb,var(--ink) 78%,var(--panel));
+ --muted:color-mix(in srgb,var(--ink) 66%,var(--panel));--line:color-mix(in srgb,var(--ink) 16%,var(--panel));
+ --line-2:color-mix(in srgb,var(--ink) 25%,var(--panel));--acc-2:var(--acc);
+ --ok:#168167;--warn:#92621a;--bad:#c33c60;
+}
+html[data-base="dark"][data-theme="custom"]{--ok:#68d8b9;--warn:#ecc57d;--bad:#ff92a8}
+html:not([data-theme="dark"]) body{background:radial-gradient(ellipse at 95% 0%,color-mix(in srgb,var(--acc) 12%,transparent),transparent 55%),var(--bg)}
+html:not([data-theme="dark"]) :is(.rail,.bar,.card,.stat,.item,.bubble,dialog,#toast,.hero,input,textarea,select,pre){background:var(--panel);color:var(--ink);border-color:var(--line);box-shadow:0 8px 30px color-mix(in srgb,var(--ink) 6%,transparent)}
+html:not([data-theme="dark"]) :is(.bar,.rail){background:color-mix(in srgb,var(--panel) 92%,var(--bg))}
+html:not([data-theme="dark"]) :is(.crumb,.stat strong,.sec-h h2,.bubble,.hero p,.hero-eyebrow b,nav button.active){color:var(--ink)}
+html:not([data-theme="dark"]) :is(.rail-label,.rail-meta,.bar-hint,.foot,.head .no,.row .no,.hero-eyebrow,nav button,nav button kbd,nav button .ic,.chip,.pill.gray,.act,.group-label,.item p){color:var(--muted)}
+html:not([data-theme="dark"]) :is(.doc,.seg button.selected,.opts button.selected){color:var(--ink)}
+html:not([data-theme="dark"]) .void b{color:var(--sub)}
+html:not([data-theme="dark"]) :is(.void .face,.void small,.attach,.row time){color:var(--muted)}
+html:not([data-theme="dark"]) :is(.seg,.progress){background:var(--panel-2)}
+html:not([data-theme="dark"]) :is(input,textarea)::placeholder{color:var(--muted)}
+html:not([data-theme="dark"]) .doc code{color:var(--acc)}
+html:not([data-theme="dark"]) :is(button,.svc-i){background:var(--panel-2);color:var(--sub);border-color:var(--line-2)}
+html:not([data-theme="dark"]) :is(button:hover,nav button.active,.selected){background:color-mix(in srgb,var(--acc) 14%,var(--panel));color:var(--acc);border-color:var(--acc)}
+html:not([data-theme="dark"]) button.primary{background:var(--acc);color:var(--primary-ink,#fff);border-color:var(--acc);box-shadow:0 6px 18px color-mix(in srgb,var(--acc) 28%,transparent)}
+html:not([data-theme="dark"]) .hero::after{background:linear-gradient(90deg,var(--panel) 8%,color-mix(in srgb,var(--panel) 94%,transparent) 40%,transparent 85%)}
+html:not([data-theme="dark"]) .hero h1{text-shadow:none}
+html:not([data-theme="dark"]) ::-webkit-scrollbar-thumb{background:var(--line-2);border-color:var(--bg)}
+.theme-colors{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}.theme-colors label{display:grid;gap:7px;color:var(--sub)}
+.theme-colors input[type="color"]{width:92px;height:38px;padding:3px;border:1px solid var(--line-2);border-radius:8px}
+.bar,.me{user-select:none}.bar :is(button,input,select),.me button{user-select:auto}
+html:not([data-theme="dark"]) .rail nav button{background:none;border-color:transparent}
+html:not([data-theme="dark"]) .quiet{background:none;border:0}
+
 </style></head>
 <body>
 <div class="shell">
@@ -377,9 +412,40 @@ function check(){
 function optRow(title,note,opts,current,busy){
   return `<div class="feat"><div class="t"><b>${esc(title)}</b><small>${esc(note)}</small></div><div class="opts">${opts.map(o=>`<button data-action="${esc(o[1])}" class="${current===o[2]?'selected':''}"${busy?' disabled':''}>${esc(o[0])}</button>`).join('')}</div></div>`;
 }
+
+const themeDefaults={bg:'#101827',panel:'#1b2940',ink:'#e9effc',accent:'#79adff'};
+let themeDirty=false;
+function themeColors(s){return Object.fromEntries(Object.entries(themeDefaults).map(([k,v])=>[k,/^#[0-9a-f]{6}$/i.test(s['theme_'+k])?s['theme_'+k]:v]))}
+function applyTheme(s){
+ const root=document.documentElement;if(!root)return;
+ const mode=['dark','light','custom'].includes(s.theme)?s.theme:'dark';
+ root.dataset.theme=mode;root.dataset.base=s.themeBase==='light'?'light':'dark';
+ const colors=themeColors(s);
+ for(const [k,v] of Object.entries(colors)){const key='--'+(k==='accent'?'acc':k);if(mode==='custom')root.style.setProperty(key,v);else root.style.removeProperty(key)}
+ const c=mode==='light'?'#3269d6':colors.accent;
+ const lum=[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);
+ root.style.setProperty('--primary-ink',lum[0]*.2126+lum[1]*.7152+lum[2]*.0722>.179?'#101827':'#ffffff');
+}
+function themeSettings(){
+ const mode=state.theme||'dark',colors=themeColors(state);
+ return card('外观主题',`<p class="dim">黑夜保留现在的深蓝；白天换上清透的瓷白与蓝色。切换后自动保存。</p><div class="actions">${[['dark','黑夜'],['light','白天'],['custom','自定义']].map(([k,n])=>`<button data-theme="${k}" class="${mode===k?'selected':''}" aria-pressed="${mode===k}">${n}</button>`).join('')}</div><form id="theme-form"><p><label>自定义基础 <select id="theme-base"><option value="dark" ${state.themeBase!=='light'?'selected':''}>深色</option><option value="light" ${state.themeBase==='light'?'selected':''}>浅色</option></select></label></p><div class="theme-colors">${[['bg','背景'],['panel','卡片'],['ink','文字'],['accent','强调色']].map(([k,n])=>`<label>${n}<input type="color" id="theme-${k}" value="${colors[k]}" aria-label="${n}颜色"></label>`).join('')}</div><button type="submit" class="primary">应用自定义主题</button></form>`);
+}
+function memoryQueueNote(){
+ const q=state.memoryQueue;
+ if(!q||!q.updated||Date.now()/1000-q.updated>120)return '阅读结果在本地排队；启动大脑并启用记忆插件后自动补写。';
+ return q.pending?`待写入 ${q.pending} 条${q.error?' · '+q.error:''}`:(q.error||'阅读记忆队列已同步');
+}
+function saveTheme(mode){
+ const colors=themeColors(state),base=$('theme-base')?.value||state.themeBase||'dark';
+ for(const k of Object.keys(colors))colors[k]=$('theme-'+k)?.value||colors[k];
+ themeDirty=false;force=true;
+ send('theme',{value:mode,base,...colors});
+ applyTheme({...state,theme:mode,themeBase:base,...Object.fromEntries(Object.entries(colors).map(([k,v])=>['theme_'+k,v]))});
+}
+
 function maintenance(){
   let html=head('06','照顾她','<span class="act">（把工具箱推过来）</span>要动哪儿，先跟我说一声。',btn('再查一遍','mref',false,state.maintBusy),state.note||'')
-    +`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`;
+    +themeSettings()+`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`;
   const ops=[['日常',[['重启大脑','restart_brain'],['重登 QQ','relogin'],['重启 QQ','restart_qq'],['自设定','selfsetup'],['一键自动配置','autosetup'],['导入人设','import_skill'],['修开机自启','autostart_fix']]],['组件',[['启动 Breeze','start_breeze'],['启动 Ollama','start_ollama'],['更新技能','skill_update']]],['兜底',[['备份到桌面','backup'],['生成求助信息','diag']]]];
   html+=card('一键操作',ops.map(([g,list])=>`<div class="group-label">${g}</div><div class="quick" style="margin-top:0">${list.map(([n,a])=>btn(n,'op:'+a,false,state.maintBusy)).join('')}</div>`).join('')+`<p class="dim" style="margin-top:12px">${esc(state.lastOp)||'动过什么，会写在这里。'}</p>`);
   let rows=optRow('群里怎么回复','@ 不 @ 引用，随你',[['不 @','freq:group:off','off'],['@ 对方','freq:group:mention','mention'],['引用','freq:group:quote','quote'],['都加','freq:group:both','both']],state.group,state.maintBusy);
@@ -392,6 +458,7 @@ function maintenance(){
   const pn=[['桌宠','让桌宠也用她的人设'],['唱歌','想听什么，点一首'],['豆包语音','用豆包的声音'],['在线 Breeze','用在线 Breeze 音色']];
   let rows2=pn.map((p,i)=>optRow(p[0],p[1],[['开','plugin/'+plugins[i]+'/1',true],['关','plugin/'+plugins[i]+'/0',false]],state.features[i],state.maintBusy)).join('');
   rows2+=optRow('长期记忆','聊过的小事，能记多久',[['关','memory/0',0],['本机 bge-m3','memory/1',1],['硅基流动','memory/2',2]],state.memory,state.maintBusy);
+  rows2+=`<p class="dim" role="status">${esc(memoryQueueNote())}</p>`;
   rows2+=optRow('语音路线','今天用哪一种声音',[['关','voice/0',0],['Edge','voice/1',1],['豆包','voice/3',3],['本机 Breeze','voice/4',4],['在线 Breeze','voice/5',5]],state.voice,state.maintBusy);
   html+=card('她会做的事',rows2);
   return html;
@@ -427,6 +494,7 @@ function paint(){
 }
 function render(s){
   state=s;
+  applyTheme(s);
   const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
   set('clock',clockText(s.clock));
   set('workspace',s.workspace||'');
@@ -446,7 +514,7 @@ function render(s){
   const sig=JSON.stringify([comparable,helpSec,cfgSec]);
   if(sig===signature&&!force)return;
   const focused=document.activeElement,form=$('config-form');
-  if(!changed&&!force&&(form||(focused&&focused.matches('input,textarea,select'))||$('editor').open))return;
+  if(!changed&&!force&&(form||(themeDirty&&$('theme-form'))||(focused&&focused.matches('input,textarea,select'))||$('editor').open))return;
   const draft=$('watch-input')?$('watch-input').value:undefined;
   signature=sig;force=false;
   paint();
@@ -455,6 +523,7 @@ function render(s){
 document.addEventListener('click',e=>{
   const b=e.target.closest('button,[data-job]');if(!b)return;
   const d=b.dataset;
+  if('theme'in d){saveTheme(d.theme);return}
   if('nav'in d){force=true;const i=+d.nav;if(d.sectionGo!==undefined){send('tab',{index:i});send('section',{index:+d.sectionGo})}else send('tab',{index:i});return}
   if('action'in d){act(d.action);return}
   if('watch'in d){const el=$('watch-input');send('watch',{value:el?el.value:''});if(el)el.blur();return}
@@ -472,11 +541,16 @@ document.addEventListener('click',e=>{
   if('askedit'in d){editing=+d.askedit;$('ask-text').value=state.asks[editing].body;$('editor').showModal();return}
 });
 document.addEventListener('submit',e=>{
+  if(e.target.id==='theme-form'){e.preventDefault();saveTheme('custom');return}
   if(e.target.id!=='config-form')return;e.preventDefault();
   const form=e.target;
   send('configsave',{value:form.dataset.kind,fields:[...form.querySelectorAll('[data-row]')].filter(x=>!x.readOnly&&(x.type==='checkbox'?x.checked!==x.defaultChecked:x.value!==x.defaultValue)).map(x=>({row:+x.dataset.row,value:x.type==='checkbox'?(x.checked?'开':'关'):x.value}))});
   form.querySelectorAll('input[type=password]').forEach(x=>x.value='');
 });
+document.addEventListener('mousedown',e=>{
+ if(e.button===0&&e.target.closest('.bar,.me')&&!e.target.closest('button,input,select,a'))send('window',{value:e.detail===2?'maximize':'drag'});
+});
+document.addEventListener('input',e=>{if(e.target.closest('#theme-form'))themeDirty=true});
 $('save-ask').onclick=()=>{send('asksave',{index:editing,value:$('ask-text').value});$('editor').close();force=true};
 $('cancel-ask').onclick=()=>$('editor').close();
 document.addEventListener('keydown',e=>{

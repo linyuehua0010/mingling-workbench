@@ -1414,7 +1414,9 @@ static void PaintCheck(Graphics& g) {
 #include "ui_center.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
-    if (WebUiActive()) return;
+    // WebView2 starts asynchronously. The old UI is an explicit failure fallback,
+    // never the default surface while the HTML controller is being created.
+    if (!WebUiFallback()) { WebUiPaintLoading(hdc, w, h); return; }
     if (!g_bmp || w != g_bw || h != g_bh) {
         if (g_bmp) DeleteObject(g_bmp);
         if (g_mem) DeleteDC(g_mem);
@@ -2133,6 +2135,7 @@ void UiOnTask(TaskData* d) {
             break;
         case TK_WATCH: {
             g_watchBusy = false;
+            g_watchBv = d->bv; // Preserve the resolved BV for short-link follow-up conversations.
             // 换一条视频就把上一条的封面/九宫格从内存里放掉，别越攒越多
             if (!g_result.cover.empty()) DropImg(g_result.cover);
             if (!g_result.sheet.empty()) DropImg(g_result.sheet);
@@ -2175,13 +2178,13 @@ void UiOnTask(TaskData* d) {
             wstring baseName = isLink ? (L"link-" + Num(j.t)) : (d->bv + L"-" + Num(j.t));
             j.sink = JoinPath(dir, baseName + L".txt");
             WriteTextFile(j.sink, d->text);
-            AppendJob(j);
+            bool queued = AppendJob(j);
             LoadJobs();
             if (isLink) {
-                if (d->ok) UiToast(L"读完了，记在本子上了");
+                if (d->ok) UiToast(queued ? L"读完了，已排队写入长期记忆（需大脑与记忆插件运行）" : L"读完了，但记忆排队失败，请检查日志目录");
                 else UiToast(L"没读成，原因在结果里");
             } else if (d->ok) {
-                UiToast(L"看完啦，记在本子上了");
+                UiToast(queued ? L"看完了，已排队写入长期记忆（需大脑与记忆插件运行）" : L"看完了，但记忆排队失败，请检查日志目录");
             } else {
                 UiToast(L"没看成功，去「哪儿卡了」看看");
             }

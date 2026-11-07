@@ -6,11 +6,15 @@ C++ 后端，HTML 只负责长相和交互。
 
 ## 设计
 
+- **外观设置**：照顾她 → 外观主题，可切黑夜、白天、自定义。黑夜保留原配色；白天用瓷白卡片、
+  浅蓝背景与深蓝文字。自定义可选深浅基础并调整背景、卡片、文字、强调色，保存到本机设置。
+- **窗口控制**：系统标题栏隐藏图标和版本标题，只保留一组系统最小化、最大化/还原和关闭按钮。
+  拖动页面栏或左上角头像区域移动窗口，双击可最大化/还原，窗口边缘仍能缩放。
+
 - **底色**：`#070d18` 的夜，面板 `#0e1a2e`，正文 `#e9effc`，次要 `#a6b4d0`；强调色取她眼睛的
   冰蓝 `#5a97ff` / `#8fd6ff`。body 上叠三层径向渐变，像房间里只开了一盏灯。
 - **字体**：微软雅黑 UI 打底，标题字重 500–600；数字与时钟用 Segoe UI，等宽日志用 Cascadia Mono。
-- **窗口边框**：WebView2 起来后调 `DwmSetWindowAttribute`，把标题栏、边框、文字一起刷成深夜蓝
-  （Win11 用 CAPTION/BORDER/TEXT_COLOR，Win10 靠 immersive dark），首帧前把 WebView2 底色压深，不闪白。
+- **窗口边框**：空白系统标题栏与边框的 DWM 深浅模式跟随当前主题；WebView2 首帧底色也读取已保存的主题。
 - **总览**：左半边是她的问候（按当前时段换：还没睡啊 / 早… / 在 / 晚上好 / 这么晚了），
   右半边是 `art/hero.png` 立绘，`mask-image` 向左淡出；下面一排四个数字，再接「她身边」「扔个链接过来」。
 - **侧栏**：头像 + 名字 + 版本，小标「她 的 桌 子」，七个页签带内联 SVG 图标和数字键；
@@ -56,6 +60,8 @@ C++ 后端，HTML 只负责长相和交互。
 | 看片 / 读链接 | `{cmd:"watch",value}` | 输入框回车也发这条 |
 | 保存配置 | `{cmd:"configsave",value,fields}` | 只提交改过的字段，密码清空后提交空值表示保留 |
 | 求助卡改字 | `{cmd:"asksave",index,value}` | 存在 `settings.json` 的 `custom_help_texts` |
+| 外观主题 | `{cmd:"theme",value,base,bg,panel,ink,accent}` | 三种模式；颜色只接受 `#RRGGBB`；重启保留 |
+| 窗口控制 | `{cmd:"window",value}` | 仅接受 `minimize/maximize/close/drag` |
 | 快捷键 | `F5` 刷新当前页、`F9` 全部启动、`F10` 全部关闭 | `F5` 按页面分派 `mref` / `feed` / `jobs_refresh` / `log_refresh` |
 
 ## 编译

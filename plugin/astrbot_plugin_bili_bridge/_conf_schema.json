@@ -20,7 +20,7 @@
     "default": true
   },
   "memory_write": {
-    "description": "看完后由代码直接写一条 livingmemory（不依赖模型自觉）",
+    "description": "将看过的视频、工作台链接与对话结果写入长期记忆；失败每 30 秒重试",
     "type": "bool",
     "default": true
   },
@@ -56,6 +56,11 @@
   },
   "node_exe": {
     "description": "node.exe 路径，留空自动找（优先用工作台自带的 node）",
+    "type": "string",
+    "default": ""
+  },
+  "owner_session": {
+    "description": "工作台阅读记忆归属的主人完整会话 ID；留空从长期记忆白名单中唯一的 QQ 私聊会话推断",
     "type": "string",
     "default": ""
   }

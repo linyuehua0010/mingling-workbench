@@ -198,4 +198,5 @@ struct JobRec {
 
 wstring JobsFile();
 vector<JobRec> ReadJobs(int maxRows = 200);
-void AppendJob(const JobRec& j);
+bool QueueJobMemory(const JobRec& j, const wstring& body);
+bool AppendJob(const JobRec& j);

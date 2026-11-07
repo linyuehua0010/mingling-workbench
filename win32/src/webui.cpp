@@ -31,25 +31,67 @@ static ICoreWebView2Environment* environment;
 static ICoreWebView2Controller* controller;
 static ICoreWebView2* view;
 static bool closing = false;
+static bool fallback = false;
 static const wchar_t* origin = L"https://mingling.local/";
 static void Fail(HRESULT hr) {
+    fallback = true;
+    if (controller) controller->put_IsVisible(FALSE);
+    // The native fallback needs its own close/move controls when HTML cannot load.
+    SetWindowLongPtrW(host, GWL_STYLE, GetWindowLongPtrW(host, GWL_STYLE) | WS_CAPTION);
+    SetWindowPos(host, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    InvalidateRect(host, nullptr, FALSE);
     wchar_t code[32]; swprintf(code, 32, L"0x%08lX", (unsigned long)hr);
     wstring msg = L"内嵌界面没能启动（" + wstring(code) + L"）。\n请安装 Microsoft Edge WebView2 Runtime，并确认 WebView2Loader.dll 与工作台在同一目录。";
     MessageBoxW(host, msg.c_str(), L"冥零 · 界面启动失败", MB_OK | MB_ICONERROR);
 }
 bool WebUiActive() { return view != nullptr; }
+bool WebUiFallback() { return fallback; }
+static COLORREF ThemeColor(const wstring& key, COLORREF fallbackColor) {
+    wstring value = SettingGet(key);
+    if (value.size() != 7 || value[0] != L'#' || value.find_first_not_of(L"0123456789abcdefABCDEF", 1) != wstring::npos) return fallbackColor;
+    unsigned long rgb = wcstoul(value.c_str() + 1, nullptr, 16);
+    return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+}
+static COLORREF ThemeBackground() {
+    wstring theme = SettingGet(L"theme");
+    if (theme == L"light") return RGB(0xee, 0xf3, 0xfb);
+    if (theme == L"custom") return ThemeColor(L"theme_bg", RGB(0x10, 0x18, 0x27));
+    return RGB(0x07, 0x0d, 0x18);
+}
+void WebUiPaintLoading(HDC dc, int width, int height) {
+    RECT bounds{0, 0, width, height};
+    HBRUSH brush = CreateSolidBrush(ThemeBackground());
+    FillRect(dc, &bounds, brush); DeleteObject(brush);
+    if (view || closing) return;
+    COLORREF ink = SettingGet(L"theme") == L"light" ? RGB(32,48,74) : RGB(233,239,252);
+    if (SettingGet(L"theme") == L"custom") ink = ThemeColor(L"theme_ink", ink);
+    int oldMode = SetBkMode(dc, TRANSPARENT);
+    COLORREF oldInk = SetTextColor(dc, ink);
+    HGDIOBJ oldFont = SelectObject(dc, GetStockObject(DEFAULT_GUI_FONT));
+    DrawTextW(dc, L"正在打开工作台…", -1, &bounds, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, oldFont); SetTextColor(dc, oldInk); SetBkMode(dc, oldMode);
+}
 // 界面是深夜蓝，系统默认的白色标题栏会像在画上贴了块膏药，所以把边框也刷成同一个色。
-static void PaintFrameDark(HWND hwnd) {
+static void PaintFrameTheme(HWND hwnd) {
     using DwmSet = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
     static DwmSet dwm = [] {
         HMODULE m = LoadLibraryW(L"dwmapi.dll");
         return m ? reinterpret_cast<DwmSet>(GetProcAddress(m, "DwmSetWindowAttribute")) : (DwmSet) nullptr;
     }();
     if (!dwm) return;
-    BOOL on = TRUE;
+    wstring mode = SettingGet(L"theme"), base = SettingGet(L"theme_base");
+    auto color = [](const wstring& key, COLORREF fallback) {
+        wstring v = SettingGet(key);
+        if (v.size() != 7 || v[0] != L'#' || v.find_first_not_of(L"0123456789abcdefABCDEF", 1) != wstring::npos) return fallback;
+        unsigned long rgb = wcstoul(v.c_str() + 1, nullptr, 16);
+        return RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+    };
+    BOOL on = !(mode == L"light" || (mode == L"custom" && base == L"light"));
     // 20 是 Win10 20H1+ 的编号，19 是 1809 之前的，认哪个用哪个。
     if (FAILED(dwm(hwnd, 20, &on, sizeof(on)))) dwm(hwnd, 19, &on, sizeof(on));
     COLORREF caption = RGB(0x08, 0x0e, 0x1a), text = RGB(0xe9, 0xef, 0xfc), border = RGB(0x17, 0x24, 0x40);
+    if (mode == L"light") { caption = RGB(255,255,255); text = RGB(32,48,74); border = RGB(219,226,236); }
+    if (mode == L"custom") { caption = color(L"theme_panel", caption); text = color(L"theme_ink", text); border = color(L"theme_bg", border); }
     // 下面三条是 Win11 才认；Win10 返回失败，标题栏还是靠上面那条变深。
     dwm(hwnd, 35, &caption, sizeof(caption));
     dwm(hwnd, 36, &text, sizeof(text));
@@ -59,7 +101,12 @@ void WebUiResize() {
     if (controller) { RECT rc; GetClientRect(host, &rc); controller->put_Bounds(rc); }
 }
 void WebUiPublish() {
-    if (view && !closing) view->PostWebMessageAsJson(WebUiState().c_str());
+    if (view && !closing) {
+        static wstring lastTheme;
+        wstring theme = SettingGet(L"theme") + SettingGet(L"theme_base") + SettingGet(L"theme_panel") + SettingGet(L"theme_ink") + SettingGet(L"theme_bg");
+        if (theme != lastTheme) { PaintFrameTheme(host); lastTheme = theme; }
+        view->PostWebMessageAsJson(WebUiState().c_str());
+    }
 }
 void WebUiClose() {
     closing = true;
@@ -70,6 +117,7 @@ void WebUiClose() {
 }
 void WebUiInit(HWND hwnd) {
     host = hwnd;
+    fallback = false;
     loader = LoadLibraryExW(JoinPath(ExeDir(), L"WebView2Loader.dll").c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
     if (!loader) { Fail(HRESULT_FROM_WIN32(GetLastError())); return; }
     using Create = HRESULT(STDAPICALLTYPE*)(PCWSTR, PCWSTR, ICoreWebView2EnvironmentOptions*, ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler*);
@@ -85,11 +133,12 @@ void WebUiInit(HWND hwnd) {
                     if (closing) return S_OK;
                     if (FAILED(result) || !ctl) { Fail(result); return S_OK; }
                     controller = ctl; ctl->AddRef(); ctl->get_CoreWebView2(&view);
-                    PaintFrameDark(host);
+                    PaintFrameTheme(host);
                     // 页面第一次绘制前先把底色压成深夜蓝，免得一闪白。
                     ICoreWebView2Controller2* ctl2 = nullptr;
                     if (SUCCEEDED(ctl->QueryInterface(IID_ICoreWebView2Controller2, (void**)&ctl2)) && ctl2) {
-                        COREWEBVIEW2_COLOR bg{255, 0x07, 0x0d, 0x18};
+                        COLORREF color = ThemeBackground();
+                        COREWEBVIEW2_COLOR bg{255, GetRValue(color), GetGValue(color), GetBValue(color)};
                         ctl2->put_DefaultBackgroundColor(bg);
                         ctl2->Release();
                     }
@@ -127,6 +176,14 @@ void WebUiInit(HWND hwnd) {
                             CoTaskMemFree(uri); return S_OK;
                         });
                     view->add_NavigationStarting(navigation, &token); navigation->Release();
+                    auto completed = Handler<ICoreWebView2NavigationCompletedEventHandler, ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs*>(
+                        [](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+                            if (closing) return S_OK;
+                            BOOL success = FALSE; args->get_IsSuccess(&success);
+                            if (!success) Fail(E_FAIL);
+                            return S_OK;
+                        });
+                    view->add_NavigationCompleted(completed, &token); completed->Release();
                     auto popup = Handler<ICoreWebView2NewWindowRequestedEventHandler, ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs*>(
                         [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT { args->put_Handled(TRUE); return S_OK; });
                     view->add_NewWindowRequested(popup, &token); popup->Release();

@@ -34,13 +34,18 @@ static wstring DshPrompt() {
 static void DshRun() {
     DshApiCfg cfg = DshApiLoad();
     wstring prompt = DshPrompt();
-    std::thread([cfg, prompt]() {
+    JobRec memory;
+    memory.t = NowUnix(); memory.bv = g_watchBv; memory.title = g_result.title;
+    memory.status = g_result.ok ? L"ok" : L"fail"; memory.type = L"api";
+    std::thread([cfg, prompt, memory]() {
         TaskData* d = new TaskData();
         d->kind = TK_DSHTEST;
         d->action = 1;
         wstring reply, err;
         d->ok = DshChat(prompt, cfg, &reply, &err);
         d->text = d->ok ? reply : err;
+        if (d->ok && memory.status == L"ok" && !QueueJobMemory(memory, prompt + L"\n对话回复：\n" + reply))
+            d->text += L"\n（回复成功，但长期记忆排队失败。）";
         PostTask(d);
     }).detach();
 }

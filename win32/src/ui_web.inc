@@ -4,6 +4,10 @@ wstring WebUiState() {
     J s = JObj();
     s.Set(L"version", APP_VERSION); s.Set(L"tab", g_tab); s.Set(L"bsec", g_bSec);
     s.Set(L"clock", g_clock); s.Set(L"workspace", WorkspaceDir());
+    s.Set(L"theme", SettingGet(L"theme"));
+    s.Set(L"themeBase", SettingGet(L"theme_base"));
+    s.Set(L"memoryQueue", ReadJson(JoinPath(JoinPath(WorkspaceDir(), L"logs"), L"memory-status.json")));
+    for (auto key : {L"bg", L"panel", L"ink", L"accent"}) s.Set(L"theme_" + wstring(key), SettingGet(L"theme_" + wstring(key)));
     s.Set(L"toast", GetTickCount() - g_toastAt < 4000 ? g_toast : L"");
     s.Set(L"watchBusy", g_watchBusy); s.Set(L"feedBusy", g_feedBusy);
     s.Set(L"checkBusy", g_checkBusy); s.Set(L"maintBusy", g_mBusy);
@@ -50,6 +54,25 @@ void WebUiCommand(const wstring& message) {
     bool ok = false; J m = J::Parse(message, &ok); if (!ok || !m.Obj()) return;
     wstring cmd = m.Str(L"cmd"), value = m.Str(L"value"); int index = (int)m.Int(L"index", -1);
     if (cmd == L"ready") { RefreshStatus(false); return; }
+    if (cmd == L"window") {
+        if (value == L"minimize") ShowWindow(g_hwnd, SW_MINIMIZE);
+        else if (value == L"maximize") ShowWindow(g_hwnd, IsZoomed(g_hwnd) ? SW_RESTORE : SW_MAXIMIZE);
+        else if (value == L"close") PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
+        else if (value == L"drag") { ReleaseCapture(); PostMessageW(g_hwnd, WM_NCLBUTTONDOWN, HTCAPTION, GetMessagePos()); }
+        return;
+    }
+    if (cmd == L"theme") {
+        if (value != L"dark" && value != L"light" && value != L"custom") return;
+        wstring base = m.Str(L"base");
+        if (base != L"dark" && base != L"light") return;
+        for (auto key : {L"bg", L"panel", L"ink", L"accent"}) {
+            wstring color = m.Str(key);
+            if (color.size() != 7 || color[0] != L'#' || color.find_first_not_of(L"0123456789abcdefABCDEF", 1) != wstring::npos) return;
+        }
+        SettingSet(L"theme", value); SettingSet(L"theme_base", base);
+        for (auto key : {L"bg", L"panel", L"ink", L"accent"}) SettingSet(L"theme_" + wstring(key), m.Str(key));
+        UiToast(L"主题已保存"); return;
+    }
     if (cmd == L"tab" && index >= 0 && index < 7) { DispatchAction("tab:" + std::to_string(index)); return; }
     if (cmd == L"section" && index >= 0 && index < 4) {
         g_bSec = index;

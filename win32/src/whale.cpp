@@ -231,7 +231,25 @@ static wstring JsonEscape(const wstring& s) {
     return o;
 }
 
-void AppendJob(const JobRec& j) {
+bool QueueJobMemory(const JobRec& j, const wstring& body) {
+    if (j.status != L"ok" || body.empty()) return false;
+    wstring dir = JoinPath(JoinPath(WorkspaceDir(), L"logs"), L"memory-inbox");
+    CreateDirectoryW(JoinPath(WorkspaceDir(), L"logs").c_str(), nullptr);
+    CreateDirectoryW(dir.c_str(), nullptr);
+    static volatile LONG sequence = 0;
+    wstring path = JoinPath(dir, Num(j.t) + L"-" + Num(GetCurrentProcessId()) + L"-" + Num(GetTickCount64()) + L"-" + Num(InterlockedIncrement(&sequence)) + L".json");
+    wstring content = L"【工作台阅读记录】" + j.title + L"\n来源：" + j.bv + L"\n" + body.substr(0, 6000);
+    wstring record = L"{\"bv\":\"" + JsonEscape(j.bv) + L"\",\"content\":\"" + JsonEscape(content) +
+        L"\",\"metadata\":{\"memory_origin\":\"workbench\",\"source\":\"" +
+        JsonEscape(j.type.empty() ? L"bilibili" : j.type) + L"\",\"bili_bv\":\"" + JsonEscape(j.bv) +
+        L"\",\"title\":\"" + JsonEscape(j.title) + L"\"}}";
+    // Publish one immutable file per result; the plugin never rewrites a producer's queue.
+    if (!WriteTextFile(path + L".tmp", record)) return false;
+    return MoveFileExW((path + L".tmp").c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH) != FALSE;
+}
+
+bool AppendJob(const JobRec& j) {
+    bool queued = j.source == L"console" && j.status == L"ok" && QueueJobMemory(j, ReadTextFile(j.sink, 64 * 1024));
     wstring line = L"{\"t\":" + Num(j.t) + L",\"bv\":\"" + JsonEscape(j.bv) + L"\",\"title\":\"" +
                    JsonEscape(j.title) + L"\",\"up\":\"" + JsonEscape(j.up) + L"\",\"source\":\"" +
                    JsonEscape(j.source) + L"\",\"chat\":\"" + JsonEscape(j.chat) + L"\",\"status\":\"" +
@@ -239,8 +257,10 @@ void AppendJob(const JobRec& j) {
                    JsonEscape(j.seconds) + L"\"";
     // type 只在真有值时才写：老记录没有这个键，读的人也不能指望它
     if (!j.type.empty()) line += L",\"type\":\"" + JsonEscape(j.type) + L"\"";
+    if (queued) line += L",\"memory_queued\":true";
     line += L"}\n";
     WriteTextFile(JobsFile(), line, true);
+    return queued;
 }
 
 static bool JsonGetString(const wstring& line, const wstring& key, wstring& out) {
