@@ -20,7 +20,7 @@
 
 ## 为什么只注入 AstrBot
 
-SnowLuma 只管登 QQ、收发消息，它的配置文件只有 `onebot / notifications / runtime / ui / webui`，**没有人设字段**；硬塞进去下次启动就被覆盖。人设只存在 AstrBot 的数据库里。
+QQ 登录端只管登 QQ、收发消息，它的配置文件只有 `onebot / notifications / runtime / ui / webui`，**没有人设字段**；硬塞进去下次启动就被覆盖。人设只存在 AstrBot 的数据库里。
 
 ## 自定义模板的占位符
 

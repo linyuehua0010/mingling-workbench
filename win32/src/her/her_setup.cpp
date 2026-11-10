@@ -233,7 +233,7 @@ SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onSte
             if (!s.ok) bad++;
         rep.ok = ok && bad == 0;
         rep.summary = rep.ok
-                          ? std::wstring(L"组件齐了：AstrBot、SnowLuma、Breeze、Ollama、bili-whale 都在 " +
+                          ? std::wstring(L"组件齐了：AstrBot、QQ 登录端、Breeze、Ollama、bili-whale 都在 " +
                                          BotRoot() + L" 下。")
                           : (std::wstring(L"还有 ") + std::to_wstring(bad != 0 ? bad : 1) +
                              L" 项没成，看报告里的红字。");

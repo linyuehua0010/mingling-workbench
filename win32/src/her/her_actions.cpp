@@ -1064,7 +1064,7 @@ static bool QqUpgradeSuspect() {
 
 static const wchar_t* ItemName(const wstring& id) {
     if (id == L"astrbot") return L"AstrBot";
-    if (id == L"snowluma") return L"SnowLuma";
+    if (id == L"snowluma") return L"QQ 登录端";
     if (id == L"skill") return L"冥零的安装 Skill";
     return L"冥零工作台";
 }

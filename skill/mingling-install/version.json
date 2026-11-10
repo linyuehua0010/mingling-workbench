@@ -2,8 +2,8 @@
   "version": "0.6.0",
   "date": "2026-11-10",
   "notes": [
-    "对齐 V3.2.0：安装包 MinglingWorkbench-3.2.0-setup.exe（88,892,091 B）；另有显式开 -BundleSnowLuma 才产出的 MinglingWorkbench-3.2.0-setup-snowluma.exe（131,675,213 B，内含 SnowLuma 2.4.2）",
-    "新增 SnowLuma 原理白皮书 docs\\snowluma.md，deploy-qq 整篇按 components.json + bootstrap.ps1 + bots\\ 布局重写",
+    "对齐 V3.2.0：安装包 MinglingWorkbench-3.2.0-setup.exe（88,903,917 B）；另有显式开 -BundleLogin 才产出的 MinglingWorkbench-3.2.0-setup-login.exe（131,685,463 B，内含 QQ 登录端 2.4.2）",
+    "deploy-qq 整篇按 components.json + bootstrap.ps1 + bots\\ 布局重写，补登录端的注入原理、端口表与排错",
     "装包可自带组件：程序目录 pack\\<组件id>\\ 里 sha256 对得上就直接用，不下载不联网（-Offline 同样有效）",
     "目录结构与日志路径纠错：AstrBot 入口在 bots\\AstrBot\\bin\\astrbot.exe、日志 bots\\AstrBot\\data\\run.log；uv 在 uv\\bin、ffmpeg 在 sidecar\\ffmpeg\\bin",
     "界面可用性与主题修正：键盘可操作、长列表贴底跟随、失败提示留 12 秒",

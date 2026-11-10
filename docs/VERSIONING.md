@@ -9,8 +9,8 @@
 - 已发布正式版：**V3.2.0**（文件版本 `3.2.0.0`，安装包 `MinglingWorkbench-3.2.0-setup.exe`）。
 - V3.2.0 沿用正式通道目录，和 V3.1.0 / V3.0.0 / V2.4.1 是原地升级：装过旧版的机器直接装 V3.2.0，
   安装目录、状态目录、工作区都不动。
-- 出包时额外开 `-BundleSnowLuma` 的那一版是**另一个文件名**：`MinglingWorkbench-3.2.0-setup-snowluma.exe`
-  （见下文「内置 SnowLuma 的那一版」），它不进正式发布通道。
+- 出包时额外加 `-BundleLogin` 的那一版是**另一个文件名**：`MinglingWorkbench-3.2.0-setup-login.exe`
+  （见下文「内置 QQ 登录端的那一版」），它不进正式发布通道。
 - 快照通道下一版：**V4-snapshot-1**（尚未发布）。正式版发了 V3 之后，快照改叫 V4，序号从 1 重新数。
 - 现在的快照通道停在 V3-snapshot-3；从快照版转正式版要重装到正式通道，配置不自动迁移。
 
@@ -105,7 +105,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1
 `version_auto.iss` 是生成物，提交进仓库只是为了让人直接在 Inno 里点编译也能出包。安装器的
 `AppVersion` / `AppVerName` 用显示串（`V3.2.0`，这就是「应用和功能」那一列），
 `VersionInfoVersion` 用四段数字（`3.2.0.0`），`OutputBaseFilename` 用短串（`3.2.0`）。
-内置 SnowLuma 的那一版在短串后再拼 `-snowluma`（`{#OutSuffix}`），所以两份包不会互相覆盖。
+内置 QQ 登录端的那一版在短串后再拼 `-login`（`{#OutSuffix}`），所以两份包不会互相覆盖。
 
 ## 发一版要走的顺序
 
@@ -114,8 +114,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1
    → 打 `[版本] OK V3.2.0 (3.2.0.0)`。
 3. 关掉正在跑的工作台（`Get-Process MinglingWorkbench | Stop-Process`），否则 `build.bat` 复制 exe 会失败。
 4. `win32\build.bat` → `installer\build-installer.bat`。
-   要出「内置 SnowLuma」的那一版，第 4 步改成 `installer\build-installer.bat -BundleSnowLuma`
-   （离线出包加 `-Offline`），详见 [snowluma.md](snowluma.md) 第 14 节。
+   要出「内置 QQ 登录端」的那一版，第 4 步改成 `installer\build-installer.bat -BundleLogin`
+   （离线出包加 `-Offline`），授权边界见 `docs\THIRD-PARTY.md` 第 4 节。
 5. 核对四处：`--version` 打的、exe 属性里的、`dist\MinglingWorkbench-3.2.0-setup.exe`
    文件名、安装后「应用和功能」里的版本（V3.2.0 显示为「冥零工作台 V3.2.0」）。
 6. 打 tag 发 release：快照版发成 **prerelease**（更新页只从 release 列表里挑带 `snapshot` 的 tag，
@@ -131,6 +131,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-version.ps1
 - V3.0.0 是 V3 线第一个正式版：内嵌 HTML 界面定稿，正式通道目录沿用 V2.4.1，安装时原地升级。
 - V3.1.0 把安装收成一条自动链路（`tools\components.json` + `tools\bootstrap.ps1`），
   并新增唱歌、桌宠、豆包语音；安装包 88,855,864 B，SHA256 `ff9982cd…809f8`。
-- V3.2.0 让安装包能自带 SnowLuma（`-BundleSnowLuma`，显式开关）、界面做了一轮可用性与主题优化，
+- V3.2.0 让安装包能自带 QQ 登录端（`-BundleLogin`，显式开关）、界面做了一轮可用性与主题优化，
   文档全面对齐到当前版本。
 - 安装包文件名跟着 `version.h` 走，`dist\` 里同时留着旧包属于正常（历史产物没删）。

@@ -71,7 +71,7 @@ static const wchar_t* TABS[] = {L"总览", L"一起看看", L"做过的事", L"�
 
 struct SvcDef { const wchar_t* id; const wchar_t* name; const wchar_t* port; const wchar_t* desc; };
 static const SvcDef SVCS[2] = {
-    {L"snowluma", L"SnowLuma", L"5099", L"挂 QQ 收消息"},
+    {L"snowluma", L"QQ 登录端", L"5099", L"挂 QQ 收消息"},
     {L"astrbot", L"AstrBot", L"6199", L"对话 · 插件 · 记忆"},
 };
 static bool g_svcUp[2] = {false, false};
@@ -106,7 +106,7 @@ static wstring g_jobDetail;
 static float g_jobDetailScroll = 0, g_jobDetailH = 0, g_jobDetailView = 0;
 
 static int g_logSrc = 0;
-static const wchar_t* LOG_NAMES[] = {L"B站 / bili-whale", L"AstrBot", L"SnowLuma"};
+static const wchar_t* LOG_NAMES[] = {L"B站 / bili-whale", L"AstrBot", L"QQ 登录端"};
 static wstring g_logText;
 static float g_logScroll = 0, g_logH = 0, g_logView = 0;
 static DWORD g_logStamp = 0;

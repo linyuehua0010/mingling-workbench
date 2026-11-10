@@ -1,7 +1,7 @@
 ﻿# 第三方组件与许可证
 
 本安装包分发以下第三方组件。它们只在本地运行，不联网鉴权，不依赖 DSH。
-其中第 4 项（SnowLuma）是**可选的**：默认安装包不含它，只在出包时显式开启
+其中第 4 项（QQ 登录端）是**可选的**：默认安装包不含它，只在出包时显式开启
 内置通道的那一版才有。
 
 ## 1. bili-whale（sidecar\bili-whale）
@@ -57,38 +57,34 @@ SOFTWARE.
 - 如你所在的分发场景需要，可把 `sidecar\bili-whale\bin\ffmpeg.exe` 换成 LGPL 构建，
   工作台通过 `FFMPEG` 环境变量或同路径加载，不需要改代码。
 
-## 4. SnowLuma（可选内置，`pack\snowluma\` / 装好后的 `bots\SnowLuma`）
+## 4. QQ 登录端（可选内置，`pack\login\` / 装好后的 `bots\<登录端目录>`）
 
-**默认安装包不含 SnowLuma。** 装完之后由 `tools\bootstrap.ps1` 按
-`tools\components.json` 的 `snowluma` 条目从上游发布页下载官方原版包，
-校验 SHA256 后解压到 `<工作区>\bots\SnowLuma\`。只有出包时显式加
-`installer\build-installer.bat -BundleSnowLuma` 的那一版安装包，才会把这个
-原版 zip 一起打进 `{app}\pack\snowluma\`（装完之后同样是这个目录下的原版
-文件被解压过去，跳过下载）。
+**默认安装包不含它。** 装完之后由 `tools\bootstrap.ps1` 按 `tools\components.json`
+里对应条目从上游发布页下载原版包，校验 SHA256 后解压到 `<工作区>\bots\<登录端目录>\`。
+只有出包时显式加 `installer\build-installer.bat -BundleLogin` 的那一版安装包，才会把这个
+原版 zip 一起打进 `{app}\pack\login\`（装完之后同样是这个目录下的原版文件被解压
+过去，跳过下载）。
 
-- 上游：SnowLuma 2.4.2（<https://github.com/TomyJan/SnowLuma>）
-- 发布页：<https://github.com/TomyJan/SnowLuma/releases>
+- 上游：QQ 登录端 2.4.2（一个独立的开源 QQ 登录端项目，发布在 GitHub 上）
 - 分发方式：**上游发布的 Windows x64 原版 zip，一个字节都没有修改**，
-  包内自带 `EULA.md` 与 `PRIVACY.md`，装完可在 `bots\SnowLuma\` 里读到。
-  本项目不反编译、不替换其组件、不重新打包其内容。
-- 许可证：SnowLuma 自带《最终用户许可协议》（EULA v1.1，2026-07-21 生效），
-  完整正文见包内 `EULA.md` 与 <https://github.com/TomyJan/SnowLuma/blob/main/EULA.md>。
+  包内自带它自己的 `EULA.md` 与 `PRIVACY.md`，装完可在 `<登录端目录>` 里读到，
+  许可证全文以那两份文件为准。本项目不反编译、不替换其组件、不重新打包其内容。
+- 该组件是一个独立第三方项目，与本项目、与腾讯及 QQ 均无隶属关系。
 
-**关于这一条要注意的事**（照抄上游原文的要点，不代为解释）：
+**关于这一条要注意的事**（照抄上游许可协议的要点，不代为解释）：
 
-- EULA 第 2.2 条：任何商业使用，以及公开发布修改版或衍生版，均须事先取得著作权人的书面授权。
-- EULA 第 5.4 条：除事先取得著作权人的书面授权外，不得复制、修改、单独再分发或再许可该组件；
+- 第 2.2 条：任何商业使用，以及公开发布修改版或衍生版，均须事先取得著作权人的书面授权。
+- 第 5.4 条：除事先取得著作权人的书面授权外，不得复制、修改、单独再分发或再许可该组件；
   **将其并入第三方安装包或 Docker 镜像、通过自动化脚本部署**，或者将其用于任何商业用途，
   均须事先取得书面授权。
-- EULA 第 3.1 条：SnowLuma 与腾讯及 QQ 无隶属关系。
-- EULA 第 3.6 条：使用非官方协议工具可能违反平台服务条款，账号风险由使用者自负。
+- 第 3.6 条：使用非官方协议工具可能违反平台服务条款，账号风险由使用者自负。
 
-因此「把 SnowLuma 打进安装包」这条通道在本项目里是**出包时逐个显式开启的构建开关**，
+因此「把登录端打进安装包」这条通道在本项目里是**出包时逐个显式开启的构建开关**，
 不是默认行为：谁开启，谁负责确认自己已满足上面第 5.4 条的前提。
-`installer\prepare-snowluma.ps1` 每次出内置包都会把这段提示再打印一遍。
+`installer\prepare-login.ps1` 每次出内置包都会把这段提示再打印一遍。
 
-SnowLuma 的工作方式（注入本机已登录的桌面 QQ，对外提供 OneBot 11 接口，
-不是自己登协议）见 `docs\snowluma.md`。
+登录端的工作方式（注入本机已登录的桌面 QQ，对外提供 OneBot 11 接口，不是自己登协议）
+见 `deploy-qq.md` 第 3 节。
 
 ## 5. 本程序自身
 

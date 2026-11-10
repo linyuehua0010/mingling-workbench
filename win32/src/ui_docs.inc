@@ -12,7 +12,7 @@ struct DocEntry {
 static const DocEntry DOCS[] = {
     {L"guide", L"使用说明", L"使用说明.md", L"装完到会用，含 FAQ 和排错"},
     {L"bili", L"B 站 / 看视频", L"deploy-bili.md", L"bili-whale、登录、配额"},
-    {L"qq", L"QQ 机器人", L"deploy-qq.md", L"SnowLuma、NapCat、怎么跑起来"},
+    {L"qq", L"QQ 机器人", L"deploy-qq.md", L"QQ 登录端、NapCat、怎么跑起来"},
 };
 static const int DOC_COUNT = (int)(sizeof(DOCS) / sizeof(DOCS[0]));
 

@@ -277,7 +277,7 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
         Out(L"资源目录 : " + her::Root());
         Out(L"组件根   : " + BotRoot());
         Out(L"AstrBot  : " + her::BotPath(L"AstrBot"));
-        Out(L"SnowLuma : " + her::BotPath(L"SnowLuma"));
+        Out(L"QQ 登录端 : " + her::BotPath(L"SnowLuma"));
         Out(L"Breeze   : " + her::BotPath(L"Breeze"));
         Out(L"Ollama   : " + her::BotPath(L"Ollama"));
         Out(L"状态目录 : " + StateDir());

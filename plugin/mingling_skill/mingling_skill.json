@@ -4,7 +4,7 @@
   "display_name": "冥零专属 Skill",
   "version": "2026.11.08",
   "schema": 1,
-  "说明": "公孙冥零完整默认人设，正文以 persona/mingling.md 为准，直接导入即可。人设只注入 AstrBot：SnowLuma 只负责登 QQ 和收发消息，它没有 persona 字段。",
+  "说明": "公孙冥零完整默认人设，正文以 persona/mingling.md 为准，直接导入即可。人设只注入 AstrBot：QQ 登录端只负责登 QQ 和收发消息，它没有 persona 字段。",
 
   "persona": {
     "id": "{persona_id}",
@@ -57,7 +57,7 @@
     },
     "snowluma": {
       "supported": false,
-      "why": "SnowLuma 的配置只有 onebot / notifications / runtime / ui / webui，没有人设字段；硬塞会被下次启动覆盖。"
+      "why": "QQ 登录端的配置只有 onebot / notifications / runtime / ui / webui，没有人设字段；硬塞会被下次启动覆盖。"
     },
     "pet": {
       "file": "tools/pet-persona-mine.txt",

@@ -10,15 +10,16 @@
 文件版本 `3.2.0.0`，`tools\check-version.ps1` 打印 `[版本] OK V3.2.0 (3.2.0.0)`。沿用正式通道目录，
 装过 V3.1.0 / V3.0.0 / V2.4.1 的机器是原地升级，工作区、状态目录、备份都不动。
 
-**SnowLuma 可以直接打进安装包**
+**QQ 登录端可以直接打进安装包**
 
-- 新增显式构建开关 `installer\build-installer.bat -BundleSnowLuma`（离线加 `-Offline`）：
-  开启后 `prepare-snowluma.ps1` 会把上游官方原版 zip（2.4.2，43,361,462 B，SHA256 `0912926c…bad81a`，
-  与 `tools\components.json` 完全一致）放进安装包的 `{app}\pack\snowluma\`，装完不用再联网下 41 MB。
+- 新增显式构建开关 `installer\build-installer.bat -BundleLogin`（离线再加 `-Offline`）：
+  开启后 `installer\prepare-login.ps1` 会把上游官方原版 zip（2.4.2，43,361,462 B，
+  SHA256 `0912926c…bad81a`，与 `tools\components.json` 完全一致）放进安装包的 `{app}\pack\login\`，
+  装完不用再联网下 41 MB。
 - 默认**不内置**：上游 EULA §5.4 明确要求「并入第三方安装包」须事先取得著作权人书面授权，
-  所以这条通道只能显式开启，谁开启谁负责。安装协议页（`docs\THIRD-PARTY.md` 第 4 节）和
-  `docs\snowluma.md` 第 14 节都写清了这一点，`prepare-snowluma.ps1` 每次运行还会再打印一遍提示。
-- 内置版的产物名带后缀：`MinglingWorkbench-3.2.0-setup-snowluma.exe`。以前两条路径都输出到同一个
+  所以这条通道只能显式开启，谁开启谁负责。安装协议页（`docs\THIRD-PARTY.md` 第 4 节）都写清了这一点，
+  `installer\prepare-login.ps1` 每次运行还会再打印一遍提示。
+- 内置版的产物名带后缀：`MinglingWorkbench-3.2.0-setup-login.exe`。以前两条路径都输出到同一个
   `MinglingWorkbench-3.2.0-setup.exe`，内置版会静默覆盖正式发布产物（差 43 MB 但文件名一模一样），
   现在用 `{#OutSuffix}` 分开，不会再互相覆盖。
 - `tools\bootstrap.ps1` 新增「内置包优先」：程序目录下 `pack\<组件id>\` 里只要有 sha256 对得上的文件就
@@ -27,22 +28,22 @@
 
 **新增文档与教程纠错**
 
-- 新增 [snowluma.md](snowluma.md)：SnowLuma 运作原理白皮书，16 节。讲清它是 **Hook / 注入**路线
-  （真正的桌面 QQ 先登录，再向它的进程 `LoadLibrary` 注入 `native\snowluma-win32-x64.dll`，走
+- 新增 QQ 登录端的运作原理说明（后来并进 `docs\deploy-qq.md` 第 3 节）。讲清它是 **Hook / 注入**路线
+  （真正的桌面 QQ 先登录，再向它的进程 `LoadLibrary` 注入 QQ 登录端自带的那个 DLL，走
   `\\.\pipe\mojo.<pid>.control|recv` 匿名管道拿下会话，对外再说 OneBot 11），不是协议模拟；
   含启动时序逐段拆解、146 个 OneBot action、`onebot_<号>.json` 的 `overlay`/`snapshot` 两种模式、
   WebUI 五页、密码与协议同意机制、37 个环境变量、日志轮转、排查表与六个常见误解。
 - `docs\deploy-qq.md` 整篇按现行架构重写：原来还在教 `winget install astral-sh.uv` + `uv tool install astrbot`
   手工装、手工建 `D:\bot\astrbot`、手工 `astrbot run`，与 `tools\components.json` + `tools\bootstrap.ps1`
-  一键链路和 `bots\` 目录布局完全脱节。新版按「一键装 → 组件清单 → SnowLuma 怎么登 QQ → 密码 →
+  一键链路和 `bots\` 目录布局完全脱节。新版按「一键装 → 组件清单 → QQ 登录端怎么登 QQ → 密码 →
   接到 AstrBot → 白名单 → 启动顺序 → 常见问题」组织。
 - README、`docs\使用说明.md`、`docs\ui-html.md`、`docs\VERSIONING.md`、`docs\项目总览.md`、
   `docs\setup-automation.md`、安装 Skill 全部对齐到 V3.2.0；历史版本段落保持原样。
 - 修 `win32\src\paths.cpp` 里 `secrets\README.txt` 的错文案：原来写
-  「`snowluma-webui.txt` SnowLuma 网页后台密码（password=…）」，但 `start.cmd` 用
+  「那个后台密码文件 QQ 登录端网页后台密码（password=…）」，但 `start.cmd` 用
   `set /p VAR=<文件` 整行读入、工作台自己也是 `Trim(ReadTextFile(...))` 整份读进环境变量，
   照旧文案写会让密码变成字面量 `password=xxx`，永远登不进。现在明确写「只写密码本身，一行」。
-- `installer\mingling.iss` 的开始菜单从 3 个文档入口扩到 7 个（新增「她会做的事」「SnowLuma 是怎么工作的」
+- `installer\mingling.iss` 的开始菜单从 3 个文档入口扩到 6 个（新增「她会做的事」
   「自动配置与组件清单」「项目总览」）。
 - 修 `win32\src\ui_pages.inc` 的 AstrBot 启动候选：原来只找 `uv\bin\astrbot.exe` 那几种老布局，
   而 `tools\components.json` 把 `uv_tool` 的 `bin_dir` 设成 `{bots}\AstrBot\bin`，新装机器上按 F9
@@ -66,8 +67,8 @@
 - C++ 侧配合：toast 时长按内容分级，正常提示 4 秒，含「失败 / 超时 / 连不上 / 找不到」等字样的留 12 秒
   （`ui.cpp` 的 `g_toastShowMs` + `ui_pages.inc` 的 `ToastShowMs()`），不再让报错一闪而过。
 
-**发布产物**：`MinglingWorkbench-3.2.0-setup.exe`（默认，不含 SnowLuma）、
-`MinglingWorkbench-3.2.0-setup-snowluma.exe`（内置 SnowLuma 2.4.2，需自行确认上游 EULA 授权）。
+**发布产物**：`MinglingWorkbench-3.2.0-setup.exe`（默认，不含 QQ 登录端）、
+`MinglingWorkbench-3.2.0-setup-login.exe`（内置 QQ 登录端 2.4.2，需自行确认上游 EULA 授权）。
 
 ---
 
@@ -100,7 +101,7 @@
 - npm 包探测先剥离版本号再 `require.resolve`，修 bili-whale 后置校验必然失败。
 - 本机记忆模型改钉 manifest `sha256:79076464…` 与两层不可变 blob，新增 `tools\verify-embedding-model.ps1` 做层字节校验
   （原钉值其实是 manifest 的 config.digest，该地址已 404）。
-- SnowLuma 上游仓库改名（`SnowLuma/SnowLuma` → `TomyJan/SnowLuma`），下载地址随之更新；资产哈希未变。
+- QQ 登录端上游仓库改过名（组织名与仓库名各改过一次），下载地址随之更新；资产哈希未变。
 - `start-ollama.ps1` 的 stdout/stderr 分开重定向到 `%TEMP%`（`Start-Process` 不允许两个流指向同一文件）。
 - 本地唱歌默认目录统一到 `{base}\sing`，skill 侧入口走 `resolve-program-root.ps1`，分离布局下也能找到部署脚本。
 - 发布产物：`MinglingWorkbench-3.1.0-setup.exe`（88,855,864 B，SHA256 `ff9982cd…809f8`）、源码快照、
@@ -339,9 +340,9 @@ sidecar 的 `DSH_HOME` 变量名保留是为了少改上游代码，但值不再
   不用装 DSH、也不用开会话」并指向 B 站页和 `docs\deploy-bili.md`。
 - **「重新登」按钮的死提示**：`her_actions.cpp` 的 `Relogin()` 只认 `<base>\tools\relogin.cmd`，
   新装机器没有这个脚本，点「重新登」只会弹「没找到掉线自救工具」。
-  现在找不到脚本就退回：必要时先启动 SnowLuma/NapCat，再打开它的后台网页让用户扫码。
-- **SnowLuma 明明在跑却报「没开着」**：`her_status.cpp` 只按进程路径判断，
-  SnowLuma 用自带的 `node.exe` 启动时会被漏判。现在「进程在」或「5099/6099 在听」都算起来了。
+  现在找不到脚本就退回：必要时先启动 QQ 登录端/NapCat，再打开它的后台网页让用户扫码。
+- **QQ 登录端明明在跑却报「没开着」**：`her_status.cpp` 只按进程路径判断，
+  QQ 登录端用自带的 `node.exe` 启动时会被漏判。现在「进程在」或「5099/6099 在听」都算起来了。
 
 
 ## 4.3 第二次上手暴露的五个问题（2026-11-05 晚）
@@ -351,7 +352,7 @@ sidecar 的 `DSH_HOME` 变量名保留是为了少改上游代码，但值不再
 | 安装向导的许可协议整段乱码 | `docs\THIRD-PARTY.md` 是无 BOM 的 UTF-8，Inno 按系统 ANSI 读 | 文件加 UTF-8 BOM；同时补了官方 `ChineseSimplified.isl`，向导按钮/提示改成中文 |
 | 维护页说「Ollama 没开」「Breeze 没开」，点一键又说「本来就开着」 | 卡片看的是「功能开关」，不是「服务在不在」 | 记忆卡：Ollama 在听就说「Ollama 在跑，但记忆没开」；语音卡：8137 在听就说「Breeze 在跑，但语音没启用」 |
 | 连不上 AstrBot 后台（「private\backend.txt 里没有密码」） | `her::Base()` 还是旧布局的 `ExeDir` 往上两级猜；装到 `%LOCALAPPDATA%` 时整个机器人根都猜错，`private\`、`astrbot\`全部找不到 | `her::Base()` 改成跟工作台设置一致的 `BaseDir()`；`ReadKv`/`ReadJson` 兼容 BOM；后台密码在 `backend.txt` 缺省时回退 AstrBot 的 `dashboard.password` |
-| 更新页只剩「冥零工作台」一行 | 版本探测只认 `uv\tools\astrbot\...` 与 `SnowLuma\release.json`，机器人根一错就全空；`DistVer` 还会先命中同名的 `astrbot` 包目录（无版本号） | `DistVer` 只认带版本号的 `.dist-info`；机器人根下有限深度兜底找 `astrbot-*.dist-info` / `release.json`；缓存缺项时也补出 AstrBot/SnowLuma/Skill 三行（「没找到」而不是消失） |
+| 更新页只剩「冥零工作台」一行 | 版本探测只认 `uv\tools\astrbot\...` 与 QQ 登录端目录里的 `release.json`，机器人根一错就全空；`DistVer` 还会先命中同名的 `astrbot` 包目录（无版本号） | `DistVer` 只认带版本号的 `.dist-info`；机器人根下有限深度兜底找 `astrbot-*.dist-info` / `release.json`；缓存缺项时也补出 AstrBot/QQ 登录端/Skill 三行（「没找到」而不是消失） |
 | 安装时选的工作区不生效 | 安装器只在 `settings.json` 不存在时才写 | 每次安装都写入选定工作区；向导默认值改成读现有 `settings.json` 的 `workspace` |
 
 工作台自更新：更新页「冥零工作台」一行会读 `settings.json` 的 `repo`（`owner/name`），通过 GitHub Releases 比较版本；没配或还没发布就显示「本机」，不报错。配了以后有新版会给「去 GitHub 下载」按钮。
@@ -472,7 +473,7 @@ bin\MinglingWorkbench.exe                                  label=0x2000 mask=0x1
 ### 9.2 组件统一到 `<工作区>\bots\`
 
 - `BotRoot()`：`MINGLING_BOTS` → `settings.botRoot` → `<工作区>\bots`；`BotDir(name)` 拼一级目录；`EnsureWorkspaceLayout` 顺手建 `bots`。
-- `her::BotPath(name)`：**先看 bots，再回头看老布局**（`astrbot` / `SnowLuma` / `breeze-tts` / `Ollama` 等）。老装法的人不用搬目录，新装法的人只有一份。
+- `her::BotPath(name)`：**先看 bots，再回头看老布局**（`astrbot` / `<登录端目录>` / `breeze-tts` / `Ollama` 等）。老装法的人不用搬目录，新装法的人只有一份。
 - 检测、启动、帮助页路径全部走 `BotPath`，所以「状态检测统一到工作区」和「老用户不炸」是同一件事。
 
 ### 9.3 一键配置是两段，不是一段
@@ -499,7 +500,7 @@ bin\MinglingWorkbench.exe                                  label=0x2000 mask=0x1
 
 ### 9.5 掉线提醒：气泡是兜底，横幅才是主路径
 
-- 服务表从 2 个变 3 个（SnowLuma 5099 / AstrBot 6199 / Breeze 8137，Breeze 只在本机语音模式下盯）。
+- 服务表从 2 个变 3 个（QQ 登录端 5099 / AstrBot 6199 / Breeze 8137，Breeze 只在本机语音模式下盯）。
 - 文案 `notify_title` / `notify_body`，支持 `{name}` 和 `{time}`；头像 `notify_avatar`，走 GDI+ 转 `HICON` 后 `NIIF_USER | NIIF_LARGE_ICON`。
 - **Win11 会把自定义托盘气泡折进通知中心，很多时候干脆不弹**，所以主路径改成主界面右上角的滑入横幅（350ms 进、15s 后出），气泡和 `FlashWindowEx` 只当兜底。
 - 同一个服务 10 分钟内只提醒一次，避免每分钟一条；`private\qq-watch-off.txt` 仍然一键静音。
@@ -514,7 +515,7 @@ bin\MinglingWorkbench.exe                                  label=0x2000 mask=0x1
 
 **一、`settings.json` 的 `base` 写错，整个「统一到 bots」都是假的**
 
-现场是 `{"workspace": "F:/MinglingWorkbench", "base": "F:/"}`，而机器人实际装在 `D:\`。`BotPath()` 的新旧双查是在 `Base()` 下面找老目录的，`base` 错了就一个都找不到，状态卡会全红。把 `base` 改成 `D:\` 后，`--paths` 立刻能报出 `D:\\astrbot`、`D:\\SnowLuma`、`D:\\breeze-tts`、`D:\\Ollama`，维护页的 AstrBot / SnowLuma / Breeze 三张卡也回到「正常」。
+现场是 `{"workspace": "F:/MinglingWorkbench", "base": "F:/"}`，而机器人实际装在 `D:\`。`BotPath()` 的新旧双查是在 `Base()` 下面找老目录的，`base` 错了就一个都找不到，状态卡会全红。把 `base` 改成 `D:\` 后，`--paths` 立刻能报出 `D:\\astrbot`、`D:\\<登录端目录>`、`D:\\breeze-tts`、`D:\\Ollama`，维护页的 AstrBot / QQ 登录端 / Breeze 三张卡也回到「正常」。
 
 顺带说明 `workspace` 那一条：`D:\MinglingWorkbench` 不存在时，`WorkspaceDir()` 会按设计回落到开发树（`<仓库>`）并把结果写回设置，所以它会自己变，不是 bug。
 
@@ -692,11 +693,11 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 **踩坑**：`version.h` 是 **UTF-8 无 BOM**，用 GBK 读改会写坏中文注释（`APP_NAME` 的收尾引号被吃掉，编译报 `stray 'L'`）；改它要按 UTF-8 读写。另外 PowerShell 截 DPI-aware 窗口要先 `SetThreadDpiAwarenessContext(-4)` + `PrintWindow`，否则 `GetClientRect` 只报 150% 缩放后的逻辑尺寸，截出来的图右边和下边被裁掉——一度误判成「开关 chip 没画出来」。
 ## 13. v2.3.1 补丁：组件目录只认 <工作区>\bots（2026-11-06）
 
-**问题**：从 v2.2.0 起组件统一装进 `<工作区>\bots`（`bots\AstrBot`、`bots\SnowLuma`、`bots\Breeze`、`bots\Ollama`、`bots\uv`，各自带 `start.cmd`），可 C++ 里还留着一批硬编码的老布局路径：`P(L"breeze-tts\start-breeze.cmd")`、`P(L"breeze-tts")`、`P(L"SnowLuma\logs")`、`P(L"astrbot\data\cmd_config.json")`、`P(L"Ollama\ollama.exe")`。`BotPath()`（`her_config.cpp:58`）本来就会先找 `bots\<name>`、再退回 alias 表里的老目录，但这些地方绕过了它，于是：语音卡 canfix 永远红（它只看 `ComponentStartCmd`）、GameOn/GameOff 的 Breeze 启停落空、AstrBot 登录密码读不到、版本扫描扫不到 Breeze、开机自启的快捷方式还指老路径。
+**问题**：从 v2.2.0 起组件统一装进 `<工作区>\bots`（`bots\AstrBot`、`bots\<登录端目录>`、`bots\Breeze`、`bots\Ollama`、`bots\uv`，各自带 `start.cmd`），可 C++ 里还留着一批硬编码的老布局路径：`P(L"breeze-tts\start-breeze.cmd")`、`P(L"breeze-tts")`、`P(L"<登录端目录>\logs")`、`P(L"astrbot\data\cmd_config.json")`、`P(L"Ollama\ollama.exe")`。`BotPath()`（`her_config.cpp:58`）本来就会先找 `bots\<name>`、再退回 alias 表里的老目录，但这些地方绕过了它，于是：语音卡 canfix 永远红（它只看 `ComponentStartCmd`）、GameOn/GameOff 的 Breeze 启停落空、AstrBot 登录密码读不到、版本扫描扫不到 Breeze、开机自启的快捷方式还指老路径。
 
 **选择**：不再逐处修补，而是收成两个函数。
 
-- `BotPath(name)` 作为唯一出口：`<工作区>\bots\<name>` 存在就用它，否则回退 alias（`breeze-tts`/`astrbot`/`snowluma` 这类老目录），一个函数同时兼容两种布局；
+- `BotPath(name)` 作为唯一出口：`<工作区>\bots\<name>` 存在就用它，否则回退 alias（`breeze-tts`/`astrbot`/QQ 登录端那个目录名 这类老目录），一个函数同时兼容两种布局；
 - 新增 `her::ComponentStartCmd(name, baseCmd)`（`her.h:67-70`）：依次找 `<组件目录>\start.cmd` → `<组件目录>\start-breeze.cmd` → `<机器人根>\<baseCmd>`，谁先存在用谁；
 - 改走它们的点：`StartAstrBot`、`Relogin`/`RestartQQ`、`StartBreeze`、`GameOn` 的 `PidsUnder/KillUnder`、`GameOff` 的重启、`AutostartFix`、`her_astr.cpp` 的两处 `cmd_config.json`、`her_config.cpp` 的版本扫描（`FindFirstFileW(JoinPath(BotPath(L"Breeze"), L"bin\*"))`、`DistVer(JoinPath(BotPath(L"uv"), …))`）、`her_status.cpp:515` 的 canfix。
 
@@ -708,7 +709,7 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 
 **验收**：`--paths` 五个组件全在 `bots\` 下；`--her-status` 八张卡全 ok（语音卡 canfix 由 `ComponentStartCmd` 命中 `bots\Breeze\start.cmd`），`VER Breeze 0.1.3` 证明 `bots\Breeze\bin` 的版本扫描生效；`tools\self-setup.ps1 -DryRun` 八块全过（`##RESULT ok=1 done=8 fail=0`）。`bin\MinglingWorkbench.exe` 1,290,240 B、FileVersion `2.3.1.0`；`dist\MinglingWorkbench-2.3.1-setup.exe` 51,566,870 B。
 
-**踩坑**：工作区根目录的 `start-astrbot.cmd` / `start-snowluma.cmd` 是上一版脚本用「UTF-8 无 BOM + 中文绝对路径」写的，在 `chcp 65001` 下 cmd 会把中文路径读成乱码，脚本直接静默退出（`run.log` 一直不更新，看着像进程起不来）。改成纯 ASCII + `%~dp0` 相对路径后正常，顺带也就不怕工作区改名字了。这类「现场生成、不进仓库」的东西（`start-*.cmd`、`answers.json`、`旧版\` 备份）一并写进 `.gitignore`。
+**踩坑**：工作区根目录的 `start-astrbot.cmd` / `start-<登录端>.cmd` 是上一版脚本用「UTF-8 无 BOM + 中文绝对路径」写的，在 `chcp 65001` 下 cmd 会把中文路径读成乱码，脚本直接静默退出（`run.log` 一直不更新，看着像进程起不来）。改成纯 ASCII + `%~dp0` 相对路径后正常，顺带也就不怕工作区改名字了。这类「现场生成、不进仓库」的东西（`start-*.cmd`、`answers.json`、`旧版\` 备份）一并写进 `.gitignore`。
 
 ## 14. V3.0.0-snapshot 预奏快照（2026-11-07）
 
@@ -798,13 +799,13 @@ apcat-ws-token.txt`）；多个且没同名就报错，不猜；
 **其它一起修的**
 
 - `windres` 加 `-c 65001`：`res\app.rc` 是 UTF-8 带 BOM，原来按系统 ANSI 读，exe 属性里的中文变成「鍐ラ浂宸ヤ綔鍙?」（有损，问号救不回来）。
-- 日志页、起停服务、体检脚本全部认 `<工作区>\bots\`：`ui_pages.inc` 新增 `CompDir()` / `ReadLogPath()` / `BiliLogPath()` / `SecondsSinceWrite()`，标签映射错位（AstrBot 取到 SnowLuma 的日志）一并修掉；`tools\common.ps1` 新增 `Get-BotsDir` / `Join-Bot`，`diag.ps1` 12 处路径改走它——「SnowLuma 没在运行」「记忆插件没装上」两条误报消失。
+- 日志页、起停服务、体检脚本全部认 `<工作区>\bots\`：`ui_pages.inc` 新增 `CompDir()` / `ReadLogPath()` / `BiliLogPath()` / `SecondsSinceWrite()`，标签映射错位（AstrBot 取到 QQ 登录端的日志）一并修掉；`tools\common.ps1` 新增 `Get-BotsDir` / `Join-Bot`，`diag.ps1` 12 处路径改走它——「QQ 登录端没在运行」「记忆插件没装上」两条误报消失。
 - B 站日志只剩旧版 `logs\bili-service.log` 时，页面上会前置一行说明「这是旧版留下的，已经 N 天没动过」。
 
 **验收**
 
 - `dist\MinglingWorkbench-2.4.0-setup.exe` 61,260,277 B；静默装到临时目录后，`{装好的}\tools\self-setup.ps1 -Base <机器人根> -DryRun` → `##RESULT ok=1 done=8 fail=0`（八块全 OK），而 V2.4.0 之前的包装出来这一步只会「没找到 tools\self-setup.ps1」。
-- `--her-op updates` → AstrBot 4.29.4（最新）/ SnowLuma 2.4.0（最新）/ 冥零的安装 Skill 0.1.0（最新）/ 冥零工作台 V2.4.0（最新）。
+- `--her-op updates` → AstrBot 4.29.4（最新）/ QQ 登录端 2.4.0（最新）/ 冥零的安装 Skill 0.1.0（最新）/ 冥零工作台 V2.4.0（最新）。
 - 卸载干净（`unins000.exe /VERYSILENT`，目录与 `MinglingWorkbench_is1` 注册项都不留），工作区外面的 `~\.agents\skills\mingling-install` 按设计保留。
 - Release V2.4.0 三个资产：`MinglingWorkbench-2.4.0-setup.exe`（61,260,277 B）、`mingling-install.zip`（14,811 B）、`skill-version.json`（450 B）。
 

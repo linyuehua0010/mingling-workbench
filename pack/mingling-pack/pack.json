@@ -22,7 +22,7 @@
   },
 
   "platform": {
-    "说明": "QQ 平台（OneBot v11）。已经有 aiocqhttp 平台就沿用它，没有就按这里建一个，等 SnowLuma / NapCat 连上来。",
+    "说明": "QQ 平台（OneBot v11）。已经有 aiocqhttp 平台就沿用它，没有就按这里建一个，等 QQ 登录端 / NapCat 连上来。",
     "id": "冥零",
     "type": "aiocqhttp",
     "ws_reverse_host": "127.0.0.1",

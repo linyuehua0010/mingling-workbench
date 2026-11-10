@@ -1,12 +1,12 @@
 @echo off
 setlocal
 cd /d "%~dp0.."
-rem Optional switch: -BundleSnowLuma bundles the official SnowLuma zip into setup.exe (off by default).
-rem Read bots\SnowLuma\EULA.md section 5.4 before shipping a bundled build: packing it into a third-party installer needs prior written permission.
+rem Optional switch: -BundleLogin bundles the official QQ login-client zip into setup.exe (off by default).
+rem Read the upstream license (section 5.4) before shipping a bundled build: packing it into a third-party installer needs prior written permission.
 set "BUNDLE=0"
 set "OFFLINE=0"
 for %%a in (%*) do (
-  if /i "%%~a"=="-BundleSnowLuma" set "BUNDLE=1"
+  if /i "%%~a"=="-BundleLogin" set "BUNDLE=1"
   if /i "%%~a"=="-Offline" set "OFFLINE=1"
 )
 if not exist "bin\MinglingWorkbench.exe" ( echo [ERROR] bin\MinglingWorkbench.exe missing; run win32\build.bat first. & exit /b 1 )
@@ -48,16 +48,16 @@ if "%VSNAP%"=="" set "VSNAP=0"
 >> "installer\version_auto.iss" echo #define AppSnapshot %VSNAP%
 echo [VERSION] %VTAG% (file %VSTR%, setup %VSHORT%, snapshot=%VSNAP%)
 
-rem snowluma_auto.iss tells Inno whether SnowLuma rides along. Without -BundleSnowLuma
-rem this step only writes BundleSnowLuma=0, so packaging behaves exactly as before.
+rem login_auto.iss tells Inno whether the login client rides along. Without -BundleLogin
+rem this step only writes BundleLogin=0, so packaging behaves exactly as before.
 rem It carries no version numbers, so it is regenerated every run to drop stale flags.
 if "%BUNDLE%"=="1" (
-  echo [SNOWLUMA] preparing the bundled package ...
-  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-snowluma.ps1" -Enable%OFFLINE_ARG%
-  if errorlevel 1 ( echo [ERROR] SnowLuma bundle is not ready; packaging aborted. & exit /b 1 )
+  echo [BUNDLE] preparing the bundled login-client package ...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-login.ps1" -Enable%OFFLINE_ARG%
+  if errorlevel 1 ( echo [ERROR] login-client bundle is not ready; packaging aborted. & exit /b 1 )
 ) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-snowluma.ps1"
-  if errorlevel 1 ( echo [ERROR] cannot reset snowluma_auto.iss. & exit /b 1 )
+  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-login.ps1"
+  if errorlevel 1 ( echo [ERROR] cannot reset login_auto.iss. & exit /b 1 )
 )
 
 set ISCC=tools\innosetup6\app\ISCC.exe
@@ -67,5 +67,5 @@ if not exist "dist" mkdir dist
 if errorlevel 1 ( echo [ERROR] Inno Setup build failed. & exit /b 1 )
 rem Bundled builds get their own file name so they never overwrite the release artifact.
 set "OUTSUFFIX="
-if "%BUNDLE%"=="1" set "OUTSUFFIX=-snowluma"
+if "%BUNDLE%"=="1" set "OUTSUFFIX=-login"
 echo [OK] dist\MinglingWorkbench-%VSHORT%-setup%OUTSUFFIX%.exe

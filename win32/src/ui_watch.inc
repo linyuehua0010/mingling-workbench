@@ -21,7 +21,7 @@ struct WatchSvc {
 };
 
 static const WatchSvc WATCH_SVC[] = {
-    {L"SnowLuma（QQ 登录）", L"SnowLuma", L"SnowLuma", 5099, L"relogin", false},
+    {L"QQ 登录端", L"SnowLuma", L"SnowLuma", 5099, L"relogin", false},
     {L"AstrBot（大脑）", L"AstrBot", L"astrbot", 6199, L"restart_brain", false},
     {L"Breeze（本机语音）", L"Breeze", L"breeze-tts", 8137, L"start_breeze", true},
 };
@@ -43,7 +43,7 @@ static bool NotifyArmed() {
     return !FileExists(JoinPath(JoinPath(BaseDir(), L"private"), L"qq-watch-off.txt"));
 }
 
-// 显示用一个短名字：「SnowLuma（QQ 登录）」→「SnowLuma」
+// 显示用一个短名字：「QQ 登录端」→「QQ 登录端」（去掉括号里的补语）
 static std::wstring SvcShort(const WatchSvc& s) {
     std::wstring n = s.name;
     size_t p = n.find(L'（');

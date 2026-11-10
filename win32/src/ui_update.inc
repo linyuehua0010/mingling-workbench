@@ -214,18 +214,18 @@ static void PaintUpdatesBody(Graphics& g, const RectF& area) {
     if (g_up.qqUpgrade) {
         RectF q(x0, y, w, qqH);
         Round(g, q, S(14), 0xFFFFF9EC, 0xFFEAD9B4);
-        Txt(g, L"桌面 QQ 像是自动升级了，SnowLuma 还没跟上", RectF(q.X + S(20), q.Y + S(14), w - S(40), S(22)),
+        Txt(g, L"桌面 QQ 像是自动升级了，登录端还没跟上", RectF(q.X + S(20), q.Y + S(14), w - S(40), S(22)),
             Fnt(SUBTITLE_SIZE, 0, 0), 0xFF8A6A22, 0);
         const her::UpdateItem* sl = UpItem(L"snowluma");
         wstring tail = (sl && sl->state == L"new")
                            ? (L"新版 " + sl->latest + L" 已经出了，复制一句话让 Agent 换上（只换程序，登录和设置都留着）。")
                            : wstring(L"它一般更新很勤，出了新版这里会提醒你，再复制一句话交给 Agent 换上。");
-        TxtWrap(g, L"SnowLuma 是跟着 QQ 版本做的，QQ 自己升级以后可能挂不上。她现在要是还在线，先不用管；"
+        TxtWrap(g, L"登录端是跟着 QQ 版本做的，QQ 自己升级以后可能挂不上。她现在要是还在线，先不用管；"
                     L"掉线后登不回来的话：" +
                        tail,
                 RectF(q.X + S(20), q.Y + S(40), w - S(40), S(40)), Fnt(HINT_SIZE, 1, 0), 0xFF7A6533, 0);
         Button(g, RectF(q.X + S(20), q.Y + qqH - S(40), S(152), S(28)),
-               (sl && sl->state == L"new") ? L"等 SnowLuma 新版" : L"好，先等等", "up:qqsl", 0, true, true);
+               (sl && sl->state == L"new") ? L"等登录端新版" : L"好，先等等", "up:qqsl", 0, true, true);
         y += qqH + gap;
     }
 

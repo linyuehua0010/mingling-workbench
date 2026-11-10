@@ -11,7 +11,7 @@
 
 ## 1. 前置
 
-- 已经按 [deploy-qq.md](deploy-qq.md) 把 SnowLuma + AstrBot 跑通，群里 @ 有回应。
+- 已经按 [deploy-qq.md](deploy-qq.md) 把 QQ 登录端 + AstrBot 跑通，群里 @ 有回应。
 - 已经装好冥零工作台（安装包默认在 `%LOCALAPPDATA%\Programs\MinglingWorkbench`）。
 - 有一个 B 站账号的 Cookie：`SESSDATA`、`bili_jct`、`buvid3`。
 

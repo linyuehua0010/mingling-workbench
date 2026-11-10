@@ -1,5 +1,5 @@
 ﻿# 大肥鱼掉线自救：小号在线就退出；不在线先重启 NapCat 试快速登录，不行就打开扫码页面等扫码。
-# 协议端是 SnowLuma 的（private\protocol.txt 写着 snowluma，或者只有 start-snowluma.cmd）：走下面 SnowLuma 那段，只开桌面 QQ 和 SnowLuma，让他在 QQ 窗口里登。
+# 协议端是登录端的（private\protocol.txt 写着 snowluma，或者只有 start-snowluma.cmd）：走下面登录端那段，只开桌面 QQ 和登录端，让他在 QQ 窗口里登。
 # finish.ps1 把它拷到 <工作目录>\tools\，桌面快捷方式「大肥鱼掉线-双击扫码」指向同目录的 relogin.cmd。
 param([string]$Dir = '', [switch]$Autostart)
 $ErrorActionPreference = 'Continue'
@@ -54,11 +54,11 @@ if ($Autostart) { Wait-Ready; if (Online) { Boot-State 'online' '小号已经连
 $proto = if (Test-Path "$Dir\private\protocol.txt") { "$(Get-Content -Raw "$Dir\private\protocol.txt")".Trim() } elseif ((Test-Path "$Dir\start-snowluma.cmd") -and -not (Test-Path "$Dir\start-napcat.cmd")) { 'snowluma' } else { 'napcat' }
 
 if ($Autostart -and $proto -eq 'snowluma') {
-    # SnowLuma 的反向 WS 会自行重连，不重启桌面 QQ，也不把大号打开。
+    # 登录端的反向 WS 会自行重连，不重启桌面 QQ，也不把大号打开。
     $me = @(Get-UserStartupIdentity)[0]
     $running = Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.ExecutablePath -like ((Join-Bot $Dir 'SnowLuma') + '\*') } | Where-Object { (Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Domain)\$($_.User)" }) -eq $me }
     if (-not $running) { Start-Quiet "$Dir\start-snowluma.cmd" }
-    Boot-State 'desktop-qq' 'SnowLuma 已打开。桌面 QQ 需在它自己的设置里开自动启动、自动登录小号。'
+    Boot-State 'desktop-qq' 'QQ 登录端已打开。桌面 QQ 需在它自己的设置里开自动启动、自动登录小号。'
     exit 0
 }
 
@@ -80,17 +80,17 @@ if ($proto -eq 'snowluma') {
         } catch {}
     }
     function Restart-SnowLuma {
-        # 只结束 SnowLuma 文件夹里的程序，QQ 不动
+        # 只结束登录端文件夹里的程序，QQ 不动
         Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($sl + '\', [StringComparison]::OrdinalIgnoreCase) -and (Mine $_) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
         Start-Sleep 2
         Start-Process "$Dir\start-snowluma.cmd" -WindowStyle Minimized
     }
     Write-Host ''
-    Write-Host '==== 大肥鱼重新登录（SnowLuma）====' -ForegroundColor Cyan
+    Write-Host '==== 大肥鱼重新登录（QQ 登录端）====' -ForegroundColor Cyan
     if (Online) { Write-Host '她现在是在线的，不用登。还是不回话的话，打开桌面的「大肥鱼工作台」点「复制求助信息」，把那句话发我。' -ForegroundColor Green; exit 0 }
     Start-Brain
     if (Online) { Write-Host '好了，她回来了，可以关掉这个窗口了。' -ForegroundColor Green; exit 0 }
-    if (-not (SlRunning)) { Write-Host '帮她登 QQ 的 SnowLuma 没开着，先打开……'; Start-Process "$Dir\start-snowluma.cmd" -WindowStyle Minimized; Start-Sleep 8 }
+    if (-not (SlRunning)) { Write-Host '帮她登 QQ 的登录端没开着，先打开……'; Start-Process "$Dir\start-snowluma.cmd" -WindowStyle Minimized; Start-Sleep 8 }
     if (-not (MyQQ).Count) {
         $qqExe = $null
         if (Test-Path "$Dir\start-qq.cmd") { $qqExe = ([regex]::Match((Get-Content -Raw "$Dir\start-qq.cmd"), 'start "" "([^"]+)"')).Groups[1].Value }
@@ -108,12 +108,12 @@ if ($proto -eq 'snowluma') {
     while ((Get-Date) -lt $deadline) {
         Start-Sleep 3
         if (Online) { Write-Host ''; Write-Host '登录成功，她回来了，可以关掉这个窗口了。' -ForegroundColor Green; exit 0 }
-        # QQ 已经登着、SnowLuma 却没连上：重启一次 SnowLuma（它会重新挂到开着的 QQ 上，不动 QQ）
-        if (-not $kicked -and ((Get-Date) - $t0).TotalSeconds -gt 60) { $kicked = $true; Write-Host '重启一次 SnowLuma 再试……'; Restart-SnowLuma }
+        # QQ 已经登着、登录端却没连上：重启一次登录端（它会重新挂到开着的 QQ 上，不动 QQ）
+        if (-not $kicked -and ((Get-Date) - $t0).TotalSeconds -gt 60) { $kicked = $true; Write-Host '重启一次登录端再试……'; Restart-SnowLuma }
     }
     $log = Get-ChildItem "$sl\logs" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($log -and (Select-String -Path $log.FullName -Pattern 'retry exhausted|unsupported|not supported' -Quiet)) {
-        Write-Host '10 分钟还没连上。看日志多半是 QQ 自动升级了、SnowLuma 还没跟上新版：打开「大肥鱼工作台」看提醒，或者在工作台点「复制求助信息」，把那句话发我。' -ForegroundColor Red
+        Write-Host '10 分钟还没连上。看日志多半是 QQ 自动升级了、登录端还没跟上新版：打开「大肥鱼工作台」看提醒，或者在工作台点「复制求助信息」，把那句话发我。' -ForegroundColor Red
     } else { Write-Host '10 分钟还没连上。关掉这个窗口重新双击一次；还不行就打开桌面的「大肥鱼工作台」点「复制求助信息」，把那句话发我。' -ForegroundColor Red }
     exit 1
 }

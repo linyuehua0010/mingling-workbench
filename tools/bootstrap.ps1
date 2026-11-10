@@ -470,18 +470,23 @@ function Resolve-Urls([string[]]$Urls) {
     return @($out)
 }
 
-# 装包自带的组件：出包时 build-installer.bat -BundleSnowLuma 会把官方原版包塞进
-# <程序目录>\pack\<组件 id>\，bootstrap 跑起来时 $script:Repo 正好就是 <程序目录>，
+# 装包自带的组件：出包时 build-installer.bat -BundleLogin 会把登录端的官方原版包塞进
+# <程序目录>\pack\login\，bootstrap 跑起来时 $script:Repo 正好就是 <程序目录>，
 # 开发树里则是仓库根 —— 两处同一句。约定按目录找，不按文件名找：上游改一次命名就失效的
 # 硬编码路径不值得写。命中与否一律以清单里的 sha256 为准，宁可不命中也不装错东西。
+# 目录名先认 pack\<组件 id>，再认 pack\login（出包时用的是后者，免得安装目录里
+# 出现上游名字）；两者都在候选里，两边任意一侧放了校验通过的文件都算数。
 function Find-BundledPackage([string]$CompId, [string]$Sha) {
     if (-not $CompId -or -not $Sha) { return '' }
-    $dir = Join-Path (Join-Path $script:Repo 'pack') $CompId
-    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return '' }
-    foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue)) {
-        try {
-            if ((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash -eq $Sha) { return $f.FullName }
-        } catch { }
+    $packRoot = Join-Path $script:Repo 'pack'
+    $dirs = @((Join-Path $packRoot $CompId), (Join-Path $packRoot 'login'))
+    foreach ($dir in $dirs) {
+        if (-not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+        foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue)) {
+            try {
+                if ((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash -eq $Sha) { return $f.FullName }
+            } catch { }
+        }
     }
     return ''
 }
