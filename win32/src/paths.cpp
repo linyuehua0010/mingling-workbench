@@ -348,7 +348,10 @@ bool EnsureSecrets() {
     if (!FileExists(readme))
         WriteTextFile(readme,
                       L"这个文件夹放密钥，重装/卸载都不会删。\r\n\r\n"
-                      L"snowluma-webui.txt  SnowLuma 网页后台密码（password=…）\r\n"
+                      L"snowluma-webui.txt  SnowLuma 网页后台密码：整份文件只写密码本身，一行，\r\n"
+                      L"                    不要加 password= 前缀、不要引号或空格。至少 10 位，\r\n"
+                      L"                    要同时含大小写字母和特殊符号。只在 SnowLuma 第一次启动时\r\n"
+                      L"                    生效（写进它的 config\\webui.json），之后改这里没用。\r\n"
                       L"backend.txt         AstrBot 后台账号（username=… / password=…）\r\n"
                       L"deepseek-key.txt    DeepSeek API Key（sk-…）\r\n"
                       L"protocol.txt        QQ 协议端类型（napcat / snowluma）\r\n" + kDshLine + kGhLine);

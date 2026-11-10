@@ -1,4 +1,4 @@
-# 安装与环境自动化（V3.1.0）
+# 安装与环境自动化（V3.2.0）
 
 工作台的「补环境 / 装组件」现在只有一套实现：
 
@@ -133,7 +133,7 @@ ffmpeg 装到 `<sidecar>\ffmpeg\bin`），验收脚本就是用它做隔离的�
 
 | kind | 主要字段 | 行为 |
 | --- | --- | --- |
-| `download` | `urls[]`、`sha256`、`size`、`dest`、`layout`（`direct`/`flatten`/`find_parent`）、`find` | 先查缓存，校验 sha256 与字节数；解压到临时目录再按 layout 安置；失败自动清理临时目录。**缺 64 位 sha256 直接拒绝安装**（不盲下）。 |
+| `download` | `urls[]`、`sha256`、`size`、`dest`、`layout`（`direct`/`flatten`/`find_parent`）、`find` | 先查装包自带的 `pack\<组件id>\`，再查下载缓存，校验 sha256 与字节数；解压到临时目录再按 layout 安置；失败自动清理临时目录。**缺 64 位 sha256 直接拒绝安装**（不盲下）。 |
 | `copy_tree` | `from`、`to`、`exclude[]` | 复制目录内容，跳过排除项（如 `node_modules`）。 |
 | `copy_file` | `from`、`to`、`only_if_missing` | 默认覆盖；`only_if_missing` 用于配置模板。 |
 | `write_file` | `path`、`content`、`encoding`（`ansi`/`utf8`/`utf8bom`） | 内容相同就不重写（幂等）；`content` 里的词元会展开。 |
@@ -160,6 +160,9 @@ npm/pip/uv_python 在各自镜像列表里轮询，全部失败才报错。下�
   `api_key/token/secret/password=…`、URL 里的查询参数、`gh*_` 形式的 GitHub token、
   URL 里的 `user:pass@`、`QQ/账号=数字`。代理只记主机端口。
 - 下载缓存：`<Base>\logs\setup\dl\<id>-<文件名>`，校验通过才复用；离线模式只认这些。
+- 装包自带包：程序目录下的 `pack\<组件id>\` 里只要放了 sha256 对得上的文件，直接用它，
+  不下载也不联网（离线模式下同样有效）。目前只有出包时开 `-BundleSnowLuma` 的那版
+  安装包会带 `pack\snowluma\`；日志里对应一行 `用装包自带的 <文件名>（不用下载）`。
 
 ## 6. 密钥与账号
 
@@ -251,7 +254,7 @@ verify 模式输出同样的 `##STEP/##OK/##FAIL`，`##RESULT` 里多一个 `mod
    装进含中文和空格的工作区后，`installer-check.log` 正常产出。语言文件走
    `compiler:Languages\ChineseSimplified.isl`（编译器自带那份，版本对得上），
    不要换成外部下载的 `.isl`——版本不一致会掉一批消息、退回英文。
-   仍未验证：从 V3.0.0 正式版真实升级到 V3.1.0 的完整链路（只静态核对了升级目录与备份路径）。
+   仍未验证：跨版本原地升级的完整链路（只静态核对了升级目录与备份路径）。
 4. **没有在本机跑完整全量安装**（Ollama 1.6GB、SoulX 2.8GB 模型等），只实测了
    下载/校验/解压/写文件/检测/离线/代理这些路径（node 22.14.0 实装成功）。
    2026-11-09 接手复测：隔离中文/空格目录真实安装 uv 0.13.7、SnowLuma 2.4.2、bots-launchers，

@@ -8,7 +8,7 @@ wstring WebUiState() {
     s.Set(L"themeBase", SettingGet(L"theme_base"));
     s.Set(L"memoryQueue", ReadJson(JoinPath(JoinPath(WorkspaceDir(), L"logs"), L"memory-status.json")));
     for (auto key : {L"bg", L"panel", L"ink", L"accent"}) s.Set(L"theme_" + wstring(key), SettingGet(L"theme_" + wstring(key)));
-    s.Set(L"toast", GetTickCount() - g_toastAt < 4000 ? g_toast : L"");
+    s.Set(L"toast", GetTickCount() - g_toastAt < g_toastShowMs ? g_toast : L"");
     s.Set(L"watchBusy", g_watchBusy); s.Set(L"feedBusy", g_feedBusy);
     s.Set(L"checkBusy", g_checkBusy); s.Set(L"maintBusy", g_mBusy);
     s.Set(L"watchStatus", g_watchStatus); s.Set(L"progress", g_watchPct);

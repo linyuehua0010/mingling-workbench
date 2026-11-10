@@ -3,7 +3,7 @@ name: mingling-install
 description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、SnowLuma/NapCat、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」「部署本地唱歌」「SoulX 唱歌」「切换豆包唱歌」「用冥零声音唱歌」「用已有 Breeze 音色制作唱歌参考」时使用。
 ---
 
-# 帮人装、修、搬、卸冥零工作台（skill 0.5.0，2026-11-09）
+# 帮人装、修、搬、卸冥零工作台（skill 0.6.0，2026-11-10）
 
 你在帮一个可能完全不懂电脑的人，在**他自己的 Windows 电脑**上把「冥零工作台」装好、修好，
 或者搬去云服务器。整套东西是：
@@ -15,15 +15,15 @@ description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（M
 ├─ tools\                         脚本：self-setup.ps1、bootstrap.ps1（装组件主入口）、diag.ps1、backup.ps1……
 ├─ pack\mingling-pack\            配置包：pack.json、plugins\、voice\
 ├─ bots\                          组件都在这（不是散在工作区根！）
-│   ├─ uv\bin\astrbot.exe         AstrBot 的 python 运行环境 + 入口
-│   ├─ AstrBot\                   大脑；日志 bots\AstrBot\run.log；端口 6199
+│   ├─ AstrBot\                   大脑；入口 bots\AstrBot\bin\astrbot.exe；日志 bots\AstrBot\run.log；端口 6199
 │   ├─ SnowLuma\node.exe          登 QQ 的程序；日志 bots\SnowLuma\snowluma-run.log；端口 5099
-│   ├─ ffmpeg\bin\ffmpeg.exe      看视频、语音用
-│   ├─ asr\                       本机语音识别模型
 │   ├─ Ollama\ + ollama-models\   本机记忆用的 bge-m3；端口 11434
+│   ├─ asr\                       本机语音识别模型（手工装的，不在组件清单里）
 │   └─ Breeze\                    本机 Breeze 语音；端口 8137
+├─ uv\bin\uv.exe                  装 Python 包用的 uv（装包外，不在 bots\）
+├─ sidecar\                       node\、bili-whale\（装包自带）；ffmpeg 也装这里：sidecar\ffmpeg\bin\
 ├─ private\                       凭据：backend.txt、deepseek-key.txt、features.txt、voice-mode.txt……
-├─ answers.json                   一键自动配置的答卷（base_url、memory、voice、video、路径）
+├─ answers.json                   自设定的答卷（base_url、memory、voice、video、路径）
 └─ logs\                          自设定日志 self-setup.log、缓存 cache.json、her-op.txt
 ```
 
@@ -61,8 +61,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 ## 第 1 步：装
 
 安装包在 `https://github.com/linyuehua0010/mingling-workbench/releases`，当前正式版是
-**V3.0.0**，名字是 `MinglingWorkbench-3.0.0-setup.exe`（约 66 MB，已经内含 bots\ 组件和 pack\，
-不用另外下）。以后换了版本，文件名里的版本号跟着 `version.h` 走。
+**V3.2.0**，名字是 `MinglingWorkbench-3.2.0-setup.exe`（约 85 MB，88,892,091 字节）。
+它自带 sidecar\（node、bili-whale）、pack\、skill\、tools\（含 components.json + bootstrap.ps1），
+**bots\ 里的组件不预装**，装完要跑一次「一键自动配置」联网装（这台没网就用 `-Offline` 走缓存）。
+同一版还有一份 `MinglingWorkbench-3.2.0-setup-snowluma.exe`（约 126 MB / 131,675,213 字节），
+多带一份 SnowLuma 2.4.2，装完省掉那 41 MB 下载；这是出包时显式开 `-BundleSnowLuma` 才有的产物，
+默认不内置，涉及上游 EULA 授权（见 `docs\snowluma.md` 第 14 节），用户没特别要求就给默认那份。
+以后换了版本，文件名里的版本号跟着 `version.h` 走。
 
 1. 问他装哪个盘，默认「不是 C 盘、空间够的那个」。工作区就是装完后的那个文件夹。
 2. 安装时**不要**把工作区设成安装目录的上一级；工作区本身就是机器人根。
@@ -76,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 
 ## 第 2 步：一键自动配置（装齐 bots）
 
-工作台「照顾她 → 一键自动配置」做的事，命令行等价：
+工作台「照顾她 → 组件与操作 → 一键自动配置」做的事，命令行等价：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\bootstrap.ps1" -Base "<工作区>" -Workspace "<工作区>" -Bots "<工作区>\bots"
@@ -90,8 +95,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\boot
 输出仍是 `##STEP` / `##OK` / `##FAIL` / `##RESULT`，`-LogFile <路径>` 可以留一份日志。
 `auto-setup.ps1` 仍可用，它内部转发到 `bootstrap.ps1`——老教程里的命令不用改，但新写的命令一律用 `bootstrap.ps1`。
 
-它按 `answers.json` 装/补 uv、AstrBot、SnowLuma（或 NapCat）、ffmpeg、asr、Ollama、Breeze。
-可以重复跑，已经有的会跳过。慢的是下模型和 python 包装，先说清「在下什么、多大」。
+它读 `tools\components.json` 那份 21 项清单，按依赖顺序装/补：环境（WebView2、node、ffmpeg、uv、Python）
+加上 AstrBot、SnowLuma（或 NapCat）、Breeze、Ollama、bili-whale、启动脚本。默认装 16 项；
+`embedding-model`、`bili-bridge-plugin`、`soulx-singer`、`dsh-pet`、`edge-tts` 这几项要显式加
+`-IncludeOptional` 才装。可以重复跑，已经有的会跳过。慢的是下模型和 python 包装，先说清「在下什么、多大」。
+`answers.json` 不是装组件用的——那是第 3 步自设定的答卷。
 
 ## 第 3 步：自设定（八块）
 
@@ -109,15 +117,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.p
 输出协议：`##STEP` / `##OK` / `##FAIL` / `##RESULT ok= done= fail= why= next=`。
 日志落在 `<工作区>\logs\self-setup.log`，失败时**先读最后几行**，`why=` 就是给人看的原因。
 
-功能页那六个开关的另一半在 `private\`：写 `features.txt`（`astrbot_plugin_dafeiyu_sing=1` 这种）、
+「照顾她 → 她会做的事」那一栏开关的另一半在 `private\`：写 `features.txt`（`astrbot_plugin_dafeiyu_sing=1` 这种）、
 `memory-mode.txt`（0 关 / 1 本机 / 2 硅基流动）、`voice-mode.txt`（0 关 / 1 Edge / 3 豆包 / 4 本机 Breeze / 5 在线 Breeze），
 再跑 `-Only plugins`（记忆改 `memory`，语音改 `plugins,voice`）。
 
 ## 第 4 步：按症状修
 
 需要部署本地唱歌、切换豆包云端与 SoulX、处理唱歌服务启动或显卡兼容问题时，读
-[references/本地唱歌.md](references/本地唱歌.md)。工作台 V3.1 的「照顾她 → 她会做的事 → 功能配置」
-可保存唱歌方式、服务目录、语音凭据和桌宠互通设置。密钥保存在本机，不要要求用户把它们发进聊天。
+[references/本地唱歌.md](references/本地唱歌.md)。工作台「照顾她 → 她会做的事」里每个功能后面都有「配置」，
+唱歌（豆包云端 / SoulX 本地）、桌宠、豆包语音、在线 Breeze 各一页，可保存唱歌方式、服务目录、语音凭据和桌宠互通设置。
+密钥保存在本机，不要要求用户把它们发进聊天。
 
 先把「哪一块」对齐现实，再动手。以下都是踩过的：
 
@@ -127,21 +136,28 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.p
   `%APPDATA%\MinglingWorkbench\settings.json` 或 `...\snapshot\settings.json` 的 `base` 必须 == `workspace` == 机器人根。
 - **桌面快捷方式叫「冥零工作台（快照）」，自设定永远找不到脚本**：那是以前的快照通道
   （`%LOCALAPPDATA%\Programs\MinglingWorkbench-snapshot\`，里面只有 exe，没有 `tools\`、也没有
-  `pack\`）。V3.0.0 起正式版只走正式通道 `%LOCALAPPDATA%\Programs\MinglingWorkbench\`，让他装正式版
+  `pack\`）。V3 起正式版只走正式通道 `%LOCALAPPDATA%\Programs\MinglingWorkbench\`，让他装正式版
   安装包；从快照版转正式版要重装一次，配置不自动迁移。临时要用，就让他用指向工作区
   `bin\MinglingWorkbench.exe` 的快捷方式。
 - **日志页说「日志是空的：服务可能还没启动过」，但服务在跑**：日志要看
-  `bots\AstrBot\run.log`、`bots\SnowLuma\snowluma-run.log`（老布局才在 `AstrBot\`、`SnowLuma\` 下）。
+  `bots\AstrBot\data\run.log`（组件生成的 `start.cmd` 就是往这写）和 `bots\SnowLuma\snowluma-run.log`。
+  工作台日志页读的是 `bots\AstrBot\run.log` —— 老布局（`AstrBot\run.log`、`SnowLuma\` 直接在工作区根）
+  才和它重合，所以新装的机器上日志页可能看不到东西，直接开这两个文件看更准。
 - **她记不住事**：先看 `bots\AstrBot\data\plugins\astrbot_plugin_livingmemory\` 在不在，再看
   `bots\AstrBot\data\config\astrbot_plugin_livingmemory_config.json` 有没有写出来；
   `memory-mode.txt` 是 1 就要有 Ollama + bge-m3（`ollama list` 里有 `bge-m3`）。
 - **她不说话/答得慢**：`private\deepseek-key.txt` 的 key 还有没有钱；AstrBot 6185 通不通。
-- **她听不见语音、也看不懂视频里说什么**：`bots\asr\` 有没有模型，`bots\ffmpeg\bin\ffmpeg.exe` 在不在。
+- **她听不见语音、也看不懂视频里说什么**：`bots\asr\` 有没有模型，`sidecar\ffmpeg\bin\ffmpeg.exe` 在不在
+  （老机器上 ffmpeg 也可能在 `bots\ffmpeg\bin\`、`bots\bili-whale\bin\`）。
 - **换个角色**：直接编辑 `plugin\mingling_skill\persona\mingling.md` 的完整正文（默认是公孙冥零，与主人是死党），
   再跑 `powershell -File "$program\tools\import-mingling.ps1" -Base "<工作区>"`（「照顾她」→「导入冥零人设」是同一件事）。
 - **换个声音**：本机 Breeze 用 `pack\mingling-pack\voice\` 里那几条参考音；在线 Breeze 要密钥和音色 ID，
   按字扣积分，先跟他讲清楚再开。
-- **让她看视频**：`video-mode.txt=1`，再 `-Only plugins`；单个视频能不能看，去「做过的事」页看任务。
+- **让她看视频**：看视频的插件（`astrbot_plugin_dafeiyu_video`）在配置包里默认就是开的，
+  只要 `bots\AstrBot\data\plugins\` 里有它、AstrBot 后台里它是启用状态，就能看。
+  如果是想**关掉**（省钱），在 `private\features.txt` 里加一行 `astrbot_plugin_dafeiyu_video=0`，
+  再跑一次 `-Only plugins`；这文件里写的开关会盖过配置包的默认值。
+  单个视频能不能看，去「做过的事」页看任务。
 
 ## 第 5 步：搬、备份、还原、卸
 
@@ -149,7 +165,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.p
 - 体检/求助信息：`tools\diag.ps1`，报告存桌面，能直接发给人看。
 - 搬云服务器：Windows 云主机（不支持 macOS），先把工作区整个搬过去，再跑第 2 步和第 3 步；
   账号类（QQ 登录）要在新机器上重新扫码。
-- 卸载：**先问要不要备份**，再删安装目录 + 工作区；开机自启项用 `tools\autostart.ps1 -Remove`。
+- 卸载：**先问要不要备份**，再删安装目录 + 工作区。开机自启不是脚本能一键摘掉的——
+  `tools\autostart.ps1` 是给 `common.ps1` 用的函数库，没有 `-Remove` 开关，也没有命令行入口。
+  真正要清的是 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\` 下这几个快捷方式：
+  `大肥鱼-AstrBot.lnk`、`大肥鱼-SnowLuma.lnk`（或 `大肥鱼-NapCat.lnk`）、`大肥鱼-掉线提醒.lnk`、
+  `启动Breeze语音.lnk`、`Ollama.lnk`。让他自己删，或者你代删前先问一句。
   用户回「确认」才删。
 
 ## 收尾：让工作台认这份 skill

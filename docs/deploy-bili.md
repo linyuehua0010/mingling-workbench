@@ -20,17 +20,20 @@
 把仓库里的 `plugin\astrbot_plugin_bili_bridge` 整个目录复制到：
 
 ```
-<机器人根>\astrbot\data\plugins\astrbot_plugin_bili_bridge
+<机器人根>\bots\AstrBot\data\plugins\astrbot_plugin_bili_bridge
 ```
 
-例如 `D:\bot\astrbot\data\plugins\astrbot_plugin_bili_bridge`。
+例如 `D:\冥零工作区\bots\AstrBot\data\plugins\astrbot_plugin_bili_bridge`
+（组件统一装在 `bots\` 下，见 [setup-automation.md](setup-automation.md)。老平铺布局的机器
+`astrbot\data\plugins\` 这个位置仍然有效，两个地方都被人认。）
 重启 AstrBot，Dashboard → 插件 里应该出现「看 B 站」。
 插件没有额外 pip 依赖，AstrBot 自带的 aiohttp / 事件系统就够。
 
 ## 3. 配置插件
 
 Dashboard → 插件 → 看 B 站 → 配置，或直接改
-`<机器人根>\astrbot\data\config\astrbot_plugin_bili_bridge_config.json`（首次保存后生成）。
+`<机器人根>\bots\AstrBot\data\config\astrbot_plugin_bili_bridge_config.json`（首次保存后生成；
+老平铺布局是 `astrbot\data\config\`）。
 
 | 键 | 建议值 | 说明 |
 | --- | --- | --- |

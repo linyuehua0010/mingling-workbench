@@ -25,6 +25,10 @@ win32/setup/
 
 # Inno Setup 的版本号片段：installer\build-installer.bat 每次从 version.h 重新生成
 installer/version_auto.iss
+# 出内置包用的开关片段：installer\prepare-snowluma.ps1 每次出包前重新生成
+installer/snowluma_auto.iss
+# 内置包舞台：build-installer.bat -BundleSnowLuma 时把官方原版 zip 备到这里（40 MB 级，不进 Git）
+pack/snowluma/
 
 # ---------- 2. 大体积运行时（由 tools\fetch-runtime.ps1 现场拉取） ----------
 sidecar/node/

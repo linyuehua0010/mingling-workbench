@@ -1,7 +1,17 @@
 @echo off
 setlocal
 cd /d "%~dp0.."
+rem Optional switch: -BundleSnowLuma bundles the official SnowLuma zip into setup.exe (off by default).
+rem Read bots\SnowLuma\EULA.md section 5.4 before shipping a bundled build: packing it into a third-party installer needs prior written permission.
+set "BUNDLE=0"
+set "OFFLINE=0"
+for %%a in (%*) do (
+  if /i "%%~a"=="-BundleSnowLuma" set "BUNDLE=1"
+  if /i "%%~a"=="-Offline" set "OFFLINE=1"
+)
 if not exist "bin\MinglingWorkbench.exe" ( echo [ERROR] bin\MinglingWorkbench.exe missing; run win32\build.bat first. & exit /b 1 )
+set "OFFLINE_ARG="
+if "%OFFLINE%"=="1" set "OFFLINE_ARG= -Offline"
 if not exist "bin\WebView2Loader.dll" ( echo [ERROR] bin\WebView2Loader.dll missing; run win32\build.bat first. & exit /b 1 )
 if not exist "sidecar\bili-whale\tools\bili.mjs" ( echo [ERROR] sidecar\bili-whale missing. & exit /b 1 )
 if not exist "sidecar\node\node.exe" ( echo [ERROR] sidecar\node\node.exe missing; run tools\fetch-runtime.ps1. & exit /b 1 )
@@ -38,9 +48,24 @@ if "%VSNAP%"=="" set "VSNAP=0"
 >> "installer\version_auto.iss" echo #define AppSnapshot %VSNAP%
 echo [VERSION] %VTAG% (file %VSTR%, setup %VSHORT%, snapshot=%VSNAP%)
 
+rem snowluma_auto.iss tells Inno whether SnowLuma rides along. Without -BundleSnowLuma
+rem this step only writes BundleSnowLuma=0, so packaging behaves exactly as before.
+rem It carries no version numbers, so it is regenerated every run to drop stale flags.
+if "%BUNDLE%"=="1" (
+  echo [SNOWLUMA] preparing the bundled package ...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-snowluma.ps1" -Enable%OFFLINE_ARG%
+  if errorlevel 1 ( echo [ERROR] SnowLuma bundle is not ready; packaging aborted. & exit /b 1 )
+) else (
+  powershell -NoProfile -ExecutionPolicy Bypass -File "installer\prepare-snowluma.ps1"
+  if errorlevel 1 ( echo [ERROR] cannot reset snowluma_auto.iss. & exit /b 1 )
+)
+
 set ISCC=tools\innosetup6\app\ISCC.exe
 if not exist "%ISCC%" set ISCC=ISCC.exe
 if not exist "dist" mkdir dist
 "%ISCC%" installer\mingling.iss
 if errorlevel 1 ( echo [ERROR] Inno Setup build failed. & exit /b 1 )
-echo [OK] dist\MinglingWorkbench-%VSHORT%-setup.exe
+rem Bundled builds get their own file name so they never overwrite the release artifact.
+set "OUTSUFFIX="
+if "%BUNDLE%"=="1" set "OUTSUFFIX=-snowluma"
+echo [OK] dist\MinglingWorkbench-%VSHORT%-setup%OUTSUFFIX%.exe

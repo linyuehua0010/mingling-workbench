@@ -1,7 +1,12 @@
 ﻿{
-  "version": "0.5.0",
-  "date": "2026-11-09",
+  "version": "0.6.0",
+  "date": "2026-11-10",
   "notes": [
+    "对齐 V3.2.0：安装包 MinglingWorkbench-3.2.0-setup.exe（88,892,091 B）；另有显式开 -BundleSnowLuma 才产出的 MinglingWorkbench-3.2.0-setup-snowluma.exe（131,675,213 B，内含 SnowLuma 2.4.2）",
+    "新增 SnowLuma 原理白皮书 docs\\snowluma.md，deploy-qq 整篇按 components.json + bootstrap.ps1 + bots\\ 布局重写",
+    "装包可自带组件：程序目录 pack\\<组件id>\\ 里 sha256 对得上就直接用，不下载不联网（-Offline 同样有效）",
+    "目录结构与日志路径纠错：AstrBot 入口在 bots\\AstrBot\\bin\\astrbot.exe、日志 bots\\AstrBot\\data\\run.log；uv 在 uv\\bin、ffmpeg 在 sidecar\\ffmpeg\\bin",
+    "界面可用性与主题修正：键盘可操作、长列表贴底跟随、失败提示留 12 秒",
     "安装与环境自动化并入 tools\\bootstrap.ps1（清单 tools\\components.json）：装组件、补环境、体检都走这一份，旧 auto-setup.ps1 只转发",
     "复用现有冥零参考或已保存 Breeze 音色，自动中文对齐、音高标注、备份和热加载",
     "工作台 V3.1 功能配置界面：豆包云端/SoulX 本地唱歌、桌宠与语音凭据",

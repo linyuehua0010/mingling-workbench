@@ -118,6 +118,7 @@ static int g_checkAction = -1;
 
 static wstring g_toast;
 static DWORD g_toastAt = 0;
+static DWORD g_toastShowMs = 4000;   // 失败类消息留久一点（UiToast 按内容定）
 
 static int g_editFocus = 0;
 

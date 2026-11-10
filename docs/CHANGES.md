@@ -4,6 +4,73 @@
 
 ---
 
+## V3.2.0 正式版（2026-11-10）
+
+**这一版是什么**：`win32\src\version.h` 里 `APP_VERSION_TAG "V3.2.0"`、`APP_VERSION_SHORT "3.2.0"`、
+文件版本 `3.2.0.0`，`tools\check-version.ps1` 打印 `[版本] OK V3.2.0 (3.2.0.0)`。沿用正式通道目录，
+装过 V3.1.0 / V3.0.0 / V2.4.1 的机器是原地升级，工作区、状态目录、备份都不动。
+
+**SnowLuma 可以直接打进安装包**
+
+- 新增显式构建开关 `installer\build-installer.bat -BundleSnowLuma`（离线加 `-Offline`）：
+  开启后 `prepare-snowluma.ps1` 会把上游官方原版 zip（2.4.2，43,361,462 B，SHA256 `0912926c…bad81a`，
+  与 `tools\components.json` 完全一致）放进安装包的 `{app}\pack\snowluma\`，装完不用再联网下 41 MB。
+- 默认**不内置**：上游 EULA §5.4 明确要求「并入第三方安装包」须事先取得著作权人书面授权，
+  所以这条通道只能显式开启，谁开启谁负责。安装协议页（`docs\THIRD-PARTY.md` 第 4 节）和
+  `docs\snowluma.md` 第 14 节都写清了这一点，`prepare-snowluma.ps1` 每次运行还会再打印一遍提示。
+- 内置版的产物名带后缀：`MinglingWorkbench-3.2.0-setup-snowluma.exe`。以前两条路径都输出到同一个
+  `MinglingWorkbench-3.2.0-setup.exe`，内置版会静默覆盖正式发布产物（差 43 MB 但文件名一模一样），
+  现在用 `{#OutSuffix}` 分开，不会再互相覆盖。
+- `tools\bootstrap.ps1` 新增「内置包优先」：程序目录下 `pack\<组件id>\` 里只要有 sha256 对得上的文件就
+  直接用它，不下载、不联网，`-Offline` 下同样有效。日志对应一行 `用装包自带的 <文件名>（不用下载）`。
+  匹配按清单 sha256 判定而不是文件名，上游改名也不会失效。
+
+**新增文档与教程纠错**
+
+- 新增 [snowluma.md](snowluma.md)：SnowLuma 运作原理白皮书，16 节。讲清它是 **Hook / 注入**路线
+  （真正的桌面 QQ 先登录，再向它的进程 `LoadLibrary` 注入 `native\snowluma-win32-x64.dll`，走
+  `\\.\pipe\mojo.<pid>.control|recv` 匿名管道拿下会话，对外再说 OneBot 11），不是协议模拟；
+  含启动时序逐段拆解、146 个 OneBot action、`onebot_<号>.json` 的 `overlay`/`snapshot` 两种模式、
+  WebUI 五页、密码与协议同意机制、37 个环境变量、日志轮转、排查表与六个常见误解。
+- `docs\deploy-qq.md` 整篇按现行架构重写：原来还在教 `winget install astral-sh.uv` + `uv tool install astrbot`
+  手工装、手工建 `D:\bot\astrbot`、手工 `astrbot run`，与 `tools\components.json` + `tools\bootstrap.ps1`
+  一键链路和 `bots\` 目录布局完全脱节。新版按「一键装 → 组件清单 → SnowLuma 怎么登 QQ → 密码 →
+  接到 AstrBot → 白名单 → 启动顺序 → 常见问题」组织。
+- README、`docs\使用说明.md`、`docs\ui-html.md`、`docs\VERSIONING.md`、`docs\项目总览.md`、
+  `docs\setup-automation.md`、安装 Skill 全部对齐到 V3.2.0；历史版本段落保持原样。
+- 修 `win32\src\paths.cpp` 里 `secrets\README.txt` 的错文案：原来写
+  「`snowluma-webui.txt` SnowLuma 网页后台密码（password=…）」，但 `start.cmd` 用
+  `set /p VAR=<文件` 整行读入、工作台自己也是 `Trim(ReadTextFile(...))` 整份读进环境变量，
+  照旧文案写会让密码变成字面量 `password=xxx`，永远登不进。现在明确写「只写密码本身，一行」。
+- `installer\mingling.iss` 的开始菜单从 3 个文档入口扩到 7 个（新增「她会做的事」「SnowLuma 是怎么工作的」
+  「自动配置与组件清单」「项目总览」）。
+- 修 `win32\src\ui_pages.inc` 的 AstrBot 启动候选：原来只找 `uv\bin\astrbot.exe` 那几种老布局，
+  而 `tools\components.json` 把 `uv_tool` 的 `bin_dir` 设成 `{bots}\AstrBot\bin`，新装机器上按 F9
+  起 AstrBot 会找不到（平时靠 `bots\start-all.cmd` 兜底才没暴露）。现在 `AstrBot\bin\astrbot.exe`
+  排在候选最前，找不到时的提示也改成指向这个位置。
+- 同一处给 AstrBot 传的 PATH 里，ffmpeg 目录改成先问 `SidecarFfmpegExe()`（现在是
+  `sidecar\ffmpeg\bin`），老布局再退回 `bots\ffmpeg\bin`；两边都没有就不往 PATH 里塞不存在的目录。
+- `docs\deploy-bili.md` 的插件目录与配置目录改成 `bots\AstrBot\data\...`（老平铺布局仍然有效，文档里两种都写了）。
+
+**界面（内嵌 HTML）**
+
+- 键盘可达性：左侧页签与子列表可用 Tab / 方向键 / Enter / Space 操作，重绘后按 `data-*` 恢复焦点；
+  编辑弹窗有 Tab 焦点陷阱，Esc 关闭后回焦到触发元素；940px 图标栏 7 个页签补 `aria-label` / `title`。
+- 长内容不再憋着：日志和检查结果贴底跟随、往上翻不会被拽回去；`.joblist` 独立滚动区
+  `max-height: min(58vh, 560px)`；toast 宽度 `min(80vw, 720px)` 且 `pre-wrap`，带路径和错误码的报错不再被截断。
+- 状态可见：六个忙态都接上「脉冲点 + 人设短句 + 已等 N 秒」，区分「在跑」和「卡住」；tab2 进度条改三态，
+  没有进度也不再占位；检查更新拆成四种情况分别给话，失败那支带 `role="alert"`。
+- 主题一致性：白天/自定义主题逐条补漏色（导航与分段控件 hover、`::selection`、`.hero .stamp`、
+  引用块、头像框、进度条光晕），忙点动画从绿色 pulse 改为蓝色；宽屏内容区 1260 → 1320px 居中，
+  新增 720px 断点。
+- C++ 侧配合：toast 时长按内容分级，正常提示 4 秒，含「失败 / 超时 / 连不上 / 找不到」等字样的留 12 秒
+  （`ui.cpp` 的 `g_toastShowMs` + `ui_pages.inc` 的 `ToastShowMs()`），不再让报错一闪而过。
+
+**发布产物**：`MinglingWorkbench-3.2.0-setup.exe`（默认，不含 SnowLuma）、
+`MinglingWorkbench-3.2.0-setup-snowluma.exe`（内置 SnowLuma 2.4.2，需自行确认上游 EULA 授权）。
+
+---
+
 ## V3.1.0 正式版（2026-11-10 发布）
 
 - 「她会做的事」增加唱歌、桌宠、豆包语音、在线 Breeze 配置界面；凭据保存在本机，不回显密钥，留空保留原值。

@@ -2,7 +2,7 @@
 
 # 冥零工作台
 
-![Version](https://img.shields.io/badge/version-V3.0.0-2563eb?style=flat-square)
+![Version](https://img.shields.io/badge/version-V3.2.0-2563eb?style=flat-square)
 
 一个 `MinglingWorkbench.exe`，把「QQ 聊天机器人」和「B 站看片」收进同一个窗口：
 起停 SnowLuma / AstrBot、跑八块自设定、看今天的选题、丢一个 BV 进去让它自己看完、翻任务台账和日志。
@@ -10,7 +10,7 @@
 **C++ 后端 + WebView2 内嵌 HTML**。七个页面和角色图片编进 exe，离线加载，不启动本机网页服务器。
 界面以冥零的冷白、雾蓝、宝石蓝和现有立绘重做成「她值夜班时的桌子」。
 
-当前正式版：**V3.0.0**。运行需要 Microsoft Edge WebView2 Runtime，`WebView2Loader.dll` 随程序分发。
+当前正式版：**V3.2.0**。运行需要 Microsoft Edge WebView2 Runtime，`WebView2Loader.dll` 随程序分发。
 [HTML 界面开发与验收](docs/ui-html.md)
 
 [下载安装包](#-下载与使用) · [从源码编译](#-从源码编译) · [使用说明](docs/使用说明.md) · [变更记录](docs/CHANGES.md)
@@ -35,7 +35,53 @@
 
 ## ✨ 核心特性
 
-### V3.0.0 新增
+### V3.2.0 新增
+
+- **SnowLuma 可以打进安装包**：出包时加 `installer\build-installer.bat -BundleSnowLuma`（离线再加 `-Offline`），
+  上游官方原版 zip 会放进 `{app}\pack\snowluma\`，装完不用再联网下 41 MB。内置版的产物名带后缀
+  `MinglingWorkbench-3.2.0-setup-snowluma.exe`，和正式发布的 `MinglingWorkbench-3.2.0-setup.exe` 分开，
+  不会再互相覆盖。默认**不内置**——上游 EULA §5.4 要求并入第三方安装包须先取得书面授权，这条通道只显式开启，
+  谁开启谁负责（[docs/snowluma.md](docs/snowluma.md) 第 14 节、[docs/THIRD-PARTY.md](docs/THIRD-PARTY.md) 第 4 节）。
+- **装包自带的组件包优先**：程序目录下 `pack\<组件id>\` 里只要有 sha256 对得上的文件就直接用它，
+  不下载、不联网，`-Offline` 下同样有效。匹配按清单里的 sha256 判定而不是文件名，上游改名也不会失效；
+  日志对应一行「用装包自带的 `<文件名>`（不用下载）」。
+- **SnowLuma 原理写清楚了**：新增 [docs/snowluma.md](docs/snowluma.md)，16 节，讲它是 Hook / 注入路线
+  （真正的桌面 QQ 先登录，再向进程注入 `native\snowluma-win32-x64.dll`，走 `\\.\pipe\mojo.<pid>.control|recv`
+  匿名管道拿下会话，对外再说 OneBot 11），不是协议模拟；含启动时序逐段拆解、`onebot_<号>.json` 的
+  `overlay` / `snapshot` 两种模式、WebUI 五页、密码与协议同意机制、排查表。
+- **界面的可用性和主题一致性**：左侧页签与子列表能用 Tab / 方向键 / Enter / Space 操作，重绘后焦点不丢；
+  编辑弹窗有焦点陷阱，Esc 关闭后回焦到触发元素。日志和检查结果贴底跟随，往上翻不被拽回去；
+  toast 宽度上限提到 `min(80vw, 720px)` 并保留换行，带路径和错误码的报错不再被截断。
+  失败类提示留 **12 秒**（正常提示 4 秒），不再一闪而过。白天 / 自定义主题补齐了漏色，宽屏内容区 1260 → 1320px。
+
+### V3.1.0 新增
+
+> 上一版加的东西，还在。
+
+- **她会做的事多了三样**：唱歌、桌宠、豆包语音。豆包语音和在线 Breeze 的凭据填在配置界面里，
+  存本机、不回显密钥，留空就保留原值。
+- **唱歌可以选择云端或本地**：豆包云端、SoulX 本地二选一，配置覆盖分别保存，自设定不会把本地选择
+  覆盖回豆包。本地那条链路包括部署、启动、健康检查和生成试听，独立 Python / CUDA 环境适配 RTX 50 系列，
+  下载可重试、模型保留。
+- **本地唱歌可以借她自己的声音**：用已有冥零参考，或者拿已保存的 Breeze 音色做参考——自动生成中文时间
+  与音高标注，先备份再热加载。
+- **桌宠配置**：最近消息范围、提醒转发、连接检测。接通走 V3 自设定接口，不会删掉已有聊天会话。
+- **安装与环境自动化收成一套**：`tools\components.json`（21 个组件的声明式清单）+ `tools\bootstrap.ps1`
+  （检测 → 安装 → 验证，按 `requires` 拓扑排序）。工作台「一键自动配置」/`--autosetup`/`--bots-setup`、
+  安装器、`mingling-install` 技能、旧的 `auto-setup.ps1`（现在只是个转发壳）全都指向它，不再各写一套下载逻辑。
+- **下载可信、失败可退**：统一校验 SHA256，GitHub / npm / pip / uv 走镜像并自动回退；`-Check` 只检测、
+  `-Offline` 只吃校验过的缓存、`-Proxy` 支持代理。状态写 `<工作区>\logs\setup\state.json`，
+  日志逐行脱敏（Key、Token、QQ 号）。
+- **八块自设定多了只读 `-Verify`**：不 PUT、不拍快照、不写文件，和 `-Apply` / `-DryRun` 互斥；
+  敏感项只从 `secrets\`（兼容旧的 `private\`）读。
+- **安装包自带清单**：包里有 `tools\components.json`，装完跑一次 `bootstrap.ps1 -Check` 留证据。
+  自更新把当前工作区作为 `/WORKSPACE` 传给安装包，收尾体检不会再查错目录。
+- **修了一批真会挡住人的问题**：服务状态不再仅凭端口误报、配置损坏不再被覆盖、备份不再重名、
+  PowerShell 的 CUDA 探针引号导致验证没执行、首装装成 `.new.exe`、安装包往受保护目录写日志。
+
+### V3 线打底那批改动
+
+> 下面这些是 V3 线一开始就有的，不是这一版新增。
 
 - 七页界面整个换成内嵌 HTML（WebView2）：页面、样式和角色图片直接打进 exe，走内存资源离线加载，
   不开本机端口。主题叫「她值夜班时的桌子」——深夜蓝底、冰蓝高光，总览放她的立绘，侧栏是她的头像和说话框。
@@ -48,13 +94,13 @@
   失败留着重试，退出或取消也不丢。队列状态在「照顾她」→「她会做的事」→ 长期记忆下面看。
 - 黑夜 / 白天 / 自定义三套主题：黑夜保留深蓝，白天换成瓷白配蓝，自定义能改背景 / 卡片 / 文字 /
   强调色四个颜色，切完自动保存、重启还在；标题栏跟着主题一起刷（DWM），不再一黑一白。
-- 「照顾她」拆成五个分区 tab：外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事，
+- 「照顾她」拆成四个分区 tab：组件与操作 / 相处的习惯 / 她会做的事 / 外观主题，
   各分区独立渲染，切过去即时重绘，主题脏标记也按分区清。
 - 「做过的事」改成双栏：左栏「本子」是任务列表，右栏「这一次」常驻选中任务的详情和正文，
   不用先展开才看得到；没选中时给一句空态提示。
 - B 站桥接插件 `astrbot_plugin_bili_bridge` 升到 0.3.0：群里发 B 站链接 → 工作台看片 → 用她自己的口气回话。
 
-### 从 V2.4.1 到 V3.0.0：其它改动
+### 从 V2.4.1 到 V3：其它改动
 
 | 功能 | 说明 |
 | --- | --- |
@@ -80,8 +126,8 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| **一键配置环境** | 维护页「一键自动配置」（或 `MinglingWorkbench.exe --bots-setup`）自动补 Node / ffmpeg / Python / Ollama，并把 AstrBot、SnowLuma、Breeze、Ollama、bili-whale **五个组件**装进 `<组件根>\<名字>\`，生成 `start-all.cmd` 与 `.setup.json` 安装报告。也可以脱离界面跑 `tools\auto-setup.ps1 -Workspace … -Bots … -Base …`。 |
-| **冥零的人设模板** | `plugin\mingling_skill\` 带人设正文与 AstrBot Skill 描述（**不是**上面那个「安装 Skill」，那是给 Agent 装/修工作台用的说明书）；维护页「导入冥零人设」把人设写进 AstrBot 的 `personas` 表、切好 `persona_id`、顺手改白名单前缀，并同步给桌宠。想换成自己的角色，只改 `{user_persona}` / `{user_tone}` 两段。 |
+| **一键配置环境** | 照顾她页「一键自动配置」（或 `MinglingWorkbench.exe --bots-setup`）自动补 Node / ffmpeg / Python / Ollama，并把 AstrBot、SnowLuma、Breeze、Ollama、bili-whale **五个组件**装进 `<组件根>\<名字>\`，生成 `start-all.cmd` 与 `.setup.json` 安装报告。也可以脱离界面跑 `tools\auto-setup.ps1 -Workspace … -Bots … -Base …`。 |
+| **冥零的人设模板** | `plugin\mingling_skill\` 带人设正文与 AstrBot Skill 描述（**不是**上面那个「安装 Skill」，那是给 Agent 装/修工作台用的说明书）；照顾她页「导入冥零人设」把人设写进 AstrBot 的 `personas` 表、切好 `persona_id`、顺手改白名单前缀，并同步给桌宠。想换成自己的角色，只改 `{user_persona}` / `{user_tone}` 两段。 |
 | **掉线提醒** | 后台心跳默认每分钟探一次 SnowLuma（5099）、AstrBot（6199）、Breeze（8137）；连**续两次**失败才算掉线，同一条 10 分钟内只提醒一次。提醒是右上角滑动横幅（带「重启一下」按钮）+ 托盘气泡，标题/正文/头像/频率都能在 `settings.json` 里改。 |
 | **帮助页组件路径** | 帮助页直接列出工作区、台账、状态目录、组件根、AstrBot、SnowLuma、Breeze、Ollama 的绝对路径，配一个「组件目录」按钮，排错不用再猜装哪了。 |
 | **求助页可改字** | 十一张求助卡每张都能「改文字」，改过的内容存进 `settings.json` 的 `custom_help_texts`，重装不丢。 |
@@ -99,14 +145,14 @@
 
 > **V2.4.0 是正式版**：安装包第一次把 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` 和冥零自己的安装 Skill 一起打进去——新机器装完就能直接「自设定」，不用先手动铺脚本、也不用联网抓配置包。装过 V2.3.x 的覆盖装一遍就好，设置、记忆、密钥都不动。
 
-> **V2.2.1 是补丁版**：修掉双击安装包报「错误 5：拒绝访问」的问题（根因是文件被标了低完整性，不是安装脚本），总览页不再放「打游戏模式」入口——它在维护页照样能用。
+> **V2.2.1 是补丁版**：修掉双击安装包报「错误 5：拒绝访问」的问题（根因是文件被标了低完整性，不是安装脚本），总览页不再放「打游戏模式」入口——它在照顾她页照样能用。
 
 ### 一直都有
 
 - **七个页签**：总览 / 一起看看 / 做过的事 / 日志 / 哪儿卡了 / 照顾她 / 帮帮忙，`1`–`7` 直接跳，`0` 是帮帮忙。
 - **B 站一条龙**：今日选题 → 拉流 → 抽帧 → 字幕 → 九宫格 → 写正文，进度条分六个阶段。
 - **任务台账**：工作台、QQ 群、模型工具调用写的是同一份 `logs\jobs.jsonl`，从哪看都是同一段历史。
-- **照顾她**：五个分区。组件状态八张卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包），一键操作分日常 / 组件 / 兜底三组（重启大脑 / 重登 QQ / 自设定 / 导入人设 / 修自启 / 备份 / 求助 …），再加外观主题、相处的习惯和她会做的事。
+- **照顾她**：四个分区。组件与操作里是组件状态八张卡（大脑 / QQ / DeepSeek 余额 / 记忆 / 语音 / 看图看视频 / 开机自启 / 表情包）加一键操作（日常 / 组件 / 兜底三组：重启大脑 / 重登 QQ / 自设定 / 导入人设 / 修自启 / 备份 / 求助 …）；另外三格是相处的习惯、她会做的事、外观主题。
 - **体检五连**：登录 → 依赖 → 限额 → 风控 → 自检，就是排错顺序本身。
 - **检查更新**：AstrBot / SnowLuma / 安装 Skill（`mingling-install`）/ 工作台四项版本对比；工作台那一行能「一键更新」（只覆盖程序文件，先备份、失败回滚），其余三项给的是「复制给 Agent 的话」，Skill 那行可以直接「一键更新」。
 - **GUI 子系统但带 CLI**：`--paths`、`--feed`、`--watch BV…`、`--debrief`、`--bili <子命令>`、`--her-status` 都能在无桌面环境里跑。
@@ -157,13 +203,22 @@ build.bat
 
 ```bat
 installer\build-installer.bat
-:: 产物：dist\MinglingWorkbench-3.0.0-setup.exe
+:: 产物：dist\MinglingWorkbench-3.2.0-setup.exe
 ```
 
 需要 **Inno Setup 6**（`ISCC.exe`）。仓库自带 `tools\innosetup6\app\ISCC.exe` 时直接用它，
 否则请把它装进 `PATH`。脚本会先检查 `bin\`、`sidecar\node\node.exe`、
 `sidecar\bili-whale\tools\bili.mjs`、`sidecar\bili-whale\bin\ffmpeg.exe` 是否齐，
 再从 `version.h` 生成 `installer\version_auto.iss`，最后输出到 `dist\`。
+
+想把 SnowLuma 一起打进安装包，加 `-BundleSnowLuma`（离线再加 `-Offline`）：
+
+```bat
+installer\build-installer.bat -BundleSnowLuma
+:: 产物：dist\MinglingWorkbench-3.2.0-setup-snowluma.exe（约 126 MB）
+```
+
+默认不内置。这条通道要显式开，理由和授权边界见 [docs/snowluma.md](docs/snowluma.md) 第 14 节。
 
 > `dist\`、`bin\`、`sidecar\node\`、`sidecar\bili-whale\bin\*.exe` 都在 `.gitignore` 里，**不要提交**。
 
@@ -173,22 +228,26 @@ installer\build-installer.bat
 
 ### 下载
 
-从 [V3.0.0 发布页](https://github.com/linyuehua0010/mingling-workbench/releases/tag/V3.0.0) 下载：
+从 [V3.2.0 发布页](https://github.com/linyuehua0010/mingling-workbench/releases/tag/V3.2.0) 下载：
 
 ```
-MinglingWorkbench-3.0.0-setup.exe   Windows 10/11 x64，约 66 MB
+MinglingWorkbench-3.2.0-setup.exe   Windows 10/11 x64，约 85 MB（88,892,091 B）
 ```
+
+另有一份 `MinglingWorkbench-3.2.0-setup-snowluma.exe`（约 126 MB / 131,675,213 B）：多带一份
+SnowLuma 2.4.2，装完不用再联网下 41 MB。不特别说明就拿默认那份——内置版涉及上游授权，见
+[docs/snowluma.md](docs/snowluma.md) 第 14 节。
 
 安装包**自带** `node.exe`、`ffmpeg.exe`、bili-whale、自设定脚本与配置包（`tools\` / `pack\mingling-pack\`）、
 以及冥零自己的安装 Skill（`skill\mingling-install\`，第一次启动自动铺到 `%USERPROFILE%\.agents\skills\`）。
 干净机器不用再装 Node / ffmpeg / Python / DSH。
 
-同一个 Release 里还挂着源码包 `MinglingWorkbench-3.0.0-source.zip`，以及两样给 Agent 用的东西：
+同一个 Release 里还挂着源码包 `MinglingWorkbench-3.2.0-source.zip`，以及两样给 Agent 用的东西：
 `mingling-install.zip`（Skill 本体）和 `skill-version.json`（它的版本号，检查更新就用它比）。
 
 ### 安装
 
-1. 双击安装包。默认装到 `%LOCALAPPDATA%\Programs\MinglingWorkbench`，**不需要管理员权限**；应用和功能里显示「冥零工作台 V3.0.0」。
+1. 双击安装包。默认装到 `%LOCALAPPDATA%\Programs\MinglingWorkbench`，**不需要管理员权限**；应用和功能里显示「冥零工作台 V3.2.0」。
 2. 向导里选**工作区**。产物、台账、日志都落在这里，建议单独放一个盘，例如 `D:\冥零工作区`。
 3. 勾选要不要桌面快捷方式。开始菜单会有「冥零工作台」和「卸载冥零工作台」。
 4. 装完直接启动；第一次启动会确认工作区（安装时已选过就不再问）。
@@ -297,6 +356,9 @@ MinglingWorkbench.exe（C++ 后端 + WebView2 内嵌 HTML）
 
 ![总览](docs/screens/v3/overview.png)
 
+> 下面这批截图是 V3.1.0 的界面。V3.2.0 只动了可用性和主题细节（键盘可达、日志贴底跟随、
+> 失败提示留 12 秒、宽屏内容区 1260 → 1320px），版式与分区没有变，所以没重拍。
+
 | 页 / 分区 | 截图 |
 | --- | --- |
 | 总览 | [总览](docs/screens/v3/overview.png)：她的问候和立绘、SnowLuma / AstrBot 状态、四个数字、最近记录 |
@@ -305,9 +367,8 @@ MinglingWorkbench.exe（C++ 后端 + WebView2 内嵌 HTML）
 | 做过的事 | [做过的事](docs/screens/v3/jobs.png)：左栏「本子」是任务列表，右栏「这一次」常驻选中任务的详情 |
 | 日志 | [日志](docs/screens/v3/logs.png)：SnowLuma / AstrBot / B 站三路，2.5 秒尾随 |
 | 哪儿卡了 | [哪儿卡了](docs/screens/v3/check.png)：登录 → 依赖 → 限额 → 风控 → 自检，原样显示命令输出 |
-| 照顾她 · 外观主题 | [外观主题](docs/screens/v3/maint.png)：五个分区 tab（外观主题 / 组件状态 / 一键操作 / 相处的习惯 / 她会做的事），第一格是黑夜 / 白天 / 自定义 |
-| 照顾她 · 组件状态 / 一键操作 | [组件状态](docs/screens/v3/maint-status.png) · [一键操作](docs/screens/v3/maint-ops.png)：状态卡；日常 / 组件 / 兜底三组按钮 |
-| 照顾她 · 相处的习惯 / 她会做的事 | [相处的习惯](docs/screens/v3/maint-habits.png) · [她会做的事](docs/screens/v3/maint-features.png)：群里怎么回、表情包、语音频率、掉线提醒、打游戏模式；桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线 |
+| 照顾她 · 组件与操作 | [组件与操作](docs/screens/v3/maint-status.png) · [一键操作](docs/screens/v3/maint-ops.png)：状态卡在上、日常 / 组件 / 兜底三组按钮在下 |
+| 照顾她 · 相处的习惯 / 她会做的事 / 外观主题 | [相处的习惯](docs/screens/v3/maint-habits.png) · [她会做的事](docs/screens/v3/maint-features.png) · [外观主题](docs/screens/v3/maint.png)：群里怎么回、表情包、语音频率、掉线提醒、打游戏模式；桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线；黑夜 / 白天 / 自定义 |
 | 帮帮忙 | [教程](docs/screens/v3/center-doc.png) · [检查更新](docs/screens/v3/center-update.png) · [找人帮忙](docs/screens/v3/center-ask.png)：三段 |
 
 截图是用隔离的临时状态目录（`MINGLING_STATE_DIR` 指到 `tmp\shots-v3\`）启动程序拍的，界面里的消息数、任务和日志是演示数据，避免把真实聊天内容拍进去。
@@ -323,7 +384,7 @@ MinglingWorkbench.exe（C++ 后端 + WebView2 内嵌 HTML）
 | 3 | 做过的事 | 双栏：左栏「本子」是 `logs\jobs.jsonl` 的任务列表（时间、BV、标题、UP、来源、状态、耗时），右栏「这一次」常驻选中任务的正文（读链接记 `type:"link"`）；没选中时给空态提示 |
 | 4 | 日志 | SnowLuma / AstrBot / B 站三路日志，2.5 秒尾随，可刷新、开日志目录 |
 | 5 | 哪儿卡了 | 登录、依赖、限额、风控、自检五条命令，原样显示 sidecar 输出 |
-| 6 | 照顾她 | 五个分区：外观主题（黑夜 / 白天 / 自定义）/ 组件状态（大脑、QQ、DeepSeek 余额、记忆、语音、看图看视频等，按实际组件列卡）/ 一键操作（日常 / 组件 / 兜底三组）/ 相处的习惯（回复、表情包、语音、掉线提醒、打游戏模式）/ 她会做的事（桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线） |
+| 6 | 照顾她 | 四个分区：组件与操作（状态卡 + 日常 / 组件 / 兜底三组按钮）/ 相处的习惯（回复、表情包、语音、掉线提醒、打游戏模式）/ 她会做的事（桌宠、唱歌、豆包 / 在线 Breeze、长期记忆、语音路线）/ 外观主题（黑夜 / 白天 / 自定义） |
 | 7 | 帮帮忙 | 三段：教程（随包文档）/ 检查更新（四项版本 + 工作台一键更新）/ 找人帮忙（十一张卡，可改字） |
 
 ### 一起看看
@@ -406,7 +467,7 @@ MinglingWorkbench.exe（C++ 后端 + WebView2 内嵌 HTML）
 工作台是 GUI 子系统，但带了一组不需要开窗口的自检命令（输出同时写 `MINGLING_CLI_OUT` 指定的文件）：
 
 ```bat
-MinglingWorkbench.exe --paths                 :: 工作区、机器人根、组件根、sidecar、node、ffmpeg、凭据、台账
+MinglingWorkbench.exe --paths                 :: 工作区、机器人根、组件根、sidecar、node、ffmpeg、凭据、台账等十几行路径
 MinglingWorkbench.exe --feed                  :: 跑一次今日选题
 MinglingWorkbench.exe --watch BV1xxxxxxxxx    :: 完整看一条，并写台账（source=console）
 MinglingWorkbench.exe --link <链接或分享文本>  :: 读一个网页链接，并写台账（type=link）
@@ -438,7 +499,7 @@ MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup
 | 群里能看、工作台不能看 | `--paths` 的凭据与配置 | 两边必须指向同一个工作区和同一份凭据 |
 | 服务起不来 | 日志页对应日志 | AstrBot 在 `<组件根>\AstrBot`（老布局 `<机器人根>\astrbot`）；SnowLuma 在 `<组件根>\SnowLuma\node.exe`。日志页现在两路都认 `bots\`，读不到会直接告诉你它找的是哪个路径 |
 | 照顾她全红 | `--paths` 的机器人根 | `base` 指错了。组件在 `<组件根>`（默认 `<工作区>\bots\`）里，会先找 bots 再看老平铺目录 |
-| 自设定说「没找到 tools\self-setup.ps1」 | 安装目录里有没有 `tools\` | 装的是 V2.3.x 以前的包。换 V3.0.0：包自带 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` |
+| 自设定说「没找到 tools\self-setup.ps1」 | 安装目录里有没有 `tools\` | 装的是 V2.3.x 以前的包。换 V3.2.0：包自带 `tools\`、`pack\mingling-pack\`、`plugin\mingling_skill\` |
 | 检查更新 / 照顾她说「没找到安装（Skill）」 | `<机器人根>\tools\skill-home.txt` | V2.4.0 起第一次启动会自动铺一份并写这个文件；手工装过的 Skill 想让它认，跑一次 `skill\mingling-install\scripts\finish.ps1 -Dir <机器人根>` |
 | 检查更新里 Skill 那行说「查不到新版」 | `logs\skill-check.log` | 私有仓库要 `secrets\github-token.txt` 才查得到；里面记了每次请求的 url / 状态码 / 有没有带 token |
 | 一键配置装到一半失败 | `<组件根>\.setup.json` | 里面记了每个组件的成功/失败与原因 |
@@ -448,6 +509,7 @@ MinglingWorkbench.exe --her-op <动作> [参数]  :: 跑一个动作（selfsetup
 | 一键更新失败 | 帮帮忙 → 检查更新 底部的提示 | 会写明失败在哪一步；安装器非 0 退出时程序文件已从 `<机器人根>\旧版\` 回滚 |
 
 更多：QQ 机器人部署见 [docs/deploy-qq.md](docs/deploy-qq.md)，
+SnowLuma 是怎么登 QQ 的见 [docs/snowluma.md](docs/snowluma.md)，
 看 B 站插件部署见 [docs/deploy-bili.md](docs/deploy-bili.md)。
 
 ---
@@ -460,7 +522,8 @@ win32\res\             图标、manifest、rc（UTF-8，windres 带 -c 65001 编
 win32\build.bat        编译主程序（产物到 bin\）
 skill\mingling-install\  冥零的安装 Skill：SKILL.md + version.json + scripts\probe.ps1 / finish.ps1 + references\
 pack\mingling-pack\    配置包：pack.json（自设定八块）+ plugins\ + persona\ + voice\ 参考音色
-tools\                 自设定与运维脚本（self-setup / auto-setup / diag / backup / relogin / 掉线提醒）、
+tools\                 组件清单 components.json + 安装引擎 bootstrap.ps1（检测→安装→验证）、
+                       自设定与运维脚本（self-setup / auto-setup 转发壳 / diag / backup / relogin / 掉线提醒）、
                        python\ 运行时、check-version.ps1、fetch-runtime.ps1
 sidecar\               node.exe + bili-whale + ffmpeg（不提交，fetch-runtime.ps1 拉取）
 plugin\astrbot_plugin_bili_bridge\   AstrBot 插件（群里看 B 站）
@@ -476,8 +539,10 @@ art\                   avatar.png / hero.png
 
 | 版本 | 一句话 |
 | --- | --- |
-| **V3.0.0**（2026-11-07，当前正式版） | 内嵌 HTML 界面「她值夜班时的桌子」、启动加载画面、阅读记忆队列、黑夜 / 白天 / 自定义主题、照顾她五分区、做过的事双栏（页面修正版并入） |
-| V2.4.1（2026-11-07，上一个正式版） | 补丁版：安装包补齐自动配置 / 自设定 / 人设模板，修安装版资源路径、QQ 视频重复请求、B 站短链接软触发 |
+| **V3.2.0**（2026-11-10，当前正式版） | SnowLuma 可选内置进安装包（`-BundleSnowLuma`，产物带 `-snowluma` 后缀，默认不内置）；装包自带 `pack\<组件id>\` 校验通过即免下载；新增 SnowLuma 原理白皮书；界面可用性与主题一致性优化（键盘可达、日志贴底跟随、失败提示留 12 秒） |
+| V3.1.0（2026-11-10，上一个正式版） | 唱歌（豆包云端 / SoulX 本地）、桌宠、豆包语音与在线 Breeze 配置界面；安装与环境自动化收成 `components.json` + `bootstrap.ps1` 一套，SHA256 校验、镜像回退、八块自设定 `-Verify` 只读模式 |
+| V3.0.0（2026-11-07） | 内嵌 HTML 界面「她值夜班时的桌子」、启动加载画面、阅读记忆队列、黑夜 / 白天 / 自定义主题、照顾她五分区、做过的事双栏（页面修正版并入） |
+| V2.4.1（2026-11-07） | 补丁版：安装包补齐自动配置 / 自设定 / 人设模板，修安装版资源路径、QQ 视频重复请求、B 站短链接软触发 |
 | V2.4.0 | 安装包补 `tools\` `pack\` `plugin\` 与冥零安装 Skill；组件路径全面认 `<工作区>\bots\` |
 | V2.3.1 | 修组件目录、语音卡、打游戏模式里的 Breeze |
 | V2.3.0 | 自设定八块、功能页、配置档案识别、白名单只加不删 |

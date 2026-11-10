@@ -72,7 +72,7 @@ nav button.active kbd{color:#7e9bd0}
 .chip{border:1px solid var(--line-2);border-radius:6px;padding:3px 7px;font-size:9.5px;letter-spacing:.6px;color:#8fa4c9;font-family:"Segoe UI",sans-serif}
 .live{display:inline-flex;align-items:center;gap:6px}
 .live i{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(104,216,185,.5);animation:pulse 2.6s infinite}
-.page{flex:1 1 auto;padding:24px 26px 8px;max-width:1260px;width:100%}
+.page{flex:1 1 auto;padding:24px 26px 8px;max-width:1320px;width:100%;margin:0 auto}
 .foot{flex:0 0 auto;display:flex;justify-content:space-between;gap:16px;padding:10px 26px 14px;border-top:1px solid var(--line);color:#586887;font-size:10px;letter-spacing:.3px}
 .foot span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
@@ -196,7 +196,7 @@ pre{min-height:120px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;font:1
 .form-row input[type=checkbox]{width:18px;height:18px;accent-color:var(--acc);justify-self:end}
 
 /* toast / dialog */
-#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(8px);opacity:0;pointer-events:none;background:rgba(14,26,46,.96);border:1px solid rgba(112,168,255,.3);color:#e2ecff;border-radius:12px;padding:9px 16px;font-size:12px;z-index:30;max-width:80vw;line-height:1.7;box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 24px rgba(90,151,255,.14);transition:opacity .2s,transform .2s}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(8px);opacity:0;pointer-events:none;background:rgba(14,26,46,.96);border:1px solid rgba(112,168,255,.3);color:#e2ecff;border-radius:12px;padding:9px 16px;font-size:12px;z-index:30;max-width:min(80vw,720px);line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere;box-shadow:0 18px 50px rgba(0,0,0,.5),0 0 24px rgba(90,151,255,.14);transition:opacity .2s,transform .2s}
 #toast.show{opacity:1;transform:translateX(-50%)}
 #notification{position:fixed;right:20px;top:66px;width:320px;z-index:20}
 #notification:empty{display:none}
@@ -290,6 +290,55 @@ html:not([data-theme="dark"]) ::-webkit-scrollbar-thumb{background:var(--line-2)
 html:not([data-theme="dark"]) .rail nav button{background:none;border-color:transparent}
 html:not([data-theme="dark"]) .quiet{background:none;border:0}
 
+/* affordance: clickable rows must look and focus like controls */
+.row.link:hover{background:rgba(90,151,255,.07)}
+.row.link:focus-visible{background:rgba(90,151,255,.11);outline-offset:-1px}
+.row.link[aria-disabled="true"]{cursor:default;opacity:.5}
+
+/* long lists scroll on their own so the neighbouring panel stays visible */
+.joblist{max-height:min(58vh,560px);overflow:auto;padding-right:4px;overscroll-behavior:contain}
+.joblist::-webkit-scrollbar-thumb{border-color:transparent}
+
+/* busy feedback: a spinner dot reads as "working", the seconds read as "not stuck" */
+.busy{display:inline-flex;align-items:center;gap:6px}
+.busy i{width:6px;height:6px;flex:0 0 auto;border-radius:50%;background:var(--acc-2);animation:busydot 1.6s infinite}
+@keyframes busydot{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--acc-2) 46%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+#busy-elapsed,[data-elapsed]{font-variant-numeric:tabular-nums;color:var(--muted)}
+.note-bad,.card p.dim.note-bad,.card p.note-bad{color:var(--bad)}
+.pill.bad::before{background:currentColor}
+.progress-pct{margin-left:2px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+html:not([data-theme="dark"]) ::selection{background:color-mix(in srgb,var(--acc) 24%,transparent);color:var(--ink)}
+html:not([data-theme="dark"]) .hero .stamp{color:var(--muted)}
+html:not([data-theme="dark"]) .doc blockquote{border-left-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+html:not([data-theme="dark"]) .doc p.li::before{background:color-mix(in srgb,var(--acc) 58%,var(--muted))}
+html:not([data-theme="dark"]) .ava img{background:var(--panel-2)}
+html:not([data-theme="dark"]) .row.link:hover{background:color-mix(in srgb,var(--acc) 9%,transparent)}
+html:not([data-theme="dark"]) button.primary:hover{background:color-mix(in srgb,var(--acc) 88%,#000);color:var(--primary-ink,#fff);border-color:color-mix(in srgb,var(--acc) 88%,#000)}
+/* daylight leftovers: hover text that was tuned for a dark surface goes invisible on porcelain */
+html:not([data-theme="dark"]) nav button:hover{color:var(--ink)}
+html:not([data-theme="dark"]) .seg button{color:var(--muted)}
+html:not([data-theme="dark"]) .seg button:hover{color:var(--ink);background:color-mix(in srgb,var(--acc) 10%,transparent)}
+html:not([data-theme="dark"]) .bar-l .bar-hint{border-left-color:var(--line)}
+html:not([data-theme="dark"]) .opts button{color:var(--sub)}
+html:not([data-theme="dark"]) .feature-note{color:var(--sub)}
+html:not([data-theme="dark"]) .progress i{box-shadow:none}
+html:not([data-theme="dark"]) .live i{box-shadow:none}
+
+/* narrow windows: give the content its width back and keep the alert card inside the viewport */
+@media(max-width:720px){
+  .page{padding:16px 14px 6px}
+  .bar,.foot{padding-left:14px;padding-right:14px}
+  .card{padding:14px}
+  .head{margin-bottom:14px;gap:12px}
+  .stats{gap:8px;margin-bottom:14px}
+  .stat{padding:11px 12px}
+  .seg{margin-bottom:12px}
+  #notification{left:12px;right:12px;top:auto;bottom:64px;width:auto}
+  #toast{max-width:calc(100vw - 24px);bottom:16px}
+  .bar-l .bar-hint{display:none}
+}
+
 </style></head>
 <body>
 <div class="shell">
@@ -367,11 +416,74 @@ function head(no,title,line,actions,note){return `<div class="head"><div><span c
 function card(title,body,aside){return `<section class="card"><div class="card-h"><h2>${esc(title)}</h2>${aside||''}</div>${body}</section>`}
 function empty(title,sub,face,action){return `<div class="void"><div class="face">${esc(face||'（摊手）')}</div><b>${esc(title)}</b>${sub?`<small>${esc(sub)}</small>`:''}${action?`<div class="actions" style="justify-content:center;margin-top:10px">${action}</div>`:''}</div>`}
 function tag(word,cls){return `<span class="pill ${cls||''}">${esc(word)}</span>`}
+// 只记录前端第一次看到 busy 的时刻；秒数只用来区分「在跑」和「卡住」，不当成后端进度。
+const busySince={};let tickerOn=false;
+function busyMark(key,label){
+  if(!state||!state[key])return '';
+  // 秒数每秒在变，不能进无障碍树，否则读屏会把「已等 N 秒」一遍遍念出来。
+  return `<span class="busy"><i aria-hidden="true"></i>${esc(label)}<span data-elapsed="${key}" aria-hidden="true"></span></span>`;
+}
+function startTicker(){
+  if(tickerOn||typeof setInterval!=='function')return;
+  if(!document.querySelectorAll)return;
+  tickerOn=true;
+  setInterval(()=>{
+    const now=Date.now();
+    for(const el of document.querySelectorAll('[data-elapsed]')){
+      const t=busySince[el.getAttribute('data-elapsed')];
+      el.textContent=t?'　已等 '+Math.max(0,Math.round((now-t)/1000))+' 秒':'';
+    }
+  },1000);
+}
+// 日志这类「尾部才有用」的滚动区：贴底就继续跟着新行，用户上翻看旧行时不许把他拽回来。
+let tailMem=[];
+function captureTails(){
+  if(!document.querySelectorAll)return;
+  tailMem=[];
+  for(const el of document.querySelectorAll('[data-tail]'))
+    tailMem.push({k:el.getAttribute('data-tail'),top:el.scrollTop,h:el.clientHeight,sh:el.scrollHeight});
+}
+function restoreTails(){
+  if(!document.querySelectorAll)return;
+  for(const el of document.querySelectorAll('[data-tail]')){
+    const k=el.getAttribute('data-tail');
+    const m=tailMem.filter(x=>x.k===k)[0];
+    // 日志/检查结果默认贴底看最新；本子列表默认从第一条开始，别一进来就跳到底。
+    if(!m){el.scrollTop=(k==='log'||k==='check')?el.scrollHeight:0;continue}
+    el.scrollTop=(m.top+m.h>=m.sh-24)?el.scrollHeight:m.top;
+  }
+}
+// 整块重绘会把按钮换成新节点，键盘焦点就掉回 body 了；按数据属性认回原来那个按钮。
+let focusMem='';
+function focusKeyOf(el){
+  const d=el.dataset||{};
+  const keys=Object.keys(d).sort();
+  if(keys.length)return el.tagName+'|'+keys.map(k=>k+'='+d[k]).join('&');
+  return el.tagName+'|'+(el.textContent||'').replace(/\s+/g,' ').trim().slice(0,24);
+}
+function captureFocus(){
+  if(!document.querySelectorAll)return;
+  focusMem='';
+  const a=document.activeElement;
+  if(!a||a===document.body||typeof a.matches!=='function')return;
+  if(!a.matches('button,[data-job],[role="button"]'))return;
+  if($('editor')&&$('editor').open)return;
+  focusMem=focusKeyOf(a);
+}
+function restoreFocus(){
+  if(!focusMem||!document.querySelectorAll)return;
+  const want=focusMem;focusMem='';
+  for(const el of document.querySelectorAll('button,[data-job],[role="button"]')){
+    if(focusKeyOf(el)!==want)continue;
+    if(el.focus){try{el.focus({preventScroll:true})}catch(_){el.focus()}}
+    return;
+  }
+}
 function time(t){if(!t)return '—';const d=new Date(t*1000);return d.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})}
-function inputBox(){return `<div class="input-row"><input id="watch-input" aria-label="视频或网页链接" placeholder="BV 号、链接，或者一篇看得头疼的文章" value="${esc(state.input)}"><button class="primary" data-watch${state.watchBusy?' disabled':''}>${state.watchBusy?'正在看…':'让她看看'}</button></div>`}
+function inputBox(){return `<div class="input-row"><input id="watch-input" aria-label="视频或网页链接" placeholder="BV 号、链接，或者一篇看得头疼的文章" value="${esc(state.input)}"><button class="primary" data-watch${state.watchBusy?' disabled':''}>${state.watchBusy?'正在看…':'让她看看'}</button></div>${busyMark('watchBusy','看着呢')}`}
 function statRow(){const unit=['条','条','','条'];return `<div class="stats">${['今天的消息','她的回复','用掉的 token','记住的事'].map((n,i)=>`<div class="stat"><b>${n}</b><strong>${esc(state.stats[i])}<small>${unit[i]}</small></strong></div>`).join('')}</div>`}
 function svcRows(){return state.services.map((s,i)=>`<div class="svc"><span class="svc-i">${i?ICON.chat:ICON.cloud}</span><div class="svc-t"><strong>${esc(s.name)}</strong><small>${esc(s.desc)}${s.port?' · :'+esc(s.port):''}${s.up&&s.pid?' · PID '+esc(s.pid):''}</small></div>${s.up?tag('在跑'):tag('没起来','off')}<button class="slim" data-service="${i}" data-value="${s.up?'stop':'start'}">${s.up?'歇会':'叫起来'}</button></div>`).join('')}
-function jobRows(n){return state.jobs.slice(0,n||99).map((j,i)=>`<div class="row link" data-job="${i}"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(j.title)||'没名字的任务'}</b><small>${esc(j.source||'')}</small></div><time>${time(j.time)}</time><span class="pill ${/ok|success|完成|done/.test(j.status)?'':'gray'}">${esc(j.status)}</span></div>`).join('')}
+function jobRows(n){return state.jobs.slice(0,n||99).map((j,i)=>`<div class="row link" data-job="${i}" role="button" tabindex="0" aria-label="第 ${i+1} 条：${esc(j.title)||'没名字的任务'}，${esc(j.status)}"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(j.title)||'没名字的任务'}</b><small>${esc(j.source||'')}</small></div><time>${time(j.time)}</time><span class="pill ${/ok|success|完成|done/.test(j.status)?'':'gray'}">${esc(j.status)}</span></div>`).join('')}
 function hero(){
   const c=clockInfo(state.clock),g=hello(c.hour);
   return `<section class="hero"><img class="art" src="hero.png" alt=""><div class="hero-in"><div class="hero-eyebrow"><b>${esc(c.time||'')}</b><span>房间的灯还亮着</span></div><h1>${esc(g[0])}</h1><p>${esc(g[1])}</p><div class="actions">${btn('都叫起来','btn:allstart',true)}${btn('让她们歇着','btn:allstop')}<button data-nav="1" data-section-go="1">丢个链接</button></div></div><span class="stamp">GONGSUN MINGLING · 00</span></section>`;
@@ -383,12 +495,20 @@ function bili(){
   const tabs=['今天看啥','丢个链接','看完了','配置'];
   let html=head('02','一起看看','<span class="act">（把椅子拖过来）</span>想看什么，丢给我。',btn('打开产物目录','btn:open_shotdir'))+`<div class="seg">${tabs.map((n,i)=>`<button data-bsec="${i}" class="${state.bsec===i?'selected':''}">${n}</button>`).join('')}</div>`;
   if(state.bsec===0){
-    html+=card('今天看啥',`<p class="dim" role="status">${esc(state.feedNote||'')}</p>`+(state.feed.length?state.feed.map((f,i)=>`<div class="row"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(f.title)}</b><small>${esc(f.up)} · ${esc(f.dur)} · ${esc(f.bv)}</small></div><button class="slim" data-pick="${i}">就看这个</button></div>`).join(''):empty(state.feedBusy?'正在捞…':'今天还没挑','点一下，我随便捞几支','（挠头）')),`<button class="slim" data-feed${state.feedBusy?' disabled':''}>${state.feedBusy?'在找了…':'换一批'}</button>`);
+    html+=card('今天看啥',`<p class="dim" role="status">${esc(state.feedNote||'')}</p>${state.feedBusy?`<p class="dim" role="status">${busyMark('feedBusy','正在捞')}</p>`:''}`+(state.feed.length?state.feed.map((f,i)=>`<div class="row"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(f.title)}</b><small>${esc(f.up)} · ${esc(f.dur)} · ${esc(f.bv)}</small></div><button class="slim" data-pick="${i}">就看这个</button></div>`).join(''):empty(state.feedBusy?'正在捞…':'今天还没挑','点一下，我随便捞几支','（挠头）')),`<button class="slim" data-feed${state.feedBusy?' disabled':''}>${state.feedBusy?'在找了…':'换一批'}</button>`);
     const a=state.biliAgent||{},status={pending:'待看',running:'正在看',done:'看完了',failed:'失败',cancelled:'已取消',interrupted:'上次中断',skipped:'已看过'};
     html+=card('让她自己安排',`<p class="dim">使用已保存的对话 API 选片，每轮最多三条。自动模式按 B 站配置的作息运行；工作台需保持打开。</p><p role="status">${esc(a.note||'尚未开启')}</p>${a.enabled?`<p class="dim">自动安排已开启${a.nextRefresh?' · 下次刷新不早于 '+esc(new Date(a.nextRefresh*1000).toLocaleString('zh-CN')):''}</p>`:''}<div class="actions"><button data-bili-agent="once"${a.busy?' disabled':''}>${a.busy?'正在安排…':'API 安排一轮'}</button><button data-bili-agent="enable"${a.enabled?' disabled':''}>开启自动安排</button><button data-bili-agent="stop">停止安排</button></div>${(a.tasks||[]).map(t=>`<div class="row"><div class="grow"><b>${esc(t.title)}</b><small>${esc(t.bv)} · ${esc(t.reason||'')}</small><small>${esc(new Date(t.due*1000).toLocaleString('zh-CN'))}</small></div><span class="pill">${esc(status[t.status]||t.status)}</span></div>`).join('')}`);
   }
-  if(state.bsec===1)html+=card('丢个链接',`<p class="dim">视频会整理成笔记，网页会留下摘要和来源。</p>${inputBox()}<div class="progress"><i style="width:${state.progress||0}%"></i></div><p class="dim">${esc(state.watchStatus)||'还没开始。挑一个你感兴趣的。'}</p><div class="quick"><button data-bsec="2">看完了 →</button>${btn('打开日记','btn:diary')}</div>`);
-  if(state.bsec===2)html+=card(esc(state.resultTitle)||'看完了',state.resultOk?`<pre>${esc(state.result)}</pre><div class="quick">${btn('复制结果','btn:copy')}${btn('九宫格','btn:open_sheet')}${btn('封面','btn:open_cover')}${btn(state.dshBusy?'正在问…':'问一句','dsh',false,state.dshBusy)}</div>${state.dsh?`<div class="sec-h"><h2>她的补充</h2></div><pre>${esc(state.dsh)}</pre>`:''}`:empty('啥也没看呢','先去丢个链接','（摊手）','<button data-nav="1" data-section-go="1">丢个链接</button>'));
+  if(state.bsec===1){
+    const pct=Math.max(0,Math.min(100,+state.progress||0));
+    // 进度条只在真有进度或真在跑的时候出现；不跑也不推 0% 的空条。
+    const bar=(state.watchBusy||pct>0)
+      ? `<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`
+        +`<p class="dim">${pct>0?`已走 ${pct}%`:'进度还没报上来'}<span class="progress-pct">${state.watchBusy?'还在跑':'收工了'}</span></p>`
+      : '';
+    html+=card('丢个链接',`<p class="dim">视频会整理成笔记，网页会留下摘要和来源。</p>${inputBox()}${bar}<p class="dim" role="status">${esc(state.watchStatus)||'还没开始。挑一个你感兴趣的。'}</p><div class="quick"><button data-bsec="2">看完了 →</button>${btn('打开日记','btn:diary')}</div>`);
+  }
+  if(state.bsec===2)html+=card(esc(state.resultTitle)||'看完了',state.resultOk?`<pre>${esc(state.result)}</pre><div class="quick">${btn('复制结果','btn:copy')}${btn('九宫格','btn:open_sheet')}${btn('封面','btn:open_cover')}${btn(state.dshBusy?'正在问…':'问一句','dsh',false,state.dshBusy)}</div>${state.dshBusy?`<p class="dim" role="status">${busyMark('dshBusy','她在想')}</p>`:''}${state.dsh?`<div class="sec-h"><h2>她的补充</h2></div><pre>${esc(state.dsh)}</pre>`:''}`:empty('啥也没看呢','先去丢个链接','（摊手）','<button data-nav="1" data-section-go="1">丢个链接</button>'));
   if(state.bsec===3)html+=`<div class="seg">${['B 站与 bili-whale','链接与对话 API'].map((n,i)=>`<button data-config-tab="${i}" class="${cfgSec===i?'selected':''}">${n}</button>`).join('')}</div>`+configForm();
   return html;
 }
@@ -399,20 +519,20 @@ function configForm(){
 }
 function jobs(){
   return head('03','做过的事','<span class="act">（翻本子）</span>都记着呢，一条没落。',btn('刷新','btn:jobs_refresh'))
-    +`<div class="cols jobs-cols">`+card('本子',state.jobs.length?`<div class="meta" style="margin-bottom:8px">最近 ${state.jobs.length} 条</div>${jobRows()}`:empty('本子还是空的','从一条视频或一个链接开始','（摊手）','<button data-nav="1" data-section-go="1">去丢个链接</button>'))
+    +`<div class="cols jobs-cols">`+card('本子',state.jobs.length?`<div class="meta" style="margin-bottom:8px">最近 ${state.jobs.length} 条</div><div class="joblist">${jobRows()}</div>`:empty('本子还是空的','从一条视频或一个链接开始','（摊手）','<button data-nav="1" data-section-go="1">去丢个链接</button>'))
     +card('这一次',state.jobDetail?`<pre>${esc(state.jobDetail)}</pre><div class="quick">${btn('复制记录','btn:copy_job')}${btn('打开产物','btn:open_shotdir')}</div>`:empty('挑一条，展开看看','点左边本子上的记录，详情会显示在这里','（翻页）'))+`</div>`;
 }
 function logs(){
   const src=['B站 / bili-whale','AstrBot','SnowLuma'];
   return head('04','日志','<span class="act">（探头）</span>出什么事了，我看看。',btn('刷新','btn:log_refresh')+btn('日志目录','btn:logdir'))
     +`<div class="seg">${src.map((n,i)=>`<button data-log="${i}" class="${state.logsrc===i?'selected':''}">${n}</button>`).join('')}</div>`
-    +card('运行日志',`<pre>${esc(state.log)||'安静得很，一行都没有。'}</pre>`);
+    +card('运行日志',`<pre data-tail="log" aria-label="运行日志">${esc(state.log)||'安静得很，一行都没有。'}</pre>`);
 }
 function check(){
   const items=['登录','依赖','限额','风控','自检'];
   return head('05','哪儿卡了','<span class="act">（挽起袖子）</span>挨个查，一个都跑不掉。')
-    +card('一项一项来',`<div class="quick" style="margin-top:0">${items.map((n,i)=>`<button data-check="${i}"${state.checkBusy?' disabled':''}>${String(i+1).padStart(2,'0')} · ${n}</button>`).join('')}</div><p class="dim">${state.checkBusy?'正在查，稍等一会儿。':'点一项开始查，结果留在下面。'}</p>`)
-    +card('检查结果',`<pre>${esc(state.check)||'还没查。'}</pre>`);
+    +card('一项一项来',`<div class="quick" style="margin-top:0">${items.map((n,i)=>`<button data-check="${i}"${state.checkBusy?' disabled':''}>${String(i+1).padStart(2,'0')} · ${n}</button>`).join('')}</div><p class="dim" role="status">${state.checkBusy?busyMark('checkBusy','正在查'):'点一项开始查，结果留在下面。'}</p>`)
+    +card('检查结果',`<pre data-tail="check" aria-label="检查结果">${esc(state.check)||'还没查。'}</pre>`);
 }
 function optRow(title,note,opts,current,busy){
   return `<div class="feat"><div class="t"><b>${esc(title)}</b><small>${esc(note)}</small></div><div class="opts">${opts.map(o=>`<button data-action="${esc(o[1])}" class="${current===o[2]?'selected':''}"${busy?' disabled':''}>${esc(o[0])}</button>`).join('')}</div></div>`;
@@ -493,7 +613,9 @@ function saveTheme(mode){
 function maintenance(){
   const tabs=['组件与操作','相处的习惯','她会做的事','外观主题'];
   let html=head('06','照顾她','<span class="act">（把工具箱推过来）</span>要动哪儿，先跟我说一声。',btn('再查一遍','mref',false,state.maintBusy),state.note||'')
-    +`<nav class="seg" aria-label="照顾她分类">${tabs.map((n,i)=>`<button data-maint="${i}" class="${maintSec===i?'selected':''}" aria-current="${maintSec===i?'page':'false'}">${n}</button>`).join('')}</nav>`;
+    +`<nav class="seg" aria-label="照顾她分类">${tabs.map((n,i)=>`<button data-maint="${i}" class="${maintSec===i?'selected':''}" aria-current="${maintSec===i?'page':'false'}">${n}</button>`).join('')}</nav>`
+    // 四个分类下都是同一个等待状态：按钮全灰了，得有一句话说明还在动，否则像卡死。
+    +(state.maintBusy?`<p class="dim" role="status" style="margin:-4px 0 14px">${busyMark('maintBusy','正在动')}</p>`:'');
   if(maintSec===3)return html+themeSettings();
   const ops=[['日常',[['重启大脑','restart_brain'],['重登 QQ','relogin'],['重启 QQ','restart_qq'],['自设定','selfsetup'],['一键自动配置','autosetup'],['导入人设','import_skill'],['修开机自启','autostart_fix']]],['组件',[['启动 Breeze','start_breeze'],['启动 Ollama','start_ollama'],['更新技能','skill_update']]],['兜底',[['备份到桌面','backup'],['生成求助信息','diag']]]];
   if(maintSec===0)return html
@@ -533,20 +655,41 @@ function help(){
     if(state.docsel>=0&&state.docs[state.docsel])html+=card(esc(state.docs[state.docsel].title),`<article class="doc">${markdown(state.doc)}</article>`,btn('用系统打开','docopen'));
     html+=`<div class="sec-h"><h2>常用位置</h2></div>${card('找不到东西的时候',`<div class="quick" style="margin-top:0">${btn('工作区','doc:base')}${btn('组件目录','doc:bots')}${btn('日志','doc:logs')}${btn('台账文件','doc:jobs')}${btn('换工作区','ws:pick')}</div>`)}`;
   }
-  if(helpSec===1)html+=card('组件与工作台',`<p class="dim">${state.updateProgress>=0?esc(state.updateMessage)+' · '+state.updateProgress+'%':state.updateBusy?'正在问版本…':esc(state.updateError)||'只看当前版本对应的发布通道。'}</p>${(state.updates||[]).map(u=>`<div class="row"><div class="grow"><b>${esc(u.name)}</b><small>本机 ${esc(u.local)||'不知道'} → 最新 ${esc(u.latest)||'查不到'}</small><small>${esc(u.what)}</small></div><span class="chip">${esc(({new:'有更新',latest:'最新',local:'本地版本',unknown:'查不到',missing:'没装'})[u.state]||u.state)}</span>${u.state==='new'?btn(u.id==='wb'?'一键更新':u.id==='skill'?'更新技能':'复制说明',u.id==='wb'?'up:wbgo':'upact:'+u.id):''}</div>`).join('')}`,btn('检查更新','up:refresh',false,state.updateBusy));
+  if(helpSec===1){
+    // 下载百分比、正在问版本、报错是三种不同的状态，别挤在同一句 dim 里糊过去。
+    const prog=+state.updateProgress;
+    const note=prog>=0
+      ?`<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100,Math.max(0,prog))}"><i style="width:${Math.min(100,Math.max(0,prog))}%"></i></div><p class="dim" role="status">${esc(state.updateMessage)||'正在下载'}<span class="progress-pct">${prog}%</span></p>`
+      :state.updateBusy
+        ?`<p class="dim" role="status">${busyMark('updateBusy','正在问版本')}</p>`
+        :state.updateError
+          ?`<p class="dim note-bad" role="alert">${esc(state.updateError)}</p>`
+          :'<p class="dim">只看当前版本对应的发布通道。</p>';
+    html+=card('组件与工作台',note+`${(state.updates||[]).map(u=>`<div class="row"><div class="grow"><b>${esc(u.name)}</b><small>本机 ${esc(u.local)||'不知道'} → 最新 ${esc(u.latest)||'查不到'}</small><small>${esc(u.what)}</small></div><span class="chip">${esc(({new:'有更新',latest:'最新',local:'本地版本',unknown:'查不到',missing:'没装'})[u.state]||u.state)}</span>${u.state==='new'?btn(u.id==='wb'?'一键更新':u.id==='skill'?'更新技能':'复制说明',u.id==='wb'?'up:wbgo':'upact:'+u.id):''}</div>`).join('')}`,btn('检查更新','up:refresh',false,state.updateBusy));
+  }
   if(helpSec===2)html+=`<div class="grid">${state.asks.map((a,i)=>`<div class="item"><div class="item-h"><b>${esc(a.title)}</b><span class="meta">求助</span></div><p>${esc(a.body)}</p><div class="actions"><button class="slim" data-askcopy="${i}">复制给 Agent</button><button class="slim" data-askedit="${i}">改文字</button></div></div>`).join('')}</div>`;
   return html;
 }
 function nav(){
-  $('nav').innerHTML=NAV.map((n,i)=>`<button data-nav="${i}" class="${state.tab===i?'active':''}" aria-current="${state.tab===i?'page':'false'}" title="${esc(n.hint)}"><span class="ic">${n.icon}</span><span class="lb">${n.label}</span><kbd>${i+1}</kbd></button>`).join('');
+  $('nav').innerHTML=NAV.map((n,i)=>`<button data-nav="${i}" class="${state.tab===i?'active':''}" aria-current="${state.tab===i?'page':'false'}" aria-label="${esc(n.label+'，'+n.hint)}" title="${esc(n.label+' · '+n.hint)}"><span class="ic" aria-hidden="true">${n.icon}</span><span class="lb">${n.label}</span><kbd aria-hidden="true">${i+1}</kbd></button>`).join('');
 }
 function paint(){
   const pages=[overview,bili,jobs,logs,check,maintenance,help];
+  captureTails();
+  captureFocus();
   $('page').innerHTML=(pages[state.tab]||overview)();
+  restoreTails();
+  restoreFocus();
+  startTicker();
 }
 function render(s){
   state=s;
   applyTheme(s);
+  // 记下每个耗时操作开始的时刻，只用于显示「已等 N 秒」；后端一结束就清掉。
+  for(const key of ['watchBusy','feedBusy','checkBusy','maintBusy','dshBusy','updateBusy']){
+    if(s[key]){if(!busySince[key])busySince[key]=Date.now()}
+    else delete busySince[key];
+  }
   const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
   set('clock',clockText(s.clock));
   set('workspace',s.workspace||'');
@@ -597,7 +740,7 @@ document.addEventListener('click',e=>{
   if('service'in d){send('service',{index:+d.service,value:d.value||''});return}
   if('doc'in d){force=true;send('doc',{index:+d.doc});return}
   if('askcopy'in d){send('askcopy',{index:+d.askcopy});return}
-  if('askedit'in d){editing=+d.askedit;$('ask-text').value=state.asks[editing].body;$('editor').showModal();return}
+  if('askedit'in d){editing=+d.askedit;askReturn=b;$('ask-text').value=state.asks[editing].body;$('editor').showModal();const t=$('ask-text');if(t&&t.focus)t.focus();return}
 });
 function configFields(form){return [...form.querySelectorAll('[data-row]')].filter(x=>!x.readOnly&&(x.type==='checkbox'?x.checked!==x.defaultChecked:x.value!==x.defaultValue)).map(x=>({row:+x.dataset.row,value:x.type==='checkbox'?(x.checked?'开':'关'):x.value}))}
 document.addEventListener('submit',e=>{
@@ -624,11 +767,28 @@ document.addEventListener('input',e=>{if(e.target.closest('#theme-form'))themeDi
 document.addEventListener('change',e=>{if(e.target.closest('#feature-form'))featureDirty=true});
 $('save-ask').onclick=()=>{send('asksave',{index:editing,value:$('ask-text').value});$('editor').close();force=true};
 $('cancel-ask').onclick=()=>$('editor').close();
+// 弹窗：Tab 只在自己里面转，Esc 走浏览器原生的取消，关掉后焦点回到原来那个按钮。
+let askReturn=null;
+(function(){
+  const dlg=$('editor');if(!dlg||typeof dlg.addEventListener!=='function')return;
+  dlg.addEventListener('keydown',e=>{
+    if(e.key!=='Tab')return;
+    const f=[].slice.call(dlg.querySelectorAll('button,textarea,input')).filter(x=>!x.disabled);
+    if(!f.length)return;
+    const first=f[0],last=f[f.length-1];
+    if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+    else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+  });
+  dlg.addEventListener('close',()=>{if(askReturn&&askReturn.focus)askReturn.focus();askReturn=null});
+})();
 document.addEventListener('keydown',e=>{
   if(e.target.matches('input,textarea,select')){
     if(e.key==='Enter'&&e.target.id==='watch-input'){send('watch',{value:e.target.value});e.target.blur()}
     return;
   }
+  // 本子上的记录是 div 扮的按钮，Tab 能走到就得能用回车/空格按下去。
+  const row=e.target.closest?e.target.closest('[data-job]'):null;
+  if(row&&(e.key==='Enter'||e.key===' ')){e.preventDefault();force=true;send('job',{index:+row.dataset.job});if(!state||state.tab!==2)send('tab',{index:2});return}
   if(e.ctrlKey||e.altKey||e.metaKey||$('editor').open)return;
   if(/^[1-7]$/.test(e.key)){e.preventDefault();send('tab',{index:+e.key-1})}
   if(e.key==='0')send('tab',{index:6});

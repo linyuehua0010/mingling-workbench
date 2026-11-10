@@ -304,8 +304,11 @@ static void StartService(int idx) {
         if (idx == 1) {
             // AstrBot 的启动器可能在不同布局里：uv 工具目录用 bin，venv 用 Scripts，
             // 也接受用户把 astrbot.exe 放进 PATH。挨个找，找不到就把提示写清楚。
+            // 现行 components.json 的 astrbot 步骤把 uv_tool 的 bin_dir 设成 {bots}\AstrBot\bin，
+            // 所以 AstrBot\bin\astrbot.exe 才是新装机器的正规位置，排最前。
             wstring exe;
-            const wchar_t* cand[] = {L"uv\\bin\\astrbot.exe", L"uv\\tools\\astrbot\\Scripts\\astrbot.exe",
+            const wchar_t* cand[] = {L"AstrBot\\bin\\astrbot.exe",
+                                     L"uv\\bin\\astrbot.exe", L"uv\\tools\\astrbot\\Scripts\\astrbot.exe",
                                      L"uv\\Scripts\\astrbot.exe", L"astrbot\\astrbot.exe"};
             for (const wchar_t* rel : cand) {
                 wstring p = JoinPath(BotRoot(), rel);
@@ -322,14 +325,23 @@ static void StartService(int idx) {
             }
             wchar_t pathBuf[8192] = {0};
             GetEnvironmentVariableW(L"PATH", pathBuf, 8192);
+            // ffmpeg 现在装在 sidecar\ffmpeg\bin（components.json 定的），老机器可能在 bots\ffmpeg\bin。
+            // 哪个在就用哪个，两个都没有就不改 PATH —— 不要把不存在的目录塞进去。
+            wstring ffDir;
+            wstring ff = SidecarFfmpegExe();
+            if (!ff.empty()) ffDir = ParentDir(ff);
+            if (ffDir.empty()) {
+                wstring legacy = JoinPath(CompDir(L"ffmpeg"), L"bin");
+                if (DirExists(legacy)) ffDir = legacy;
+            }
             EnvList env;
-            env.emplace_back(L"PATH", JoinPath(CompDir(L"ffmpeg"), L"bin") + L";" + pathBuf);
+            env.emplace_back(L"PATH", ffDir.empty() ? wstring(pathBuf) : ffDir + L";" + pathBuf);
             env.emplace_back(L"PYTHONUTF8", L"1");
             DWORD pid = 0;
             if (!exe.empty()) pid = SpawnDetached(exe, L"run", CompDir(L"AstrBot"), env, LogPath(1));
             d->ok = pid != 0;
             d->text = pid ? L"AstrBot 启动了（pid " + Num(pid) + L"）"
-                          : L"没找到 AstrBot：请把 AstrBot 放到 " + JoinPath(BotRoot(), L"uv\\bin") +
+                          : L"没找到 AstrBot：请把 AstrBot 放到 " + JoinPath(BotRoot(), L"AstrBot\\bin") +
                             L" 或用 PATH 里的 astrbot.exe；日志见 " + LogPath(1);
         } else {
             wstring cwd = CompDir(L"SnowLuma");
@@ -1468,7 +1480,7 @@ void UiPaint(HDC hdc, int w, int h) {
 
     PaintNotifyBanner(g);   // 右上角滑进来那条：托盘气泡被压掉时也看得见
 
-    if (!g_toast.empty() && GetTickCount() - g_toastAt < 4000) {
+    if (!g_toast.empty() && GetTickCount() - g_toastAt < g_toastShowMs) {
         Font* f = Fnt(BODY_SIZE, 0, 0);
         float tw = Tw(g, g_toast, f) + S(36);
         RectF r((float)w / 2 - tw / 2, (float)h - S(64), tw, S(36));
@@ -1484,9 +1496,22 @@ void UiRequestRepaint() {
     if (g_hwnd) { InvalidateRect(g_hwnd, nullptr, FALSE); WebUiPublish(); }
 }
 
+// 失败类提示（存不下、连不上、被拒绝）留 12 秒，其余 4 秒。
+// 4 秒对一句「存好了」够用，对带路径和错误码的报错不够——用户切个窗口就看不到了。
+static DWORD ToastShowMs(const wstring& msg) {
+    static const wchar_t* kBad[] = {
+        L"失败", L"没成", L"存不下", L"没保存", L"不对", L"错误", L"出错",
+        L"超时", L"拒绝", L"连不上", L"没连上", L"打不开", L"找不到", L"异常",
+        L"没用", L"不行", L"缺", L"过期", L"占用", L"被挡"
+    };
+    for (auto k : kBad) if (msg.find(k) != wstring::npos) return 12000;
+    return 4000;
+}
+
 void UiToast(const wstring& msg) {
     g_toast = msg;
     g_toastAt = GetTickCount();
+    g_toastShowMs = ToastShowMs(msg);
     UiRequestRepaint();
 }
 

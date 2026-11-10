@@ -4,6 +4,27 @@
 #include "version_auto.iss"
 #define AppExe "MinglingWorkbench.exe"
 
+; ── 可选：把 SnowLuma 官方原版包一起打进安装包 ────────────────────────────────
+; 默认不内置（BundleSnowLuma=0），装完由 bootstrap.ps1 联网下载，和以前一样。
+; 想出内置版就 build-installer.bat -BundleSnowLuma；那份片段由
+; installer\prepare-snowluma.ps1 生成（会先从 tools\components.json 抄校验值，
+; 再确认本地那份 zip 的 SHA256，对不上就拒绝出包）。
+; 为什么不做成默认：上游 EULA 第 5.4 条把「并入第三方安装包」列为须事先取得
+; 书面授权的行为，所以这条通道必须由出包的人逐个明确开启，并自负授权责任。
+#if FileExists(AddBackslash(SourcePath) + "snowluma_auto.iss")
+  #include "snowluma_auto.iss"
+#endif
+#ifndef BundleSnowLuma
+  #define BundleSnowLuma 0
+#endif
+; 内置版的产物换个文件名：不然它和官方正式包同名，跑一次 -BundleSnowLuma 就会
+; 把 dist\ 里那份要发出去的 88 MB 正式包悄悄覆盖掉（只差几十 MB，很难看出来）。
+#if BundleSnowLuma
+  #define OutSuffix "-snowluma"
+#else
+  #define OutSuffix ""
+#endif
+
 ; ── 通道分流：正式版和快照版必须能同装一台机器、互不覆盖 ──────────────────────
 ; 决定权在 version.h 的 APP_SNAPSHOT（build-installer.bat 抄进 version_auto.iss）。
 ; 快照版换掉 AppId、安装目录、卸载项、快捷方式和设置目录，其余内容完全一样。
@@ -47,7 +68,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 OutputDir=..\dist
-OutputBaseFilename=MinglingWorkbench-{#AppVerShort}-setup
+OutputBaseFilename=MinglingWorkbench-{#AppVerShort}-setup{#OutSuffix}
 SetupIconFile=..\win32\res\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppTitle}
@@ -106,11 +127,23 @@ Source: "..\pack\mingling-pack\*"; DestDir: "{app}\pack\mingling-pack"; Flags: i
 Source: "..\pack\mingling-vendor\*"; DestDir: "{app}\pack\mingling-vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
 
+; ── 内置的 SnowLuma 原版包（只在 -BundleSnowLuma 出包时有） ──────────────────
+; 落到 {app}\pack\snowluma\ 之后，装完的 bootstrap.ps1 -Check / 一键自动配置会先看
+; 这里有没有校验通过的那份，有就直接解压，不再联网下载（tools\bootstrap.ps1 的
+; Find-BundledPackage）。文件是上游发布的原版 zip，一个字节都没改。
+#if BundleSnowLuma
+Source: "{#SnowLumaZip}"; DestDir: "{app}\pack\snowluma"; Flags: ignoreversion
+#endif
+
 [Icons]
 Name: "{group}\{#AppTitle}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\使用说明"; Filename: "{app}\docs\使用说明.md"
+Name: "{group}\她会做的事"; Filename: "{app}\docs\她会做的事.md"
+Name: "{group}\SnowLuma 是怎么工作的"; Filename: "{app}\docs\snowluma.md"
 Name: "{group}\B 站部署教程"; Filename: "{app}\docs\deploy-bili.md"
 Name: "{group}\QQ 机器人部署教程"; Filename: "{app}\docs\deploy-qq.md"
+Name: "{group}\自动配置与组件清单"; Filename: "{app}\docs\setup-automation.md"
+Name: "{group}\项目总览"; Filename: "{app}\docs\项目总览.md"
 Name: "{group}\卸载 {#AppTitle}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 

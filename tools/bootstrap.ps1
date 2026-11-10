@@ -470,6 +470,22 @@ function Resolve-Urls([string[]]$Urls) {
     return @($out)
 }
 
+# 装包自带的组件：出包时 build-installer.bat -BundleSnowLuma 会把官方原版包塞进
+# <程序目录>\pack\<组件 id>\，bootstrap 跑起来时 $script:Repo 正好就是 <程序目录>，
+# 开发树里则是仓库根 —— 两处同一句。约定按目录找，不按文件名找：上游改一次命名就失效的
+# 硬编码路径不值得写。命中与否一律以清单里的 sha256 为准，宁可不命中也不装错东西。
+function Find-BundledPackage([string]$CompId, [string]$Sha) {
+    if (-not $CompId -or -not $Sha) { return '' }
+    $dir = Join-Path (Join-Path $script:Repo 'pack') $CompId
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) { return '' }
+    foreach ($f in @(Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue)) {
+        try {
+            if ((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash -eq $Sha) { return $f.FullName }
+        } catch { }
+    }
+    return ''
+}
+
 function Invoke-DownloadStep($StepObj, $Comp) {
     $sha = [string]$StepObj.sha256
     if (-not $sha -or $sha.Length -ne 64) {
@@ -492,9 +508,21 @@ function Invoke-DownloadStep($StepObj, $Comp) {
     if (Test-Path -LiteralPath $zip) {
         try { $cacheOk = ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -eq $sha) } catch { $cacheOk = $false }
     }
+    # 缓存里没有时才看装包自带的那份；校验口径完全一样。
+    $bundled = $false
+    if (-not $cacheOk) {
+        $hit = Find-BundledPackage ([string]$Comp.id) $sha
+        if ($hit) {
+            $zip = $hit
+            $cacheOk = $true
+            $bundled = $true
+            Emit ('  用装包自带的 {0}（不用下载）' -f (Split-Path -Leaf $hit))
+            Write-LogLine ('内置包 {0} → {1}' -f $Comp.id, $hit)
+        }
+    }
     if ($script:OfflineMode) {
         if (-not $cacheOk) { throw ('离线模式：本机没有校验通过的缓存 {0}' -f (Split-Path -Leaf $zip)) }
-    } else {
+    } elseif (-not $bundled) {
         $expected = 0
         try { if ($StepObj.size) { $expected = [long]$StepObj.size } } catch { }
         $min = 1

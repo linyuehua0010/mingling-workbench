@@ -22,19 +22,19 @@
 //    正式版发了 V3 之后，快照改叫 V4-snapshot-1。
 //    旧的 V3.0.0-snapshot 是历史产物，保留原名，读的时候按 V3-snapshot-1 对待。
 //
-//  数字与字符串的对应（正式版 V3.0.0）：
-//    APP_VERSION_MAJOR/MINOR/PATCH  = 3 / 0 / 0   → 文件版本前三段
-//    APP_VERSION_BUILD              = 0           → 文件版本第四段（3,0,0,0）
+//  数字与字符串的对应（正式版 V3.2.0）：
+//    APP_VERSION_MAJOR/MINOR/PATCH  = 3 / 2 / 0   → 文件版本前三段
+//    APP_VERSION_BUILD              = 0           → 文件版本第四段（3,2,0,0）
 //    APP_SNAPSHOT_N                 = 0（正式版固定 0）
-//    APP_VERSION_TAG                = V3.0.0（界面 / 产品版本 / 应用和功能）
-//    APP_VERSION_SHORT              = 3.0.0（安装包文件名）
+//    APP_VERSION_TAG                = V3.2.0（界面 / 产品版本 / 应用和功能）
+//    APP_VERSION_SHORT              = 3.2.0（安装包文件名）
 //
 //  ⚠ 数字和字符串是两份写法（windres 只吃逗号分隔的数字），改完跑
 //    tools\check-version.ps1，或者直接 build.bat（它会先跑一遍，走散就停）。
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define APP_VERSION_MAJOR 3
-#define APP_VERSION_MINOR 1
+#define APP_VERSION_MINOR 2
 #define APP_VERSION_PATCH 0
 #define APP_VERSION_BUILD 0
 
@@ -48,18 +48,18 @@
 // 快照序号：正式版固定 0，且必须等于 APP_VERSION_BUILD。
 #define APP_SNAPSHOT_N 0
 
-// 资源文件用：FILEVERSION / PRODUCTVERSION（3,0,0,0）
+// 资源文件用：FILEVERSION / PRODUCTVERSION（3,2,0,0）
 #define APP_VERSION_NUM APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
 
 // 窄字符串：.rc / Inno Setup / NSIS / 脚本
-#define APP_VERSION_STR   "3.1.0.0"        // 文件版本（四段数字）
-#define APP_VERSION_PLAIN "3.1.0"          // 只有数字，不带渠道
-#define APP_VERSION_TAG   "V3.1.0"         // 给人看的完整串
-#define APP_VERSION_SHORT "3.1.0"          // 安装包文件名用
+#define APP_VERSION_STR   "3.2.0.0"        // 文件版本（四段数字）
+#define APP_VERSION_PLAIN "3.2.0"          // 只有数字，不带渠道
+#define APP_VERSION_TAG   "V3.2.0"         // 给人看的完整串
+#define APP_VERSION_SHORT "3.2.0"          // 安装包文件名用
 
 // 宽字符串：C++ / GDI+ 绘制
-#define APP_VERSION         L"V3.1.0"
-#define APP_VERSION_PLAIN_W L"3.1.0"
-#define APP_VERSION_FULL_W  L"3.1.0.0"
-#define APP_VERSION_SHORT_W L"3.1.0"
+#define APP_VERSION         L"V3.2.0"
+#define APP_VERSION_PLAIN_W L"3.2.0"
+#define APP_VERSION_FULL_W  L"3.2.0.0"
+#define APP_VERSION_SHORT_W L"3.2.0"
 #define APP_NAME            L"冥零工作台"
