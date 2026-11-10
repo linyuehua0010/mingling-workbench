@@ -34,22 +34,10 @@ foreach ($d in @((Join-Path $env:APPDATA 'MinglingWorkbench'),
     }
 }
 
-$wsh = New-Object -ComObject WScript.Shell
-foreach ($lnk in @(Get-ChildItem (Join-Path $env:USERPROFILE 'Desktop') -Filter *.lnk)) {
-    $t = ''
-    try { $t = $wsh.CreateShortcut($lnk.FullName).TargetPath } catch {}
-    if ($t -and ($t -match 'MinglingWorkbench\.exe$')) {
-        # <工作区>\bin\MinglingWorkbench.exe
-        $ws = Split-Path (Split-Path $t -Parent) -Parent
-        [void]$cands.Add([pscustomobject]@{ ws = $ws; from = "快捷方式 $($lnk.Name)"; base = '' })
-    }
-}
+$program = (& (Join-Path $PSScriptRoot 'resolve-program-root.ps1') -Quiet 2>$null | Out-String).Trim()
 
-$proc = Get-Process MinglingWorkbench -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($proc -and $proc.Path) {
-    $ws = Split-Path (Split-Path $proc.Path -Parent) -Parent
-    [void]$cands.Add([pscustomobject]@{ ws = $ws; from = '正在跑的进程'; base = '' })
-}
+# 工作区只从 settings.json / -Base 认；安装目录不是工作区，不能再用 exe 往上两级猜。
+# 程序目录已由 resolve-program-root.ps1 统一解析，供下面的版本检查复用。
 
 # 挑第一个「像工作区」的：有 bots\ 或 answers.json 或 private\
 $pick = $null
@@ -69,13 +57,13 @@ if (-not $pick) {
 }
 
 $ws = $pick.ws
-$exe = Join-Path $ws 'bin\MinglingWorkbench.exe'
+$exe = if ($program) { Join-Path $program 'MinglingWorkbench.exe' } else { '' }
 $ver = ''
-if (Test-Path $exe) {
+if ($exe -and (Test-Path $exe)) {
     try { $ver = (Get-Item $exe).VersionInfo.FileVersion } catch {}
-    Line '##工作台' "$exe  版本 $([string]$ver)（来源：$($pick.from)）"
+    Line '##工作台' "$exe  版本 $([string]$ver)（来源：程序根目录解析）"
 } else {
-    Line '##工作台' "没找到 bin\MinglingWorkbench.exe（来源：$($pick.from)）"
+    Line '##工作台' "没找到程序目录里的 MinglingWorkbench.exe"
 }
 Line '##工作区' $ws
 
@@ -133,7 +121,7 @@ Line '##技能' ("版本=" + $(if ($skillVer) { $skillVer } else { '没认上' }
 $caps = Join-Path $bots 'AstrBot\data\config'
 $why = ''
 if (-not (Test-Path (Join-Path $bots 'AstrBot'))) {
-    $why = '装了但组件缺：去跑 tools\auto-setup.ps1（维护页「一键自动配置」），把 bots 补齐'
+    $why = '装了但组件缺：用 skill 的 scripts\bootstrap.ps1（维护页「一键自动配置」同一入口），把 bots 补齐'
 } elseif (-not (Test-Path $backend)) {
     $why = '工作区里没有 private\backend.txt：机器人根多半算错了，先把这个文件补上或把 base 改回工作区'
 } elseif (-not $rootOk) {

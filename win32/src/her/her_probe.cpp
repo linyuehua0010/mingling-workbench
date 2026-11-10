@@ -383,6 +383,7 @@ DWORD LaunchExe(const std::wstring& exe, const std::wstring& args, const std::ws
         }
         envBlock.push_back(0);
         envPtr = (LPVOID)envBlock.c_str();
+        flags |= CREATE_UNICODE_ENVIRONMENT;
     }
     std::wstring dir = cwd.empty() ? Base() : cwd;
     DWORD pid = 0;

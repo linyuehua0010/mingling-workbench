@@ -146,6 +146,7 @@ static wstring MaintOpLabel(const wstring& name) {
         {L"game_off_boot", L"开机恢复"}, {L"group_reply", L"群里回复方式"},
         {L"meme", L"表情包频率"},        {L"voice", L"语音频率"},
         {L"import", L"补装"},
+        {L"feature_config", L"配置她会做的事"},
     };
     for (auto& kv : tbl)
         if (name == kv.k) return kv.v;
@@ -456,7 +457,8 @@ static void StartAutoSetup() {
         TaskData* d = new TaskData();
         d->kind = TK_OP;
         d->opName = L"autosetup";
-        // 三段：补环境占 0-50%，装组件占 50-75%，自设定（DeepSeek/QQ/聊天/人设）占 75-100%
+        // 三段：补环境（Node/ffmpeg/Python/WebView2）占 0-50%，装组件（AstrBot 等）占 50-75%，
+        // 自设定（DeepSeek/QQ/聊天/人设）占 75-100%
         her::SetupReport a = her::AutoSetup([](int pct, const std::wstring& s) {
             PostMessageW(g_hwnd, WM_APP_AUTOCFG, (WPARAM)(pct / 2), (LPARAM)new std::wstring(L"补环境：" + s));
         });

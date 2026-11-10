@@ -274,6 +274,7 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
         WhaleEnv e = FindWhale();
         Out(L"工作区   : " + WorkspaceDir());
         Out(L"机器人根 : " + BaseDir());
+        Out(L"资源目录 : " + her::Root());
         Out(L"组件根   : " + BotRoot());
         Out(L"AstrBot  : " + her::BotPath(L"AstrBot"));
         Out(L"SnowLuma : " + her::BotPath(L"SnowLuma"));
@@ -389,7 +390,7 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
         return r.code;
     }
     if (has(L"--bots-setup")) {
-        // 只装五个组件（不碰 Node/ffmpeg 那一套）：脚本在 tools\auto-setup.ps1
+        // 补五个组件与启动脚本：同一份 tools\bootstrap.ps1，只跑 -Component 点名的那几项（幂等）
         Out(L"[装组件] 开始（第一次要下载，可能十几分钟）…");
         her::SetupReport rep = her::BotsSetup([](int pct, const std::wstring& s) {
             Out(L"[" + std::to_wstring(pct) + L"%] " + s);
@@ -401,8 +402,9 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
     }
 
     if (has(L"--autosetup")) {
-        // 一键自动配置（计划 4.x）：UI 里是维护页按钮，这里给验收脚本一条命令行入口
-        Out(L"[自动配置] 开始检查环境（要下 Node 与 ffmpeg，可能几分钟）…");
+        // 一键自动配置：UI 里是维护页按钮，这里给验收脚本一条命令行入口
+        // 只补环境（WebView2 / Node / ffmpeg / Python），五个组件归 --bots-setup；都交给 tools\bootstrap.ps1
+        Out(L"[自动配置] 开始补环境（检查 WebView2、Node、ffmpeg、Python 与工作区，第一次要下载，可能十几分钟）…");
         her::SetupReport rep = her::AutoSetup([](int pct, const std::wstring& name) {
             Out(L"[" + std::to_wstring(pct) + L"%] " + name);
         });
@@ -431,6 +433,7 @@ static int BiliCli(const std::vector<std::wstring>& args, int from) {
 }
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE, LPSTR, int show) {
+    ConsumeUpdateRestart();
     AttachConsoleIfAsked();
 
     // 命令行模式：--her-status（查一遍给脚本/我自检用）、--game-off（开机自动恢复那一条）

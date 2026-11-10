@@ -71,7 +71,11 @@ def load_soulx(args):
     with open(phoneset_path, encoding="utf-8") as f:
         phoneset = set(json.load(f))
     STATE.update(torch=torch, model=model, config=config, dp=dp, prompt=prompt, device=device,
-                 prompt_median=prompt_median, phoneset=phoneset)
+                 prompt_median=prompt_median, phoneset=phoneset, voice_dir=args.voice)
+    reference_file = os.path.join(args.voice, "reference.json")
+    if os.path.isfile(reference_file):
+        with open(reference_file, encoding="utf-8-sig") as f:
+            STATE["voice_name"] = json.load(f).get("name", "自定义")
     print(f"[sing] model ready on {device} in {time.time() - t0:.1f}s", flush=True)
 
 
@@ -80,11 +84,12 @@ def sing(melody, lyrics):
     import soundfile as sf
 
     torch, model, config, dp = STATE["torch"], STATE["model"], STATE["config"], STATE["dp"]
-    metas, shift, lines = melodies.build(melody, lyrics, STATE["phoneset"], STATE["prompt_median"])
     sr = config.audio.sample_rate
-    merged = np.zeros(int(metas[-1]["time"][1] / 1000 * sr), dtype=np.float32)
     t0 = time.time()
     with LOCK:
+        # 换参考和读取参考音域必须与推理使用同一把锁。
+        metas, shift, lines = melodies.build(melody, lyrics, STATE["phoneset"], STATE["prompt_median"])
+        merged = np.zeros(int(metas[-1]["time"][1] / 1000 * sr), dtype=np.float32)
         for meta in metas:
             start = int(meta["time"][0] / 1000 * sr)
             target = dp.process(dict(meta), None)
@@ -131,7 +136,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self._json(200, {"ok": bool(STATE.get("backends")), "backends": STATE.get("backends", []),
-                                    "device": STATE.get("device"), "melodies": list(melodies.MELODIES)})
+                                    "device": STATE.get("device"), "melodies": list(melodies.MELODIES),
+                                    "voice_name": STATE.get("voice_name", "未标记参考")})
         if self.path.startswith("/out/"):
             name = os.path.basename(self.path[5:])
             path = os.path.join(STATE["out"], name)
@@ -147,6 +153,21 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"ok": False, "error": "not found"})
 
     def do_POST(self):
+        if self.path == "/voice/reload":
+            try:
+                with LOCK:
+                    voice_dir = STATE["voice_dir"]
+                    with open(os.path.join(voice_dir, "prompt.json"), encoding="utf-8-sig") as f:
+                        metadata = json.load(f)[0]
+                    pitches = [int(p) for p in metadata["note_pitch"].split() if int(p) > 0]
+                    median = statistics.median(pitches)
+                    prompt = STATE["dp"].process(metadata, os.path.join(voice_dir, "prompt.wav"))
+                    with open(os.path.join(voice_dir, "reference.json"), encoding="utf-8-sig") as f:
+                        name = json.load(f).get("name", "自定义")
+                    STATE.update(prompt=prompt, prompt_median=median, voice_name=name)
+                return self._json(200, {"ok": True, "voice_name": name})
+            except Exception as error:
+                return self._json(400, {"ok": False, "error": str(error)})
         if self.path != "/sing":
             return self._json(404, {"ok": False, "error": "not found"})
         try:

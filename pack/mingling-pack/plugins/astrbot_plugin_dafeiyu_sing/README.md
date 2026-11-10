@@ -1,5 +1,9 @@
 # 大肥鱼唱歌插件
 
+冥零工作台 V3.1：在「照顾她 → 她会做的事 → 唱歌配置」选择豆包云端或 SoulX 本地，保存并启用。
+本地方式可在该面板直接部署、启动、检测和生成试听。安装目录默认工作区 `bots\SoulXSinger`，
+新版脚本使用 CUDA 12.8 环境适配 RTX 50 系列。选择保存在 `private\feature-settings.json`，重复自设定会保留。
+
 跟她说「给我唱首歌」「唱个生日歌」，她先回一句「等我开嗓」，过十几到四十秒发来一条语音：把现编的歌词唱出来，曲子从《小星星》《两只老虎》《生日快乐》里挑。
 
 ## 默认：豆包唱（不用另开服务）
@@ -16,11 +20,11 @@
 
 - 一张 NVIDIA 显卡，显存 6 GB 以上就够（RTX 4060 笔记本版实测可用）。没有独显也能跑，但一首歌要等好几分钟。
 - 硬盘留出大约 8 GB：模型 2.8 GB，PyTorch 运行环境 5 GB 左右。
-- 用配置包导入的，把 `settings/pack.json` 里 `sing.backend` 改成 `soulx` 再导入一次，就不会被盖回 `doubao`。
+- 冥零工作台用户在唱歌配置中选择 SoulX 并保存；旧版大肥鱼配置包用户才修改自己的 `settings/pack.json`。
 
-**第一步，装唱歌服务。** 在 `sing_server` 文件夹里右键 `setup_windows.ps1` →「使用 PowerShell 运行」。它会新建一个独立的 Python 环境（不碰 AstrBot 自己的环境），下载 SoulX-Singer 源码、模型和带显卡加速的 PyTorch。默认装到 `D:\dafeiyu\sing`，想换位置就用 `-Root 你的目录` 参数。国内网络下模型走 hf-mirror 镜像。
+**第一步，装唱歌服务。** 使用工作台的「部署本地服务」，或运行工作区 `tools\setup-singing.ps1 -Base <工作区> -Action install`。独立环境默认在工作区 `bots\SoulXSinger`；指定其他目录可加 `-Root`。旧 `sing_server\setup_windows.ps1` 也会转到这套部署入口。
 
-**第二步，启动唱歌服务。** 双击 `start_sing_server.bat`，看到 `listening on http://127.0.0.1:18620` 就是好了。这个窗口要一直开着，关了她就唱不了歌（会说嗓子哑了）。
+**第二步，启动唱歌服务。** 在工作台点「启动本地服务」，服务会隐藏运行。再点检测，确认 `soulx` 后端已就绪。安装目录内的 `start-singing.cmd` 可用于手工启动。
 
 **第三步，装插件。** 用配置包的一键导入工具装，或者把整个 `astrbot_plugin_dafeiyu_sing` 文件夹复制到 AstrBot 的 `data\plugins\` 里，再到 WebUI 的插件页点「重载」。
 
@@ -29,7 +33,7 @@
 ## 想改什么
 
 - **换曲子、加曲子**：改 `sing_server/melodies.py`，每首歌就是一串「音高 + 拍数」；豆包唱的话，还要在 `doubao_sing.py` 的 `TUNES` 里加一句这首歌的开头歌词。只能用过了版权期的老歌，比如童谣、民歌。
-- **换嗓子**：豆包唱的话，改 `doubao_sing.py` 里的 `PERSONA` 那句人设。SoulX 唱的话，`sing_server/voice/` 里的 `prompt.wav` 是她的声音样本（6 秒左右），`prompt.json` 标的是这段话每个字的起止时间和音高。换成别的声音，这两个文件要一起换，可以用 SoulX-Singer 自带的预处理脚本生成。
+- **冥零声音**：SoulX 默认参考已换成现有的冥零声音，并配套时间、音高标注。工作台提供「使用已有冥零参考」和「用已有 Breeze 音色制作唱歌参考」两个入口，后者使用保存好的 `mingling` 音色合成短句，再自动标注交给 SoulX。旧参考会备份；生成的是演唱人声，不包含伴奏。若手动换声音，`voice/prompt.wav` 与 `prompt.json` 必须配套替换。
 - **改她什么时候唱、歌词怎么写**：改 `main.py` 里 `sing_song` 那段说明文字。大模型就是照着这段话决定什么时候唱、歌词写几个字。
 
 ## 常见问题

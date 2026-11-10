@@ -1,0 +1,2356 @@
+#requires -Version 5.1
+<#
+  冥零工作台 V3.1.0 验收 —— 来宾侧单阶段执行器（pre / full / recovery / upgrade / final）
+
+  设计约束（与宿主机调度器约定）：
+    * 只写 $GuestRoot、安装目标目录、来宾用户目录；不碰产品源码。
+    * 每条外部命令都走 acceptance\lib\Capture.ps1 的 Invoke-Capture（参数编码由库负责）。
+    * 每个阶段都落盘 phases\<Phase> 与 <Phase>\done.json，失败也要落盘。
+    * 断言只使用 Check.ps1 的状态词表；做不到就 blocked/not-run，不用 pass 掩盖。
+
+  说明：本脚本由宿主机以 powershell.exe -NoProfile -ExecutionPolicy Bypass -File 调用。
+#>
+param(
+  [Parameter(Mandatory)][ValidateSet('pre','full','recovery','upgrade','final')][string]$Phase,
+  [Parameter(Mandatory)][string]$RunId,
+  [string]$LibDir    = 'C:\Users\Public\MWAcceptance\lib',
+  [string]$GuestRoot = 'C:\Users\Public\MWAcceptance',
+  [string]$StageUrl  = 'http://192.168.206.1:8000/stage',
+  [string]$EvidenceUrl = 'http://192.168.206.1:8000/upload',
+  [string]$Installer31 = 'MinglingWorkbench-3.1.0-setup.exe',
+  [string]$Installer30 = 'MinglingWorkbench-3.0.0-setup.exe'
+)
+
+$ErrorActionPreference = 'Stop'
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+
+# ---------------------------------------------------------------- 库
+. (Join-Path $LibDir 'Capture.ps1')
+. (Join-Path $LibDir 'Check.ps1')
+. (Join-Path $LibDir 'Evidence.ps1')
+. (Join-Path $LibDir 'Progress.ps1')
+
+# ---------------------------------------------------------------- 路径
+$GuestRoot = ([string]$GuestRoot).TrimEnd('\', '/')
+$RunDir    = Join-Path $GuestRoot ('run\' + $RunId)
+$script:EvidenceDir = Join-Path $RunDir $Phase
+$ProgressDir = Join-Path $RunDir 'progress'
+$StageDir  = Join-Path $RunDir 'stage'
+$FixtureDir = Join-Path $RunDir 'fixture'
+$startedUtc = (Get-Date).ToUniversalTime().ToString('o')
+
+foreach ($d in @($RunDir, $script:EvidenceDir, $StageDir, $FixtureDir, (Join-Path $script:EvidenceDir 'checks'))) {
+  if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+}
+
+# 关键路径常量（全部在 $GuestRoot 下，中文 + 空格是刻意保留的验收条件）
+$App       = Join-Path $GuestRoot '冥零 验收\程序 3.1'
+$Ws        = Join-Path $GuestRoot '冥零 验收\工作区 3.1'
+$AppExe    = Join-Path $App 'MinglingWorkbench.exe'
+$Bootstrap = Join-Path $App 'tools\bootstrap.ps1'
+$SelfSetup = Join-Path $App 'tools\self-setup.ps1'
+$AstrRoot  = Join-Path $Ws 'bots\AstrBot'
+$BotsRoot  = Join-Path $Ws 'bots'
+
+$checks   = New-Object System.Collections.ArrayList
+$commands = New-Object System.Collections.ArrayList
+$script:TestKey = 'sk-mwfix-' + [guid]::NewGuid().ToString('N')
+
+$summary = [ordered]@{
+  phase        = $Phase
+  runId        = $RunId
+  startedUtc   = $startedUtc
+  guestRoot    = $GuestRoot
+  runDir       = $RunDir
+  evidenceDir  = $script:EvidenceDir
+  stageUrl     = $StageUrl
+  evidenceUrl  = $EvidenceUrl
+  host         = $env:COMPUTERNAME
+  user         = $env:USERNAME
+  psVersion    = $PSVersionTable.PSVersion.ToString()
+  osVersion    = [Environment]::OSVersion.VersionString
+  notes        = @()
+  assets       = [ordered]@{}
+  metrics      = [ordered]@{}
+}
+
+Initialize-MwProgress -Dir $ProgressDir -Phase $Phase -RunId $RunId
+Set-MwProgress -Step 'init - 初始化运行目录与库' -Command 'Initialize-MwProgress'
+
+# ---------------------------------------------------------------- 小工具
+function Save-EvidenceJson {
+  param([Parameter(Mandatory)][string]$Name, $Object)
+  $p = Join-Path $script:EvidenceDir $Name
+  Save-MwJson -Path $p -Object $Object -Depth 14
+  return $p
+}
+
+function Add-PhaseCheck {
+  param(
+    [Parameter(Mandatory)][string]$Id,
+    [Parameter(Mandatory)][int]$Criterion,
+    [string]$Requirement = '',
+    [string[]]$Preconditions = @('来宾脚本已启动；验收库已加载'),
+    [string[]]$Steps = @(),
+    [string]$Assertion = '',
+    $Expected = $null,
+    $Actual = $null,
+    [string[]]$Evidence = @(),
+    [ValidateSet('pass','fail-product','fail-fixture','blocked-precondition','blocked-env','evidence-incomplete','manual-pending','not-run')]
+    [string]$Status = 'pass',
+    [string]$Detail = '',
+    $Data = $null
+  )
+  $cdir = Join-Path $script:EvidenceDir 'checks'
+  if (-not (Test-Path -LiteralPath $cdir)) { New-Item -ItemType Directory -Force -Path $cdir | Out-Null }
+  $cp = Join-Path $cdir ($Id + '.json')
+  $obj = [ordered]@{
+    id = $Id; criterion = $Criterion; status = $Status; at = (Get-Date).ToUniversalTime().ToString('o')
+    requirement = $Requirement; assertion = $Assertion; expected = $Expected; actual = $Actual
+    detail = $Detail; data = $Data; evidence = $Evidence
+  }
+  Save-MwJson -Path $cp -Object $obj -Depth 14
+
+  # 证据只收真实存在的路径；缺失路径不塞给库（否则 Test-Path 抛错或把 pass 降级）
+  $ev = @($cp)
+  foreach ($e in @($Evidence)) {
+    if (-not $e) { continue }
+    $s = [string]$e
+    if ($s -like 'inline:*') { $ev += $s; continue }
+    try { if (Test-Path -LiteralPath $s) { $ev += $s } } catch { }
+  }
+
+  $splat = @{
+    Id = $Id; Criterion = $Criterion; Requirement = $Requirement; Preconditions = $Preconditions
+    Steps = $Steps; Assertion = $Assertion; Evidence = $ev; Status = $Status; Detail = $Detail
+  }
+  if ($null -ne $Expected) { $splat.Expected = $Expected }
+  if ($null -ne $Actual)   { $splat.Actual = $Actual }
+  if ($null -ne $Data)     { $splat.Data = $Data }
+  $c = New-MwCheck @splat
+  [void]$checks.Add($c)
+  return $c
+}
+
+function Read-TextAuto {
+  param([Parameter(Mandatory)][string]$Path)
+  if (-not (Test-Path -LiteralPath $Path)) { return '' }
+  $bytes = [IO.File]::ReadAllBytes($Path)
+  try {
+    $t = [Text.Encoding]::UTF8.GetString($bytes)
+    if ($t.IndexOf([char]0xFFFD) -ge 0) { return [Text.Encoding]::Default.GetString($bytes) }
+    return $t
+  } catch { return [Text.Encoding]::Default.GetString($bytes) }
+}
+
+function Get-Lines {
+  param([string]$Text)
+  if (-not $Text) { return @() }
+  return @($Text -split "`r?`n")
+}
+
+function Get-FirstLineMatch {
+  param([string]$Text, [string]$Pattern)
+  foreach ($l in (Get-Lines $Text)) { if ($l -match $Pattern) { return $l } }
+  return ''
+}
+
+function Get-AllLineMatches {
+  param([string]$Text, [string]$Pattern)
+  $out = New-Object System.Collections.ArrayList
+  foreach ($l in (Get-Lines $Text)) { if ($l -match $Pattern) { [void]$out.Add($l) } }
+  return @($out)
+}
+
+function Get-BootstrapNumbers {
+  param([string]$Text)
+  $line = ''
+  $ms = [regex]::Matches($Text, '##RESULT\s+([^\r\n]+)')
+  if ($ms.Count -gt 0) { $line = $ms[$ms.Count - 1].Groups[1].Value }
+  $res = [ordered]@{ line = $line; ok = -1; fixed = -1; satisfied = -1; manual = -1; missing = -1; failed = -1 }
+  foreach ($k in @('ok','fixed','satisfied','manual','missing','failed')) {
+    $m = [regex]::Match($line, [regex]::Escape($k) + '=(\d+)')
+    if ($m.Success) { $res[$k] = [int]$m.Groups[1].Value }
+  }
+  return $res
+}
+
+function Get-OkIds {
+  param([string]$Text)
+  $ids = New-Object System.Collections.ArrayList
+  foreach ($m in [regex]::Matches($Text, '##OK\s+([^\|\s]+)')) { [void]$ids.Add($m.Groups[1].Value) }
+  return @($ids)
+}
+
+function Read-TailText {
+  param([string]$Path, [int]$Lines = 30)
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '' }
+  try { return ((Get-Content -LiteralPath $Path -Tail $Lines -ErrorAction SilentlyContinue) -join "`n") } catch { return '' }
+}
+
+function Invoke-Cap {
+  param(
+    [Parameter(Mandatory)][string]$Label,
+    [Parameter(Mandatory)][string]$FilePath,
+    [string[]]$Arguments = @(),
+    [int]$TimeoutSeconds = 1800,
+    [string]$WorkDir = '',
+    [hashtable]$Environment = @{},
+    [string]$StepText = ''
+  )
+  if ($StepText) { Set-MwProgress -Step $StepText -Command $Label }
+  $splat = @{
+    Label = $Label; FilePath = $FilePath; Arguments = $Arguments; TimeoutSeconds = $TimeoutSeconds
+    EvidenceDir = $script:EvidenceDir; RunId = $RunId
+  }
+  if ($WorkDir) { $splat.WorkDir = $WorkDir }
+  if ($Environment -and $Environment.Count -gt 0) { $splat.Environment = $Environment }
+  $r = Invoke-Capture @splat
+  [void]$commands.Add($r.Record)
+  $tail = Read-TailText -Path $r.Record.stdoutPath -Lines 15
+  if ($tail) { Add-MwProgressTail -Text $tail }
+  if ($r.Record.stderrText) { Add-MwProgressTail -Text (Read-TailText -Path $r.Record.stderrPath -Lines 10) }
+  return $r.Record
+}
+
+function Invoke-Long {
+  <# Start-MwCommand + 心跳 + Complete-MwCommand：长安装期间持续写进度，超时主动杀进程树。 #>
+  param(
+    [Parameter(Mandatory)][string]$Label,
+    [Parameter(Mandatory)][string]$FilePath,
+    [string[]]$Arguments = @(),
+    [int]$TimeoutSeconds = 3600,
+    [string]$WorkDir = '',
+    [hashtable]$Environment = @{},
+    [string]$StepText = ''
+  )
+  Set-MwProgress -Step $StepText -Command $Label
+  $splat = @{
+    Label = $Label; FilePath = $FilePath; Arguments = $Arguments
+    EvidenceDir = $script:EvidenceDir; RunId = $RunId
+  }
+  if ($WorkDir) { $splat.WorkDir = $WorkDir }
+  if ($Environment -and $Environment.Count -gt 0) { $splat.Environment = $Environment }
+  $state = Start-MwCommand @splat
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $killedByHarness = $false
+  if ($state.Started) {
+    while (-not $state.Process.HasExited) {
+      if ($sw.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+        [void](Stop-MwProcessTree -ProcessId $state.Process.Id)
+        $killedByHarness = $true
+        break
+      }
+      Start-Sleep -Seconds 10
+      if (-not $state.Process.HasExited) {
+        Set-MwProgress -Step ($StepText + '（已运行 ' + [int]$sw.Elapsed.TotalSeconds + ' 秒）') -Command $state.Record.commandLine
+        $tail = Get-MwCommandTail -State $state -Bytes 1200
+        if ($tail) { Add-MwProgressTail -Text $tail }
+      }
+    }
+  }
+  $rec = Complete-MwCommand -State $state -TimeoutSeconds 120 -EvidenceDir $script:EvidenceDir
+  if ($killedByHarness) { $rec['harnessTimeout'] = $true }
+  [void]$commands.Add($rec)
+  $tail2 = Read-TailText -Path $rec.stdoutPath -Lines 20
+  if ($tail2) { Add-MwProgressTail -Text $tail2 }
+  return $rec
+}
+
+function Get-FileVersion {
+  param([string]$Path)
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return '' }
+  try { return [string](Get-Item -LiteralPath $Path).VersionInfo.FileVersion } catch { return '' }
+}
+
+function Wait-FileVersion {
+  param([string]$Path, [string]$Pattern, [int]$TimeoutSeconds = 180)
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $v = Get-FileVersion -Path $Path
+  while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    $v = Get-FileVersion -Path $Path
+    if ($v -match $Pattern) { return $v }
+    Start-Sleep -Seconds 3
+  }
+  return (Get-FileVersion -Path $Path)
+}
+
+function Get-FileMap {
+  <# 递归 sha256 + 大小 + mtime；排除指定顶层目录；读不到的文件单独记录。 #>
+  param([string[]]$Roots, [string[]]$ExcludeTopDirs = @())
+  $map = [ordered]@{}
+  $skipped = New-Object System.Collections.ArrayList
+  foreach ($root in $Roots) {
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $leaf = Split-Path -Leaf $root
+    $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue)
+    foreach ($f in $files) {
+      $rel = $f.FullName.Substring($root.Length).TrimStart('\')
+      $skip = $false
+      foreach ($ex in $ExcludeTopDirs) {
+        if ($rel -eq $ex -or $rel -like ($ex + '\*')) { $skip = $true; break }
+      }
+      if ($skip) { continue }
+      if ($f.Name -like '*.new.exe') { continue }
+      try { $sha = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash } catch {
+        [void]$skipped.Add(($leaf + ':' + $rel)); continue
+      }
+      $key = $leaf + ':' + $rel
+      $map[$key] = [ordered]@{
+        sha = $sha; size = [long]$f.Length; mtime = $f.LastWriteTimeUtc.ToString('o')
+      }
+    }
+  }
+  return [pscustomobject]@{ Map = $map; Skipped = @($skipped) }
+}
+
+function Compare-FileMaps {
+  param($Before, $After)
+  $changes = New-Object System.Collections.ArrayList
+  foreach ($k in $Before.Keys) {
+    if (-not $After.Contains($k)) { [void]$changes.Add('removed:' + $k); continue }
+    $a = $Before[$k]; $b = $After[$k]
+    if ($a.sha -ne $b.sha) { [void]$changes.Add('content:' + $k) }
+    elseif ([long]$a.size -ne [long]$b.size) { [void]$changes.Add('size:' + $k) }
+    elseif ($a.mtime -ne $b.mtime) { [void]$changes.Add('mtime:' + $k) }
+  }
+  foreach ($k in $After.Keys) {
+    if (-not $Before.Contains($k)) { [void]$changes.Add('added:' + $k) }
+  }
+  return @($changes)
+}
+
+function Reset-TestDir {
+  <# 只允许清 $GuestRoot 下的目标目录。 #>
+  param([Parameter(Mandatory)][string]$Path)
+  $full = [IO.Path]::GetFullPath($Path).TrimEnd('\')
+  $rootFull = [IO.Path]::GetFullPath($GuestRoot).TrimEnd('\')
+  if ($full -eq $rootFull -or -not $full.StartsWith($rootFull + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw ('拒绝清理 $GuestRoot 之外的目录：' + $full)
+  }
+  if (Test-Path -LiteralPath $full) { Remove-Item -LiteralPath $full -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $full | Out-Null
+}
+
+function Write-FixtureFile {
+  param([string]$Path, [string]$Content, [bool]$Bom = $false)
+  $p = Split-Path -Parent $Path
+  if ($p -and -not (Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+  $enc = New-Object System.Text.UTF8Encoding($Bom)
+  [IO.File]::WriteAllText($Path, $Content, $enc)
+}
+
+function Resolve-StagePath {
+  param([string]$NameOrPath)
+  if ([IO.Path]::IsPathRooted($NameOrPath)) { return $NameOrPath }
+  return (Join-Path $StageDir $NameOrPath)
+}
+
+function Get-StageAsset {
+  param([Parameter(Mandatory)][string]$Name)
+  $dest = Join-Path $StageDir $Name
+  if (Test-Path -LiteralPath $dest) { return $dest }
+  $uri = $StageUrl.TrimEnd('/') + '/' + [uri]::EscapeDataString($Name)
+  Set-MwProgress -Step ('stage - 下载 ' + $Name) -Command $uri
+  Invoke-WebRequest -Uri $uri -OutFile $dest -UseBasicParsing -TimeoutSec 900 | Out-Null
+  Add-MwProgressTail -Text ('下载完成 ' + $Name + ' ' + (Get-Item -LiteralPath $dest).Length + ' 字节')
+  return $dest
+}
+
+$summary.notes += '每个 check 的 checks\<id>.json 是本次断言的原始记录；Evidence 同时指到命令 stdout 与安装日志。'
+$summary.notes += '未使用真实登录、真实付费 API；模型桩只证明 AstrBot 配置协议。'
+
+# ================================================================ 阶段：pre
+function Invoke-PrePhase {
+  Set-MwProgress -Step 'pre-1 - 下载并校验来源资产'
+
+  $stageRequired = @($Installer31, $Installer30, 'checksums.txt', 'components.json',
+                     'astrbot-requirements.txt', 'edge-tts-requirements.txt')
+  $downloaded = [ordered]@{}
+  foreach ($n in $stageRequired) {
+    $p = Get-StageAsset -Name $n
+    $downloaded[$n] = $p
+  }
+  $summary.assets = $downloaded
+
+  $sums = [ordered]@{}
+  $sumFile = Join-Path $StageDir 'checksums.txt'
+  foreach ($line in (Get-Lines (Read-TextAuto -Path $sumFile))) {
+    if ($line -match '^([0-9a-fA-F]{64})\s+(.+)$') {
+      $h = $Matches[1].ToLower(); $n = $Matches[2].Trim()
+      $sums[$n] = $h
+    }
+  }
+  $sumRows = New-Object System.Collections.ArrayList
+  $sumOk = $true
+  foreach ($n in @('MinglingWorkbench-3.1.0-setup.exe','MinglingWorkbench-3.0.0-setup.exe','components.json','astrbot-requirements.txt','edge-tts-requirements.txt')) {
+    $p = Join-Path $StageDir $n
+    $actual = ''
+    if (Test-Path -LiteralPath $p) { $actual = (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLower() }
+    $expect = ''
+    if ($sums.Contains($n)) { $expect = $sums[$n] }
+    $match = ($expect -ne '' -and $actual -eq $expect)
+    if (-not $match) { $sumOk = $false }
+    [void]$sumRows.Add([ordered]@{ name = $n; expected = $expect; actual = $actual; match = $match; size = $(if (Test-Path -LiteralPath $p) { (Get-Item -LiteralPath $p).Length } else { 0 }) })
+  }
+  $sumEvidence = Save-EvidenceJson -Name 'stage-checksums.json' -Object $sumRows
+  Add-PhaseCheck -Id 'c2-stage-integrity' -Criterion 2 `
+    -Requirement '安装包与清单必须和 host 发布的 checksums.txt 一致' `
+    -Steps @('GET /stage/<name> 下载 3.1/3.0 安装包、components.json、两份 requirements、checksums.txt', '逐文件 SHA256 与 checksums.txt 比对') `
+    -Assertion '所有必需资产的 SHA256 等于 checksums.txt；缺少清单项视为证据不完整' `
+    -Expected '5/5 匹配' -Actual (($sumRows | Where-Object { $_.match }).Count.ToString() + '/5') `
+    -Evidence @($sumEvidence) -Status $(if ($sumOk) { 'pass' } else { 'evidence-incomplete' }) `
+    -Detail 'checksums.txt 是 host 侧 prepare-stage 生成的发布哈希；缺失项不会用计算值替代。' `
+    -Data $sumRows
+
+  $inst31 = Join-Path $StageDir 'MinglingWorkbench-3.1.0-setup.exe'
+  $inst30 = Join-Path $StageDir 'MinglingWorkbench-3.0.0-setup.exe'
+  $summary.assets = [ordered]@{ installer31 = $inst31; installer30 = $inst30; sums = $sums }
+
+  if (-not (Test-Path -LiteralPath $inst31)) { throw ('缺少 3.1 安装包：' + $inst31) }
+
+  Set-MwProgress -Step 'pre-2 - 清理目标目录' -Command ('Remove-Item ' + $App + ' ; ' + $Ws)
+  Reset-TestDir -Path $App
+  Reset-TestDir -Path $Ws
+
+  Set-MwProgress -Step 'pre-3 - 静默安装 3.1（普通用户 / 中文空格路径）'
+  $installLog = Join-Path $script:EvidenceDir 'install-3.1.inno.log'
+  $iArgs = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/CURRENTUSER',
+             ('/DIR=' + $App), ('/WORKSPACE=' + $Ws), ('/LOG=' + $installLog))
+  $iRec = Invoke-Long -Label 'install-31' -FilePath $inst31 -Arguments $iArgs -TimeoutSeconds 900 `
+    -StepText 'pre-3 - 静默安装 3.1'
+  $summary.metrics['install31Exit'] = $iRec.exitCode
+
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $isAdmin = (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  $summary['administratorToken'] = [bool]$isAdmin
+  $summary['identityName'] = $id.Name
+
+  $logText = Read-TextAuto -Path $installLog
+  $modeLine = Get-FirstLineMatch -Text $logText -Pattern '(?i)administrative install mode'
+  $wsLine = Get-FirstLineMatch -Text $logText -Pattern 'WsPath=\['
+  $wsLogged = ''
+  if ($wsLine -match 'WsPath=\[(.*)\]') { $wsLogged = $Matches[1] }
+
+  $exeExists = Test-Path -LiteralPath $AppExe
+  $fv = Get-FileVersion -Path $AppExe
+
+  Add-PhaseCheck -Id 'c3-normal-user-install' -Criterion 3 `
+    -Requirement '普通用户（非管理员令牌）静默安装成功' `
+    -Steps @('检查当前进程是否在 Administrators 组', '以 /CURRENTUSER 静默安装 3.1', '读取 Inno 日志的安装模式行') `
+    -Assertion '安装器退出码 0，且日志显示非管理安装模式' `
+    -Expected 'exit=0; Administrative install mode: No' `
+    -Actual ('exit=' + $iRec.exitCode + '; admin=' + $isAdmin + '; log=' + $modeLine) `
+    -Evidence @($installLog, $iRec.stdoutPath, $iRec.stderrPath) `
+    -Status $(if ($iRec.exitCode -eq 0 -and (-not $isAdmin)) { 'pass' } elseif ($iRec.exitCode -ne 0) { 'fail-product' } else { 'blocked-env' }) `
+    -Detail $(if ($isAdmin) { '来宾会话带管理员令牌，无法证明普通用户路径；安装本身仍按 /CURRENTUSER 执行。' } else { '当前进程非管理员。' }) `
+    -Data ([ordered]@{ exitCode = $iRec.exitCode; isAdmin = [bool]$isAdmin; adminLine = $modeLine; logFound = ($logText.Length -gt 0) })
+
+  Add-PhaseCheck -Id 'c3-program-exe-version' -Criterion 3 `
+    -Requirement '安装后程序文件存在，且确实是 3.1' `
+    -Steps @('检查 {App}\MinglingWorkbench.exe', '读取 FileVersion') `
+    -Assertion '退出码 0 只证明安装器跑完；这里额外证明落盘的是 3.1 主程序' `
+    -Expected '3.1.x' -Actual $fv `
+    -Evidence @($installLog, $AppExe) `
+    -Status $(if ($exeExists -and $fv -match '^3\.1\.') { 'pass' } else { 'fail-product' }) `
+    -Detail '安装器的 [Run] 会忽略 finish-update 退出码，所以版本必须单独核对。' `
+    -Data ([ordered]@{ exists = $exeExists; fileVersion = $fv; path = $AppExe })
+
+  $wsNorm = $Ws.TrimEnd('\')
+  $loggedNorm = $wsLogged.TrimEnd('\')
+  $sepOk = $true
+  $sepNotes = New-Object System.Collections.ArrayList
+  if (Test-Path -LiteralPath (Join-Path $Ws 'MinglingWorkbench.exe')) { $sepOk = $false; [void]$sepNotes.Add('工作区出现了主程序 exe') }
+  if (Test-Path -LiteralPath (Join-Path $App 'bots')) { $sepOk = $false; [void]$sepNotes.Add('程序目录出现了 bots') }
+  if (Test-Path -LiteralPath (Join-Path $App 'secrets')) { $sepOk = $false; [void]$sepNotes.Add('程序目录出现了 secrets') }
+  if (-not (Test-Path -LiteralPath $AppExe)) { $sepOk = $false }
+  Add-PhaseCheck -Id 'c3-program-workspace-separate' -Criterion 3 `
+    -Requirement '程序目录与工作区互不混装' `
+    -Steps @('检查 {App}\MinglingWorkbench.exe', '检查 {Ws} 下没有 exe', '检查 {App} 下没有 bots/secrets') `
+    -Assertion '程序文件只在程序目录，用户数据只在工作区；日志 WsPath 等于请求的工作区' `
+    -Expected ('WsPath=' + $wsNorm) -Actual ('WsPath=' + $loggedNorm) `
+    -Evidence @($installLog, $App) `
+    -Status $(if ($sepOk -and $loggedNorm -ieq $wsNorm) { 'pass' } else { 'fail-product' }) `
+    -Detail (($sepNotes -join '；') + $(if ($loggedNorm -ieq $wsNorm) { '' } else { '；日志 WsPath 与请求不一致' })) `
+    -Data ([ordered]@{ requestedWs = $wsNorm; loggedWs = $loggedNorm; notes = @($sepNotes) })
+
+  Add-PhaseCheck -Id 'c4-chinese-space-paths' -Criterion 4 `
+    -Requirement '中文 + 空格路径下安装成功，且路径没有在参数编码中被截断' `
+    -Steps @('/DIR 与 /WORKSPACE 传入含中文和空格的绝对路径', '核对 exe 落点与 Inno 日志 WsPath') `
+    -Assertion 'exe 存在于请求的程序目录；日志里的 WsPath 与请求工作区完全一致' `
+    -Expected $App -Actual $AppExe `
+    -Evidence @($installLog, $AppExe) `
+    -Status $(if ($exeExists -and $loggedNorm -ieq $wsNorm) { 'pass' } else { 'fail-product' }) `
+    -Detail '旧夹具的 /DIR 因 -match 覆盖 $Matches 被截断；本脚本所有参数都由 Capture.ps1 编码。' `
+    -Data ([ordered]@{ app = $App; workspace = $Ws; loggedWs = $wsLogged; exe = $AppExe })
+
+  # ---- 项 1：组件清单结构 / 依赖图 / 状态模型
+  Set-MwProgress -Step 'pre-4 - 校验组件清单与依赖图'
+  $manifestPath = Join-Path $App 'tools\components.json'
+  $manifest = $null
+  if (Test-Path -LiteralPath $manifestPath) {
+    $manifest = [IO.File]::ReadAllText($manifestPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+  }
+  $comps = @()
+  if ($manifest) { $comps = @($manifest.components) }
+  $ids = @($comps | ForEach-Object { [string]$_.id })
+  $dupIds = @($ids | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+
+  $schemaProblems = New-Object System.Collections.ArrayList
+  foreach ($c in $comps) {
+    foreach ($f in @('id','name','version','source','detect','verify')) {
+      if (-not $c.PSObject.Properties[$f] -or -not $c.$f) { [void]$schemaProblems.Add(([string]$c.id + ' 缺 ' + $f)) }
+    }
+    if (-not $c.source.kind) { [void]$schemaProblems.Add(([string]$c.id + ' source.kind 为空')) }
+  }
+  $stateRows = New-Object System.Collections.ArrayList
+  foreach ($c in $comps) {
+    [void]$stateRows.Add([ordered]@{ id = $c.id; manual = [bool]$c.manual; optional = [bool]$c.optional; default_install = [bool]$c.default_install; requires = @($c.requires) })
+  }
+  $stateEv = Save-EvidenceJson -Name 'component-states.json' -Object $stateRows
+  Add-PhaseCheck -Id 'c1-manifest-schema' -Criterion 1 `
+    -Requirement 'components.json 是唯一组件图，字段齐全、id 唯一' `
+    -Steps @('读取 {App}\tools\components.json', '检查 id/name/version/source/detect/verify 与 id 唯一性') `
+    -Assertion '21 个组件；必填字段非空；id 无重复' `
+    -Expected '21 组件，0 问题' -Actual ($comps.Count.ToString() + ' 组件，' + $schemaProblems.Count + ' 问题') `
+    -Evidence @($manifestPath, $stateEv) `
+    -Status $(if ($comps.Count -eq 21 -and $dupIds.Count -eq 0 -and $schemaProblems.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail '字段缺失或重复 id 都算清单错误。' `
+    -Data ([ordered]@{ count = $comps.Count; duplicateIds = @($dupIds); problems = @($schemaProblems); path = $manifestPath })
+
+  $dagProblems = New-Object System.Collections.ArrayList
+  foreach ($c in $comps) {
+    foreach ($r in @($c.requires)) {
+      if ($r -and ($ids -notcontains [string]$r)) { [void]$dagProblems.Add(([string]$c.id + ' 依赖不存在：' + $r)) }
+    }
+  }
+  # Kahn 拓扑排序检查环
+  $indeg = @{}
+  foreach ($i in $ids) { $indeg[$i] = 0 }
+  foreach ($c in $comps) {
+    foreach ($r in @($c.requires)) {
+      if ($r -and $indeg.ContainsKey([string]$r)) { $indeg[[string]$c.id] = $indeg[[string]$c.id] + 1 }
+    }
+  }
+  $queue = New-Object System.Collections.ArrayList
+  foreach ($i in $ids) { if ($indeg[$i] -eq 0) { [void]$queue.Add($i) } }
+  $seen = 0
+  while ($queue.Count -gt 0) {
+    $cur = [string]$queue[0]; $queue.RemoveAt(0); $seen++
+    foreach ($c in $comps) {
+      if ((@($c.requires) -contains $cur) -and $indeg.ContainsKey([string]$c.id)) {
+        $indeg[[string]$c.id] = $indeg[[string]$c.id] - 1
+        if ($indeg[[string]$c.id] -eq 0) { [void]$queue.Add([string]$c.id) }
+      }
+    }
+  }
+  $cycle = ($seen -ne $ids.Count)
+  Add-PhaseCheck -Id 'c1-dependency-dag' -Criterion 1 `
+    -Requirement 'requires 不悬空、依赖图无环' `
+    -Steps @('逐个组件检查 requires 是否存在于 id 集合', '对整图做 Kahn 拓扑排序') `
+    -Assertion '无悬空依赖；拓扑排序能覆盖全部组件（无环）' `
+    -Expected '0 悬空，0 环' -Actual ($dagProblems.Count.ToString() + ' 悬空；环=' + $cycle) `
+    -Evidence @($manifestPath) `
+    -Status $(if ($dagProblems.Count -eq 0 -and -not $cycle) { 'pass' } else { 'fail-product' }) `
+    -Detail '显式 -Component 会递归 requires，环会让 bootstrap 直接报错。' `
+    -Data ([ordered]@{ dangling = @($dagProblems); cycle = $cycle; topoSeen = $seen; total = $ids.Count })
+
+  $hashProblems = New-Object System.Collections.ArrayList
+  $emptyHash = @()
+  $downloadAssets = New-Object System.Collections.ArrayList
+  foreach ($c in $comps) {
+    $sh = [string]$c.source.sha256
+    if ($sh -notmatch '^[0-9a-fA-F]{64}$') { [void]$hashProblems.Add(([string]$c.id + ' source.sha256 不是 64 hex')) }
+    if ($sh -eq ('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')) { $emptyHash += [string]$c.id }
+    if ([string]$c.source.kind -eq 'download') {
+      if (@($c.source.urls).Count -eq 0 -and -not $c.source.url) { [void]$hashProblems.Add(([string]$c.id + ' 没有下载地址')) }
+      foreach ($st in @($c.install.steps)) {
+        if ([string]$st.kind -eq 'download') {
+          if ([string]$st.sha256 -notmatch '^[0-9a-fA-F]{64}$') { [void]$hashProblems.Add(([string]$c.id + ' 下载步骤缺 sha256')) }
+          [void]$downloadAssets.Add([ordered]@{ id = $c.id; sha256 = [string]$st.sha256; size = $st.size; dest = [string]$st.dest; urls = @($st.urls) })
+        }
+      }
+    }
+  }
+  $daEv = Save-EvidenceJson -Name 'download-assets.json' -Object $downloadAssets
+  Add-PhaseCheck -Id 'c1-source-hashes' -Criterion 1 `
+    -Requirement '每个组件的 source.sha256 是 64 位十六进制；下载资产的步骤也带哈希' `
+    -Steps @('检查 source.sha256 格式', '检查 kind=download 的安装步骤 sha256 与地址') `
+    -Assertion '格式全部合法；空串哈希单独列出（无法区分真实资产）' `
+    -Expected '0 格式错误' -Actual ($hashProblems.Count.ToString() + ' 格式错误；空哈希 ' + $emptyHash.Count + ' 个') `
+    -Evidence @($manifestPath, $daEv) `
+    -Status $(if ($hashProblems.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail ('空哈希组件（纯人工/无资产）：' + ($emptyHash -join ', ') + '；bootstrap 只对 kind=download 强制校验。') `
+    -Data ([ordered]@{ problems = @($hashProblems); emptyHashIds = @($emptyHash); downloadAssets = @($downloadAssets) })
+
+  $statePath = Join-Path $Ws 'logs\setup\state.json'
+  $stateOk = $false
+  $stateInfo = [ordered]@{ path = $statePath; exists = $false; schema = $null; components = 0 }
+  if (Test-Path -LiteralPath $statePath) {
+    try {
+      $sj = [IO.File]::ReadAllText($statePath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+      $stateInfo.schema = $sj.schema
+      $stateInfo.components = @($sj.components).Count
+      $stateInfo.mode = $sj.mode
+      $stateOk = ([int]$sj.schema -eq 1 -and @($sj.components).Count -gt 0)
+      $stateInfo['summary'] = $sj.summary
+    } catch { $stateInfo['error'] = $_.Exception.Message }
+    $stateInfo.exists = $true
+  }
+  Add-PhaseCheck -Id 'c1-state-model' -Criterion 1 `
+    -Requirement '安装器收尾的 bootstrap -Check 写出可读的状态模型' `
+    -Steps @('读取 {Ws}\logs\setup\state.json', '核对 schema 与 components 数量') `
+    -Assertion 'state.json schema=1，且含按组件记录的状态条目（数量不强制等于清单总数，因为默认选择集可少于 21）' `
+    -Expected ('schema=1, components>0（清单共 ' + $comps.Count + '）') -Actual ('schema=' + $stateInfo.schema + ', components=' + $stateInfo.components) `
+    -Evidence @($statePath) `
+    -Status $(if ($stateOk) { 'pass' } elseif (-not $stateInfo.exists) { 'fail-product' } else { 'fail-product' }) `
+    -Detail '安装器用 -LogFile 让 Dirty 为真，因此这一步必然写 state.json；不存在说明状态模型没落盘。' `
+    -Data $stateInfo
+
+  # ---- 项 2：来源真实性链路
+  Set-MwProgress -Step 'pre-5 - 核对来源哈希链路（requirements / bili 树 / npm integrity / 模型 digest）'
+  $astrComp = $comps | Where-Object { $_.id -eq 'astrbot' } | Select-Object -First 1
+  $edgeComp = $comps | Where-Object { $_.id -eq 'edge-tts' } | Select-Object -First 1
+  $astrReq = Join-Path $App 'tools\astrbot-requirements.txt'
+  $edgeReq = Join-Path $App 'tools\edge-tts-requirements.txt'
+  $astrSha = ''
+  $edgeSha = ''
+  if (Test-Path -LiteralPath $astrReq) { $astrSha = (Get-FileHash -LiteralPath $astrReq -Algorithm SHA256).Hash.ToLower() }
+  if (Test-Path -LiteralPath $edgeReq) { $edgeSha = (Get-FileHash -LiteralPath $edgeReq -Algorithm SHA256).Hash.ToLower() }
+  $astrHashOk = ($astrComp -and $astrSha -eq ([string]$astrComp.source.sha256).ToLower())
+  $edgeHashOk = ($edgeComp -and $edgeSha -eq ([string]$edgeComp.source.sha256).ToLower())
+  $hashLines = @(Get-Lines (Read-TextAuto -Path $astrReq) | Where-Object { $_ -match '--hash=sha256:' }).Count
+  $unhashed = @(Get-Lines (Read-TextAuto -Path $astrReq) | Where-Object { $_ -match '^[A-Za-z0-9]' -and $_ -notmatch '--hash=sha256:' }).Count
+
+  $biliManifest = Join-Path $App 'tools\source-manifests\bili-whale.json'
+  $biliSrc = Join-Path $App 'sidecar\bili-whale'
+  $smExe = Join-Path $App 'tools\source-manifest.ps1'
+  $smRec = $null
+  if ((Test-Path -LiteralPath $smExe) -and (Test-Path -LiteralPath $biliManifest)) {
+    $smRec = Invoke-Cap -Label 'bili-tree-manifest-verify' -FilePath $smExe `
+      -Arguments @('-Root',$biliSrc,'-Manifest',$biliManifest,'-Verify') -TimeoutSeconds 300 `
+      -StepText 'pre-5 - 校验 bili-whale 源码树摘要'
+  }
+
+  $lockPath = Join-Path $App 'sidecar\bili-whale\package-lock.json'
+  $lockIntegrity = ''
+  $expectIntegrity = ''
+  $biliComp = $comps | Where-Object { $_.id -eq 'bili-whale' } | Select-Object -First 1
+  if ($biliComp) {
+    $sec = @($biliComp.source.secondary)
+    if ($sec.Count -gt 0) { $expectIntegrity = [string]$sec[0].integrity }
+  }
+  if (Test-Path -LiteralPath $lockPath) {
+    try {
+      $lock = [IO.File]::ReadAllText($lockPath, [Text.Encoding]::UTF8) | ConvertFrom-Json
+      if ($lock.packages -and $lock.packages.PSObject.Properties['node_modules/qrcode']) {
+        $lockIntegrity = [string]$lock.packages.'node_modules/qrcode'.integrity
+      } elseif ($lock.dependencies -and $lock.dependencies.qrcode) {
+        $lockIntegrity = [string]$lock.dependencies.qrcode.integrity
+      }
+    } catch { $lockIntegrity = 'parse-error' }
+  }
+  $lockOk = ($expectIntegrity -ne '' -and $lockIntegrity -eq $expectIntegrity)
+
+  $embComp = $comps | Where-Object { $_.id -eq 'embedding-model' } | Select-Object -First 1
+  $embDigest = ''
+  $embOk = $false
+  if ($embComp) {
+    $embDigest = [string]$embComp.source.sha256
+    $embUrl = [string]$embComp.source.url
+    $embOk = ($embDigest -match '^[0-9a-fA-F]{64}$' -and $embUrl -match [regex]::Escape($embDigest))
+  }
+
+  $chainRows = [ordered]@{
+    astrbotRequirements = [ordered]@{ file = $astrReq; actual = $astrSha; expected = $(if ($astrComp) { [string]$astrComp.source.sha256 } else { '' }); match = $astrHashOk; hashLines = $hashLines; unhashedLines = $unhashed }
+    edgeTtsRequirements = [ordered]@{ file = $edgeReq; actual = $edgeSha; expected = $(if ($edgeComp) { [string]$edgeComp.source.sha256 } else { '' }); match = $edgeHashOk }
+    biliManifest = [ordered]@{ file = $biliManifest; verifyExit = $(if ($smRec) { $smRec.exitCode } else { $null }); stdout = $(if ($smRec) { $smRec.stdoutPath } else { '' }) }
+    npmIntegrity = [ordered]@{ lock = $lockPath; expected = $expectIntegrity; actual = $lockIntegrity; match = $lockOk }
+    modelDigest = [ordered]@{ component = 'embedding-model'; digest = $embDigest; url = $(if ($embComp) { [string]$embComp.source.url } else { '' }); consistent = $embOk; verifiedByBootstrap = $false }
+  }
+  $chainEv = Save-EvidenceJson -Name 'source-chain.json' -Object $chainRows
+  $biliOk = ($smRec -and $smRec.exitCode -eq 0)
+  if (-not $smRec) { $biliOk = $false }
+  Add-PhaseCheck -Id 'c2-source-real-chain' -Criterion 2 `
+    -Requirement '清单里的来源哈希对应真实链路：requirements 锁、bili 树摘要、npm integrity、模型 digest' `
+    -Steps @('计算两份 requirements 的 SHA256 与组件 source.sha256 比对', '运行 source-manifest.ps1 -Verify 校验 bili-whale 树', '从 package-lock.json 读 qrcode integrity 与清单比对', '核对 embedding-model 的 ollama digest') `
+    -Assertion 'requirements 文件哈希与清单一致；bili 树校验 exit 0；npm integrity 一致；模型 digest 与 URL 一致' `
+    -Expected '四项一致' -Actual ('requirements=' + $astrHashOk + '/' + $edgeHashOk + '; biliExit=' + $(if ($smRec) { $smRec.exitCode } else { 'null' }) + '; lock=' + $lockOk + '; emb=' + $embOk) `
+    -Evidence @($chainEv, $astrReq, $edgeReq) `
+    -Status $(if ($astrHashOk -and $edgeHashOk -and $biliOk -and $lockOk -and $embOk) { 'pass' } else { 'fail-product' }) `
+    -Detail 'astrbot 的 package_sha256 不被 bootstrap 读取；embedding-model 只是把 digest 交给 ollama pull，bootstrap 不独立复核层哈希。' `
+    -Data $chainRows
+
+  Set-MwProgress -Step 'pre-5b - 代表性篡改拒绝'
+  $tamperBase = Join-Path $RunDir 'tamper'
+  $tamperCache = Join-Path $tamperBase 'logs\setup\dl'
+  if (-not (Test-Path -LiteralPath $tamperCache)) { New-Item -ItemType Directory -Force -Path $tamperCache | Out-Null }
+  $fakeZip = Join-Path $tamperCache 'uv-uv-x86_64-pc-windows-msvc.zip'
+  Write-FixtureFile -Path $fakeZip -Content 'MW-ACCEPTANCE-TAMPERED-ASSET-NOT-A-ZIP' -Bom $false
+  $tRec = Invoke-Cap -Label 'tamper-uv-offline' -FilePath $Bootstrap `
+    -Arguments @('-Base',$tamperBase,'-Workspace',$tamperBase,'-Bots',(Join-Path $tamperBase 'bots'),'-Component','uv','-Offline') `
+    -TimeoutSeconds 300 -StepText 'pre-5b - 用被篡改的缓存跑离线 uv'
+  $tamperUv = Join-Path $tamperBase 'uv\bin\uv.exe'
+  $tamperText = [string]$tRec.stdoutText + "`n" + [string]$tRec.stderrText
+  $tamperRejected = ($tRec.exitCode -eq 2 -and -not (Test-Path -LiteralPath $tamperUv) -and ($tamperText -match '缓存|校验|SHA256'))
+  Add-PhaseCheck -Id 'c2-tamper-reject' -Criterion 2 `
+    -Requirement '被篡改的资产必须被哈希门拒绝，不能装出 uv.exe' `
+    -Steps @('在独立 base 的缓存目录放一个内容错误的 uv zip', '以 -Offline -Component uv 运行 bootstrap') `
+    -Assertion 'exit 2；uv.exe 不存在；输出提到缓存/校验' `
+    -Expected 'exit=2, 无 uv.exe' -Actual ('exit=' + $tRec.exitCode + ', uvExists=' + (Test-Path -LiteralPath $tamperUv)) `
+    -Evidence @($tRec.stdoutPath, $tRec.stderrPath, $fakeZip) `
+    -Status $(if ($tamperRejected) { 'pass' } else { 'fail-product' }) `
+    -Detail '篡改的是缓存资产而不是清单，验证的是安装时的 SHA256 门。' `
+    -Data ([ordered]@{ exitCode = $tRec.exitCode; uvExists = (Test-Path -LiteralPath $tamperUv); output = $tamperText.Substring(0, [Math]::Min(2000, $tamperText.Length)) })
+
+  # ---- 项 5：安装前（组件未装）Check 必须非 0
+  Set-MwProgress -Step 'pre-6 - 组件未装时 Check'
+  $preCheck = Invoke-Cap -Label 'check-before-components' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Check') -TimeoutSeconds 900 `
+    -StepText 'pre-6 - 组件未装时 Check（同一安装实例）'
+  $preNums = Get-BootstrapNumbers -Text ([string]$preCheck.stdoutText)
+  $preCheckOk = ($preCheck.exitCode -eq 2 -and $preNums.missing -gt 0)
+  Add-PhaseCheck -Id 'c5-check-before-components' -Criterion 5 `
+    -Requirement '同一安装实例：组件未装时 Check 必须报缺（exit 2）' `
+    -Steps @('3.1 只装程序文件（安装器的 [Run] 只做 -Check，不安装组件）', '在组件安装前运行 bootstrap -Check') `
+    -Assertion 'exit 2 且 missing>0；这不是在已装状态上重复跑 Check' `
+    -Expected 'exit=2, missing>0' -Actual ('exit=' + $preCheck.exitCode + ', missing=' + $preNums.missing) `
+    -Evidence @($preCheck.stdoutPath, $preCheck.stderrPath, (Join-Path $Ws 'logs\setup\installer-check.log')) `
+    -Status $(if ($preCheckOk) { 'pass' } else { 'fail-product' }) `
+    -Detail '安装器 [Run] 的 installer-check.log 是同一状态的另一份证据，但退出码被 Inno 忽略，所以这里自己跑一次拿真实退出码。' `
+    -Data ([ordered]@{ exitCode = $preCheck.exitCode; result = $preNums; installerLog = (Join-Path $Ws 'logs\setup\installer-check.log') })
+
+  # ---- WebView2 缺失分支（不真卸）
+  Set-MwProgress -Step 'pre-7 - WebView2 检测分支'
+  $wvPresent = $false
+  $wvNotes = New-Object System.Collections.ArrayList
+  $wvKeys = @(
+    @{ root = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'; name = 'pv' },
+    @{ root = 'HKCU:\Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'; name = 'pv' }
+  )
+  foreach ($k in $wvKeys) {
+    try {
+      $v = (Get-ItemProperty -LiteralPath $k.root -Name $k.name -ErrorAction Stop).($k.name)
+      if ($v) { $wvPresent = $true; [void]$wvNotes.Add(($k.root + ' pv=' + $v)) }
+    } catch { }
+  }
+  foreach ($pat in @('%ProgramFiles(x86)%\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe', '%ProgramFiles%\Microsoft\EdgeWebView\Application\*\msedgewebview2.exe')) {
+    $exp = [Environment]::ExpandEnvironmentVariables($pat)
+    if (Test-Path -Path $exp) { $wvPresent = $true; [void]$wvNotes.Add('file:' + $exp) }
+  }
+  if (-not $wvPresent) {
+    $wvRec = Invoke-Cap -Label 'webview2-missing-check' -FilePath $Bootstrap `
+      -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Component','webview2','-Check') -TimeoutSeconds 300 `
+      -StepText 'pre-7 - WebView2 缺失分支'
+    $wvText = [string]$wvRec.stdoutText
+    $wvBranch = ($wvRec.exitCode -eq 2 -and $wvText -match '##FAIL\s+webview2')
+    Add-PhaseCheck -Id 'c5-webview2-missing-branch' -Criterion 5 `
+      -Requirement '检测到 WebView2 缺失时 bootstrap 必须给出可观察的缺项' `
+      -Steps @('用与 bootstrap 相同的注册表/文件探针确认缺失', '运行 -Component webview2 -Check') `
+      -Assertion 'exit 2 且输出 ##FAIL webview2' `
+      -Expected 'exit=2, ##FAIL webview2' -Actual ('exit=' + $wvRec.exitCode) `
+      -Evidence @($wvRec.stdoutPath, $wvRec.stderrPath) `
+      -Status $(if ($wvBranch) { 'pass' } else { 'fail-product' }) `
+      -Detail '本机确实没有 WebView2 探针命中。' `
+      -Data ([ordered]@{ probes = @($wvNotes); exitCode = $wvRec.exitCode })
+  } else {
+    Add-PhaseCheck -Id 'c5-webview2-missing-branch' -Criterion 5 `
+      -Requirement '检测到 WebView2 缺失时 bootstrap 必须给出可观察的缺项' `
+      -Steps @('用注册表/文件探针确认本机 WebView2 状态') `
+      -Assertion '只有缺失时才应走 ##FAIL webview2 分支' `
+      -Expected '缺失时 exit 2 + ##FAIL' -Actual '本机已安装 WebView2' `
+      -Status 'not-run' `
+      -Detail '本机 WebView2 已安装；按任务约束不真卸 WebView2，因此缺失分支不可观察。已记录探针命中：' + ($wvNotes -join '; ') `
+      -Data ([ordered]@{ present = $true; probes = @($wvNotes) })
+  }
+
+  # ---- 项 11：manual 组件独立（pre 的小样本）
+  Set-MwProgress -Step 'pre-8 - manual 组件不误报'
+  $manPre = Invoke-Cap -Label 'check-snowluma-manual' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Component','snowluma','-Check') -TimeoutSeconds 600 `
+    -StepText 'pre-8 - 点名 snowluma 时 qq-login 仍为人工'
+  $manPreText = [string]$manPre.stdoutText
+  $manPreNums = Get-BootstrapNumbers -Text $manPreText
+  $manPreOkIds = Get-OkIds -Text $manPreText
+  $manPreOk = ($manPreNums.manual -ge 1 -and ($manPreOkIds -notcontains 'qq-login'))
+  Add-PhaseCheck -Id 'c11-pre-snowluma-manual' -Criterion 11 `
+    -Requirement '点名父组件（snowluma）会自动带上 manual 依赖 qq-login，但绝不把 qq-login 报成完成' `
+    -Steps @('运行 -Component snowluma -Check', '解析 ##RESULT 的 manual 计数与 ##OK 列表') `
+    -Assertion 'manual>=1；##OK 不含 qq-login' `
+    -Expected 'manual>=1 且没有 ##OK qq-login' -Actual ('manual=' + $manPreNums.manual + '; ok=' + ($manPreOkIds -join ',')) `
+    -Evidence @($manPre.stdoutPath, $manPre.stderrPath) `
+    -Status $(if ($manPreOk) { 'pass' } else { 'fail-product' }) `
+    -Detail 'qq-login 的 detect 命令是 powershell -File {base}\tools\verify-manual.ps1；本脚本用 Base=工作区，该路径不存在（tools 在程序目录），所以 detect 必然失败、组件保持人工态。这是产品实现路径导致的“永远未完成”，不等于登录状态检测有效——已如实记录。' `
+    -Data ([ordered]@{ exitCode = $manPre.exitCode; result = $manPreNums; okIds = @($manPreOkIds) })
+}
+
+# ================================================================ 阶段：full
+function Start-ModelStub {
+  <# 模型桩只服务于“配置协议”验收：/v1/models + /v1/chat/completions。 #>
+  param([string]$Python, [string]$Dir)
+  $py = Join-Path $Dir 'stub-openai.py'
+  $code = @'
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+class H(BaseHTTPRequestHandler):
+    def _send(self, code, obj):
+        body = json.dumps(obj).encode('utf-8')
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    def do_GET(self):
+        if self.path.endswith('/models'):
+            self._send(200, {"object": "list", "data": [{"id": "deepseek-chat", "object": "model", "owned_by": "mw-acceptance-stub"}]})
+        else:
+            self._send(200, {"ok": True, "stub": True})
+    def do_POST(self):
+        n = int(self.headers.get('Content-Length', '0') or '0')
+        if n:
+            try:
+                self.rfile.read(n)
+            except Exception:
+                pass
+        self._send(200, {"id": "chatcmpl-mwstub", "object": "chat.completion", "model": "deepseek-chat",
+                         "choices": [{"index": 0, "message": {"role": "assistant", "content": "OK"}, "finish_reason": "stop"}],
+                         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+    def log_message(self, fmt, *args):
+        return
+
+HTTPServer(('127.0.0.1', 18080), H).serve_forever()
+'@
+  Write-FixtureFile -Path $py -Content $code -Bom $false
+  $state = Start-MwCommand -Label 'model-stub-openai' -FilePath $Python -Arguments @($py) `
+    -EvidenceDir $script:EvidenceDir -RunId $RunId
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  $listening = $false
+  while ($sw.Elapsed.TotalSeconds -lt 20) {
+    $c = Get-NetTCPConnection -LocalPort 18080 -State Listen -ErrorAction SilentlyContinue
+    if ($c) { $listening = $true; break }
+    Start-Sleep -Milliseconds 500
+  }
+  $p = $(if ($state.Started) { $state.Process } else { $null })
+  return [pscustomobject]@{ State = $state; Process = $p; Python = $Python; Script = $py; Stdout = ''; Stderr = ''; Listening = $listening }
+}
+
+function Stop-ModelStub {
+  param($Stub)
+  if ($Stub -and $Stub.State -and $Stub.State.Started -and -not $Stub.State.Process.HasExited) {
+    [void](Stop-MwProcessTree -ProcessId $Stub.State.Process.Id)
+    try { [void]$Stub.State.Process.WaitForExit(10000) } catch { }
+  }
+  $rec = $null
+  if ($Stub -and $Stub.State) {
+    $rec = Complete-MwCommand -State $Stub.State -TimeoutSeconds 20 -EvidenceDir $script:EvidenceDir
+    [void]$commands.Add($rec)
+  }
+  return $rec
+}
+
+function Get-AstrbotListener {
+  $rows = New-Object System.Collections.ArrayList
+  try {
+    foreach ($c in @(Get-NetTCPConnection -LocalPort 6185 -State Listen -ErrorAction SilentlyContinue)) {
+      $proc = $null
+      try { $proc = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $c.OwningProcess) } catch { }
+      [void]$rows.Add([ordered]@{
+        localAddress = $c.LocalAddress; localPort = $c.LocalPort; pid = $c.OwningProcess
+        exe = $(if ($proc) { [string]$proc.ExecutablePath } else { '' })
+        cmd = $(if ($proc) { [string]$proc.CommandLine } else { '' })
+      })
+    }
+  } catch { }
+  return @($rows)
+}
+
+function Ensure-AstrbotRunning {
+  <# 幂等测量期间必须让 AstrBot 保持运行：停掉它会让 astrbot 的 detect(-RequireRunning) 失败，
+     第二次 bootstrap 就会真的重装，从而把“后台停止”误判成“安装器不幂等”。 #>
+  param([string]$AstrRoot, [string]$Base, [string]$StartScript, [int]$WaitSeconds = 180)
+  $before = @(Get-AstrbotListener)
+  if ($before.Count -gt 0) { return [pscustomobject]@{ restarted = $false; pids = @($before | ForEach-Object { $_.pid }) } }
+  $rec = $null
+  if (Test-Path -LiteralPath $StartScript) {
+    $rec = Invoke-Long -Label 'astrbot-ensure-running' -FilePath $StartScript `
+      -Arguments @('-Root',$AstrRoot,'-Base',$Base,'-Restart') -TimeoutSeconds $WaitSeconds `
+      -StepText 'full-7 - 幂等前确保 AstrBot 在跑'
+  }
+  $after = @(Get-AstrbotListener)
+  return [pscustomobject]@{
+    restarted = $true; pids = @($after | ForEach-Object { $_.pid })
+    exitCode = $(if ($rec) { $rec.exitCode } else { $null })
+    stdout = $(if ($rec) { $rec.stdoutPath } else { '' })
+  }
+}
+
+function Test-KeyInBytes {
+  param([byte[]]$Hay, [byte[]]$Needle)
+  if ($null -eq $Hay -or $null -eq $Needle -or $Needle.Length -eq 0 -or $Hay.Length -lt $Needle.Length) { return $false }
+  $first = $Needle[0]
+  $limit = $Hay.Length - $Needle.Length
+  for ($i = 0; $i -le $limit; $i++) {
+    if ($Hay[$i] -ne $first) { continue }
+    $ok = $true
+    for ($j = 1; $j -lt $Needle.Length; $j++) {
+      if ($Hay[$i + $j] -ne $Needle[$j]) { $ok = $false; break }
+    }
+    if ($ok) { return $true }
+  }
+  return $false
+}
+
+function Invoke-KeyScan {
+  param([string]$Key, [string[]]$Roots, [int]$MaxBytes = 67108864)
+  $encAscii = New-Object System.Text.ASCIIEncoding
+  $encU = New-Object System.Text.UnicodeEncoding($false, $false)
+  $encB = New-Object System.Text.UnicodeEncoding($true, $false)
+  $n1 = $encAscii.GetBytes($Key); $n2 = $encU.GetBytes($Key); $n3 = $encB.GetBytes($Key)
+  $scanned = 0
+  $hits = New-Object System.Collections.ArrayList
+  $skipped = New-Object System.Collections.ArrayList
+  $unreadable = New-Object System.Collections.ArrayList
+  $seenRoots = @{}
+  foreach ($root in $Roots) {
+    if (-not $root -or -not (Test-Path -LiteralPath $root)) { continue }
+    $rf = [IO.Path]::GetFullPath($root).TrimEnd('\')
+    $dup = $false
+    foreach ($s in $seenRoots.Keys) {
+      if ($rf -eq $s -or $rf.StartsWith($s + '\', [StringComparison]::OrdinalIgnoreCase)) { $dup = $true; break }
+    }
+    if ($dup) { continue }
+    $seenRoots[$rf] = $true
+    foreach ($f in @(Get-ChildItem -LiteralPath $rf -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+      if ($f.Length -gt $MaxBytes) { [void]$skipped.Add([ordered]@{ path = $f.FullName; size = $f.Length; reason = 'too-large' }); continue }
+      try {
+        $bytes = [IO.File]::ReadAllBytes($f.FullName)
+        $scanned++
+        if ((Test-KeyInBytes -Hay $bytes -Needle $n1) -or (Test-KeyInBytes -Hay $bytes -Needle $n2) -or (Test-KeyInBytes -Hay $bytes -Needle $n3)) {
+          $p = $f.FullName
+          $insideSecrets = $p.StartsWith(($script:WsSecrets + '\'), [StringComparison]::OrdinalIgnoreCase)
+          $logLike = ($p -match '\\logs\\' -or $p -match '\.log$' -or $p -match '\.stdout' -or $p -match '\.stderr')
+          [void]$hits.Add([ordered]@{ path = $p; insideSecrets = $insideSecrets; logLike = $logLike; bad = ((-not $insideSecrets) -or $logLike) })
+        }
+      } catch { [void]$unreadable.Add([ordered]@{ path = $f.FullName; error = $_.Exception.Message }) }
+    }
+  }
+  return [pscustomobject]@{ Scanned = $scanned; Hits = @($hits); Skipped = @($skipped); Unreadable = @($unreadable) }
+}
+
+function Invoke-FullPhase {
+  if (-not (Test-Path -LiteralPath $Bootstrap)) {
+    Add-PhaseCheck -Id 'c0-full-precondition' -Criterion 9 -Requirement 'pre 阶段必须先装好 3.1 程序文件' `
+      -Assertion '找到 {App}\tools\bootstrap.ps1' -Expected $Bootstrap -Actual '缺失' `
+      -Status 'blocked-precondition' -Detail '没有程序文件就无法跑全量安装；先完成 pre。'
+    return
+  }
+
+  Set-MwProgress -Step 'full-1 - 全量安装（默认组件）'
+  $fullLogDir = Join-Path $Ws 'logs\setup'
+  $fullRec = Invoke-Long -Label 'bootstrap-full' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot) -TimeoutSeconds 14400 `
+    -StepText 'full-1 - 全量安装（可能数小时）'
+  $fullText = [string]$fullRec.stdoutText + "`n" + [string]$fullRec.stderrText
+  $fullNums = Get-BootstrapNumbers -Text $fullText
+  $summary.metrics['fullExit'] = $fullRec.exitCode
+  $summary.metrics['fullResult'] = $fullNums.line
+
+  Add-PhaseCheck -Id 'c9-full-install' -Criterion 9 `
+    -Requirement '默认参数全量安装成功（不指定 -Component）' `
+    -Steps @('运行 bootstrap -Base <Ws> -Workspace <Ws> -Bots <Ws>\bots', '解析 ##RESULT 与退出码') `
+    -Assertion 'exit 0；##RESULT ok=1；failed=0' `
+    -Expected 'exit=0, ok=1, failed=0' `
+    -Actual ('exit=' + $fullRec.exitCode + '; ' + $fullNums.line) `
+    -Evidence @($fullRec.stdoutPath, $fullRec.stderrPath) `
+    -Status $(if ($fullRec.exitCode -eq 0 -and $fullNums.ok -eq 1 -and $fullNums.failed -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail '全量默认组件包含 1.6GB 的 ollama，耗时由心跳记录。' `
+    -Data ([ordered]@{ exitCode = $fullRec.exitCode; result = $fullNums; timedOut = [bool]$fullRec.timedOut })
+
+  # ---- AstrBot 初始化 / 进程 / 监听 / HTTP
+  Set-MwProgress -Step 'full-2 - 核对 AstrBot 真实初始化'
+  $astrExe = Join-Path $AstrRoot 'bin\astrbot.exe'
+  $astrPy = Join-Path $AstrRoot 'python\python.exe'
+  $astrInited = Test-Path -LiteralPath (Join-Path $AstrRoot '.astrbot')
+  $pyVerRec = $null
+  if (Test-Path -LiteralPath $astrPy) {
+    $pyVerRec = Invoke-Cap -Label 'astrbot-python-version' -FilePath $astrPy -Arguments @('--version') -TimeoutSeconds 60 `
+      -StepText 'full-2 - AstrBot Python 版本'
+  }
+  $pyVer = ''
+  if ($pyVerRec) { $pyVer = ([string]$pyVerRec.stdoutText).Trim() }
+  Add-PhaseCheck -Id 'c9-astrbot-init' -Criterion 9 `
+    -Requirement 'AstrBot 真实初始化（init --yes）且运行环境就位' `
+    -Steps @('检查 {AstrBot}\.astrbot 文件', '检查 bin\astrbot.exe 与 python\python.exe --version') `
+    -Assertion '.astrbot 是文件；python 版本为 3.12.16' `
+    -Expected 'Python 3.12.16' -Actual $pyVer `
+    -Evidence @($AstrRoot, $(if ($pyVerRec) { $pyVerRec.stdoutPath } else { $AstrRoot }), $(if ($pyVerRec) { $pyVerRec.stderrPath } else { $AstrRoot })) `
+    -Status $(if ($astrInited -and (Test-Path -LiteralPath $astrExe) -and $pyVer -match '^Python 3\.12\.16') { 'pass' } else { 'fail-product' }) `
+    -Detail '.astrbot 是文件（不是目录），这是 start-astrbot 判断已初始化的依据。' `
+    -Data ([ordered]@{ astrbotFile = $astrInited; exe = (Test-Path -LiteralPath $astrExe); python = $pyVer })
+
+  $listeners = @(Get-AstrbotListener)
+  $httpLine = ''
+  $httpOk = $false
+  if ($listeners.Count -gt 0) {
+    try {
+      $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:6185/' -UseBasicParsing -TimeoutSec 15 -ErrorAction Stop
+      $httpLine = 'HTTP ' + [int]$resp.StatusCode
+      $httpOk = ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500)
+    } catch {
+      try {
+        $r = $_.Exception.Response
+        if ($r) { $httpLine = 'HTTP ' + [int]$r.StatusCode; $httpOk = $true }
+        else { $httpLine = $_.Exception.Message }
+      } catch { $httpLine = $_.Exception.Message }
+    }
+  }
+  $rootOwned = $false
+  foreach ($l in $listeners) {
+    if (([string]$l.exe).StartsWith($AstrRoot, [StringComparison]::OrdinalIgnoreCase) -or ([string]$l.cmd) -like ('*' + $AstrRoot + '*')) { $rootOwned = $true }
+  }
+  $listenEv = Save-EvidenceJson -Name 'astrbot-listener.json' -Object $listeners
+  Add-PhaseCheck -Id 'c9-astrbot-process' -Criterion 9 `
+    -Requirement 'AstrBot 真后台运行：6185 监听、进程归属正确、HTTP 有响应' `
+    -Steps @('Get-NetTCPConnection 6185 Listen', '按 OwningProcess 取 ExecutablePath/CommandLine', 'GET http://127.0.0.1:6185/') `
+    -Assertion '有监听；进程路径/命令行落在 AstrBot 根下；HTTP 返回状态行' `
+    -Expected '监听 + 根归属 + HTTP 状态码' `
+    -Actual ('listeners=' + $listeners.Count + '; rootOwned=' + $rootOwned + '; ' + $httpLine) `
+    -Evidence @($listenEv) `
+    -Status $(if ($listeners.Count -gt 0 -and $rootOwned -and $httpOk) { 'pass' } else { 'fail-product' }) `
+    -Detail '只验证进程与端口，不验证真实对话。' `
+    -Data ([ordered]@{ listeners = $listeners; rootOwned = $rootOwned; http = $httpLine })
+
+  # ---- 模型桩 + answers + AstrBot 配置 + 八块自设定
+  Set-MwProgress -Step 'full-3 - 准备模型桩与自设定答案'
+  $secretsDir = Join-Path $Ws 'secrets'
+  $script:WsSecrets = $secretsDir
+  if (-not (Test-Path -LiteralPath $secretsDir)) { New-Item -ItemType Directory -Force -Path $secretsDir | Out-Null }
+  Write-FixtureFile -Path (Join-Path $secretsDir 'deepseek-key.txt') -Content $script:TestKey -Bom $false
+  Write-FixtureFile -Path (Join-Path $Ws 'private\backend.txt') -Content ("url: http://127.0.0.1:6185`nusername: admin`npassword: MwFix-2026-TestOnly`n") -Bom $false
+
+  $stub = $null
+  if (Test-Path -LiteralPath $astrPy) { $stub = Start-ModelStub -Python $astrPy -Dir $FixtureDir }
+  $stubEv = Save-EvidenceJson -Name 'model-stub.json' -Object ([ordered]@{
+    listening = $(if ($stub) { $stub.Listening } else { $false }); script = $(if ($stub) { $stub.Script } else { '' })
+    stdout = $(if ($stub) { $stub.Stdout } else { '' }); stderr = $(if ($stub) { $stub.Stderr } else { '' })
+    pid = $(if ($stub -and $stub.Process) { $stub.Process.Id } else { $null })
+    commandLine = $(if ($stub -and $stub.State) { $stub.State.Record.commandLine } else { '' })
+    port = 18080; scope = '只证明 OpenAI 兼容配置协议，不是真实 DeepSeek'
+  })
+
+  $answers = [ordered]@{
+    base_url = 'http://127.0.0.1:18080/v1'
+    backend_url = 'http://127.0.0.1:6185'
+    memory = 0; voice = 0; video = 0
+    deepseek_key_file = 'secrets/deepseek-key.txt'
+  }
+  $answersPath = Join-Path $Ws 'answers.json'
+  Save-MwJson -Path $answersPath -Object $answers -NoSafe
+
+  if (Test-Path -LiteralPath $astrExe) {
+    [void](Invoke-Cap -Label 'astrbot-conf-username' -FilePath $astrExe -Arguments @('conf','set','dashboard.username','admin') -TimeoutSeconds 120 -WorkDir $AstrRoot -StepText 'full-3 - AstrBot 面板用户名')
+    [void](Invoke-Cap -Label 'astrbot-conf-password' -FilePath $astrExe -Arguments @('conf','set','dashboard.password','MwFix-2026-TestOnly') -TimeoutSeconds 120 -WorkDir $AstrRoot -StepText 'full-3 - AstrBot 面板密码')
+  }
+
+  $startScript = Join-Path $App 'tools\start-astrbot.ps1'
+  $startRec = $null
+  if (Test-Path -LiteralPath $startScript) {
+    $startRec = Invoke-Long -Label 'astrbot-restart' -FilePath $startScript `
+      -Arguments @('-Root',$AstrRoot,'-Base',$Ws,'-Restart') -TimeoutSeconds 600 `
+      -StepText 'full-3 - 启动 AstrBot 后台'
+  }
+  $listeners2 = @(Get-AstrbotListener)
+  $startOk = ($startRec -and $startRec.exitCode -eq 0 -and $listeners2.Count -gt 0)
+
+  $selfText = ''
+  $applyRec = $null
+  $verifyRec = $null
+  $applyOk = $false
+  $verifyOk = $false
+  if (Test-Path -LiteralPath $SelfSetup) {
+    $applyRec = Invoke-Long -Label 'self-setup-apply' -FilePath $SelfSetup `
+      -Arguments @('-Base',$Ws,'-Answers',$answersPath) -TimeoutSeconds 1800 `
+      -StepText 'full-4 - 八块自设定 apply'
+    $selfText = [string]$applyRec.stdoutText + "`n" + [string]$applyRec.stderrText
+    $applyOk = ($applyRec.exitCode -eq 0 -and $selfText -match 'RESULT\s+ok=1\s+done=8\s+fail=0')
+
+    $verifyRec = Invoke-Long -Label 'self-setup-verify' -FilePath $SelfSetup `
+      -Arguments @('-Base',$Ws,'-Answers',$answersPath,'-Verify') -TimeoutSeconds 900 `
+      -StepText 'full-4 - 八块自设定 verify'
+    $verifyText = [string]$verifyRec.stdoutText + "`n" + [string]$verifyRec.stderrText
+    $selfText = $selfText + "`n" + $verifyText
+    $verifyOk = ($verifyRec.exitCode -eq 0 -and $verifyText -match 'RESULT\s+ok=1\s+done=8\s+fail=0')
+  }
+
+  Add-PhaseCheck -Id 'c9-selfsetup-apply' -Criterion 9 `
+    -Requirement '八块自设定真实 apply（provider/platform/chat/plugins/memory/voice/persona/verify）' `
+    -Steps @('写 answers.json（base_url 指向本机桩）', '运行 self-setup.ps1 -Base <Ws> -Answers answers.json') `
+    -Assertion 'exit 0；RESULT ok=1 done=8 fail=0' `
+    -Expected 'ok=1 done=8 fail=0' `
+    -Actual $(if ($applyRec) { [string]$applyRec.exitCode } else { 'not-run' }) `
+    -Evidence @($answersPath, $(if ($applyRec) { $applyRec.stdoutPath } else { $answersPath }), $(if ($applyRec) { $applyRec.stderrPath } else { $answersPath })) `
+    -Status $(if ($applyOk) { 'pass' } elseif (-not $applyRec) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail 'memory=0/voice=0 时对应块按设计直接 Ok，不代表记忆/语音链路可用。' `
+    -Data ([ordered]@{ exitCode = $(if ($applyRec) { $applyRec.exitCode } else { $null }); resultLine = $(if ($applyRec) { (Get-FirstLineMatch -Text ([string]$applyRec.stdoutText) 'RESULT\s+') } else { '' }) })
+
+  Add-PhaseCheck -Id 'c9-selfsetup-verify' -Criterion 9 `
+    -Requirement '八块自设定 verify 通过' `
+    -Steps @('运行 self-setup.ps1 -Verify') `
+    -Assertion 'exit 0；RESULT ok=1 done=8 fail=0' `
+    -Expected 'ok=1 done=8 fail=0' -Actual $(if ($verifyRec) { [string]$verifyRec.exitCode } else { 'not-run' }) `
+    -Evidence @($(if ($verifyRec) { $verifyRec.stdoutPath } else { $answersPath }), $(if ($verifyRec) { $verifyRec.stderrPath } else { $answersPath })) `
+    -Status $(if ($verifyOk) { 'pass' } elseif (-not $verifyRec) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail '只验证配置协议，不验证真实模型回答。' `
+    -Data ([ordered]@{ exitCode = $(if ($verifyRec) { $verifyRec.exitCode } else { $null }) })
+
+  # 配置里必须真的出现桩地址；出现真实 api.deepseek.com 才说明这一步没被验收桩替换
+  $configHits = New-Object System.Collections.ArrayList
+  $realDeepSeek = New-Object System.Collections.ArrayList
+  $cfgDir = Join-Path $AstrRoot 'data\config'
+  if (Test-Path -LiteralPath $cfgDir) {
+    foreach ($f in @(Get-ChildItem -LiteralPath $cfgDir -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+      if ($f.Length -gt 2097152) { continue }
+      $t = Read-TextAuto -Path $f.FullName
+      if ($t -match '127\.0\.0\.1:18080') { [void]$configHits.Add($f.FullName) }
+      if ($t -match 'api\.deepseek\.com') { [void]$realDeepSeek.Add($f.FullName) }
+    }
+  }
+  $cfgEv = Save-EvidenceJson -Name 'model-config-scan.json' -Object ([ordered]@{ stubFiles = @($configHits); realDeepSeekFiles = @($realDeepSeek); stub = $stubEv })
+  Add-PhaseCheck -Id 'c9-model-stub-protocol' -Criterion 9 `
+    -Requirement '模型桩只证明配置协议（provider 指向 127.0.0.1:18080）' `
+    -Steps @('在 AstrBot data\config 中搜索 18080', '搜索 api.deepseek.com 以确认没有走真实服务') `
+    -Assertion '至少一个配置文件引用本机桩；不宣称真实 DeepSeek 联通' `
+    -Expected '引用 18080，且验收叙述不写“已联通 DeepSeek”' `
+    -Actual ('stubFiles=' + $configHits.Count + '; realDeepSeek=' + $realDeepSeek.Count) `
+    -Evidence @($cfgEv) `
+    -Status $(if ($configHits.Count -gt 0 -and $realDeepSeek.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail '这是配置协议证据，不是模型可用性证据；桩返回固定 OK。' `
+    -Data ([ordered]@{ stubFiles = @($configHits); realDeepSeekFiles = @($realDeepSeek) })
+
+  # ---- 项 5：装齐后 Check 必须 0
+  Set-MwProgress -Step 'full-5 - 装齐后 Check'
+  $postCheck = Invoke-Cap -Label 'check-after-components' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Check') -TimeoutSeconds 900 `
+    -StepText 'full-5 - 装齐后 Check（同一安装实例）'
+  $postNums = Get-BootstrapNumbers -Text ([string]$postCheck.stdoutText)
+  $postOk = ($postCheck.exitCode -eq 0 -and $postNums.missing -eq 0 -and $postNums.failed -eq 0)
+  # 跨阶段引出 pre 的“装前 Check”结论（同一 RunId 的 pre 阶段证据），避免在本阶段重跑已装状态
+  $preC5Text = ''
+  $preC5Path = Join-Path $RunDir 'pre\checks\c5-check-before-components.json'
+  if (Test-Path -LiteralPath $preC5Path) {
+    try { $preC5Text = [string]((ConvertFrom-Json -InputObject (Read-TextAuto -Path $preC5Path)).actual) } catch { }
+  }
+  if (-not $preC5Text) { $preC5Text = 'pre 阶段证据缺失：' + $preC5Path }
+  Add-PhaseCheck -Id 'c5-check-after-components' -Criterion 5 `
+    -Requirement '同一安装实例：组件装齐后 Check 必须 exit 0' `
+    -Steps @('全量安装完成后运行 bootstrap -Check') `
+    -Assertion 'exit 0；missing=0；failed=0' `
+    -Expected 'exit=0' -Actual ('exit=' + $postCheck.exitCode + '; ' + $postNums.line) `
+    -Evidence @($postCheck.stdoutPath, $postCheck.stderrPath) `
+    -Status $(if ($postOk) { 'pass' } else { 'fail-product' }) `
+    -Detail 'Check 不是只读：缺项时 Dirty 会写 state/日志；这里装齐后应无变化。' `
+    -Data ([ordered]@{ exitCode = $postCheck.exitCode; result = $postNums; before = $preC5Text })
+
+  # ---- 项 2：下载缓存与清单哈希的实际对应
+  Set-MwProgress -Step 'full-6 - 核对下载缓存哈希'
+  $dlDir = Join-Path $Ws 'logs\setup\dl'
+  $cacheRows = New-Object System.Collections.ArrayList
+  $mismatch = 0
+  $matched = 0
+  if (Test-Path -LiteralPath $dlDir) {
+    foreach ($c in $comps) {
+      foreach ($st in @($c.install.steps)) {
+        if ([string]$st.kind -ne 'download') { continue }
+        $expect = ([string]$st.sha256).ToUpper()
+        $cands = @(Get-ChildItem -LiteralPath $dlDir -File -Force -ErrorAction SilentlyContinue | Where-Object { $_.Name -like ($c.id + '-*') })
+        $actual = ''
+        $file = ''
+        if ($cands.Count -gt 0) {
+          $file = $cands[0].FullName
+          try { $actual = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToUpper() } catch { $actual = '' }
+        }
+        $match = ($expect -ne '' -and $actual -eq $expect)
+        if ($match) { $matched++ } elseif ($file -ne '') { $mismatch++ }
+        [void]$cacheRows.Add([ordered]@{ id = $c.id; expected = $expect; actual = $actual; file = $file; match = $match })
+      }
+    }
+  }
+  $cacheEv = Save-EvidenceJson -Name 'download-cache-hashes.json' -Object $cacheRows
+  Add-PhaseCheck -Id 'c2-download-cache-hashes' -Criterion 2 `
+    -Requirement '安装时真正落盘的下载资产与清单 sha256 一致' `
+    -Steps @('枚举 {Ws}\logs\setup\dl 下各组件的缓存文件', '逐文件 SHA256 与 install.steps[].sha256 比对') `
+    -Assertion '已缓存资产哈希一致；不一致数为 0' `
+    -Expected 'mismatch=0' -Actual ('matched=' + $matched + ', mismatch=' + $mismatch + ', rows=' + $cacheRows.Count) `
+    -Evidence @($cacheEv, $dlDir) `
+    -Status $(if ($mismatch -eq 0 -and $matched -ge 5) { 'pass' } elseif ($mismatch -gt 0) { 'fail-product' } else { 'evidence-incomplete' }) `
+    -Detail 'webview2 已存在时不会下载，因此这类组件没有缓存行是正常的；matched 至少 5 才认为链路被覆盖。' `
+    -Data @($cacheRows)
+
+  # ---- 项 6：严格幂等（AstrBot 保持运行；先测 90s 自然写入作为归因基线）
+  Set-MwProgress -Step 'full-7 - 严格幂等：确保后台在跑并测自然写入'
+  $runState = Ensure-AstrbotRunning -AstrRoot $AstrRoot -Base $Ws -StartScript $startScript -WaitSeconds 300
+  $map0 = Get-FileMap -Roots @($Ws, $App)
+  Start-Sleep -Seconds 90
+  $map1 = Get-FileMap -Roots @($Ws, $App)
+  $natural = @(Compare-FileMaps -Before $map0.Map -After $map1.Map)
+  $naturalKeys = @{}
+  foreach ($c in $natural) {
+    $k = [string]$c
+    $i = $k.IndexOf(':')
+    if ($i -ge 0) { $naturalKeys[$k.Substring($i + 1)] = $true }
+  }
+  $firstSnap = Save-EvidenceJson -Name 'idempotency-before.json' -Object ([ordered]@{
+    at = (Get-Date).ToUniversalTime().ToString('o'); files = $map1.Map.Count; skipped = $map1.Skipped
+    astrbotRestarted = [bool]$runState.restarted; astrbotPids = @($runState.pids)
+    controlWindowSeconds = 90; naturalChanges = $natural.Count; naturalSample = @($natural | Select-Object -First 80)
+  })
+
+  Set-MwProgress -Step 'full-8 - 第二次默认执行'
+  $secondRec = Invoke-Long -Label 'bootstrap-second-run' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot) -TimeoutSeconds 7200 `
+    -StepText 'full-8 - 第二次默认执行（幂等）'
+  $secondText = [string]$secondRec.stdoutText + "`n" + [string]$secondRec.stderrText
+  $secondNums = Get-BootstrapNumbers -Text $secondText
+
+  Set-MwProgress -Step 'full-9 - 取第二次快照并按路径归因'
+  $map2 = Get-FileMap -Roots @($Ws, $App)
+  $changes = @(Compare-FileMaps -Before $map1.Map -After $map2.Map)
+  $installerChanges = New-Object System.Collections.ArrayList
+  $ambiguousChanges = New-Object System.Collections.ArrayList
+  foreach ($c in $changes) {
+    $k = [string]$c
+    $i = $k.IndexOf(':')
+    $pathKey = $(if ($i -ge 0) { $k.Substring($i + 1) } else { $k })
+    if ($naturalKeys.ContainsKey($pathKey)) { [void]$ambiguousChanges.Add($k) }
+    else { [void]$installerChanges.Add($k) }
+  }
+  $changeSample = @($installerChanges | Select-Object -First 80)
+  $secondEv = Save-EvidenceJson -Name 'idempotency-after.json' -Object ([ordered]@{
+    at = (Get-Date).ToUniversalTime().ToString('o'); files = $map2.Map.Count; skipped = $map2.Skipped
+    totalChanges = $changes.Count; installerAttributed = $installerChanges.Count
+    ambiguous = @($ambiguousChanges | Select-Object -First 80)
+    naturalBaseline = @($natural | Select-Object -First 80)
+    installerSample = $changeSample; result = $secondNums
+  })
+
+  Add-PhaseCheck -Id 'c6-idempotent-exit' -Criterion 6 `
+    -Requirement '第二次默认执行不重复安装（fixed=0）且成功' `
+    -Steps @('确保 AstrBot 在跑（否则 detect 会把安装判成缺失）', '先测 90s 自然写入基线', '用完全相同的默认参数再跑一次', '解析 ##RESULT') `
+    -Assertion 'exit 0；ok=1；fixed=0' `
+    -Expected 'exit=0, fixed=0' -Actual ('exit=' + $secondRec.exitCode + '; ' + $secondNums.line) `
+    -Evidence @($secondRec.stdoutPath, $secondRec.stderrPath) `
+    -Status $(if ($secondRec.exitCode -eq 0 -and $secondNums.ok -eq 1 -and $secondNums.fixed -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail ('AstrBot 保持运行（restarted=' + [bool]$runState.restarted + '；pid=' + (@($runState.pids) -join ',') + '），避免把“后台停了”误判成安装器重复安装。') `
+    -Data ([ordered]@{ exitCode = $secondRec.exitCode; result = $secondNums; astrbotPids = @($runState.pids); restarted = [bool]$runState.restarted })
+
+  Add-PhaseCheck -Id 'c6-idempotent-files' -Criterion 6 `
+    -Requirement '第二次执行不改变文件集合/内容/时间戳（覆盖程序目录根与工作区）' `
+    -Steps @('记录 {Ws} 与 {App} 全量 sha256+size+mtime', '第二次执行后再记录', '比较新增/缺失/内容/时间戳', '用 90s 控制窗口把后台自然写入从归因中扣除') `
+    -Assertion 'installer 归因变化=0；比较范围不排除 logs/state/新增文件' `
+    -Expected 'installerChanges=0' -Actual ('installerChanges=' + $installerChanges.Count + '; total=' + $changes.Count + '; ambiguous=' + $ambiguousChanges.Count + '; before=' + $map1.Map.Count + '; after=' + $map2.Map.Count) `
+    -Evidence @($firstSnap, $secondEv) `
+    -Status $(if ($installerChanges.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail ('测量条件：AstrBot 运行中（pid ' + (@($runState.pids) -join ',') + '）；控制窗口 90s；范围=工作区+程序目录根；阈值=sha256/大小/mtimeUtc 全等；归因规则=控制窗口内自然变化过的路径记为 ambiguous，其余记为 installer。窗口外才出现的后台写入会被算进 installer，属于本测量的已知不确定性。') `
+    -Data ([ordered]@{ installerChanges = $changeSample; installerTotal = $installerChanges.Count; ambiguous = @($ambiguousChanges | Select-Object -First 40); naturalBaseline = @($natural | Select-Object -First 40); skipped = @($map1.Skipped + $map2.Skipped) })
+
+  # ---- 项 10：密钥扫描
+  Set-MwProgress -Step 'full-10 - 密钥扫描'
+  # 范围：GuestRoot（程序/工作区/日志/缓存/验收产物）+ 用户设置 + %TEMP% 下的产品相关目录。
+  # %TEMP% 全量枚举太慢，按名字过滤（mingling/mw/astrbot/uv/npm/setup），未命中的不扫，
+  # 这一点会在 Detail 里如实写明，算“跳过项”而不是“已覆盖”。
+  $tempRoots = @()
+  try {
+    $tempRoots = @(Get-ChildItem -LiteralPath $env:TEMP -Directory -Force -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '(?i)mingling|mw|astrbot|uv|npm|bootstrap|setup' } |
+      ForEach-Object { $_.FullName })
+  } catch { }
+  $scanRoots = @($GuestRoot, (Join-Path $env:APPDATA 'MinglingWorkbench')) + $tempRoots
+  $scan = Invoke-KeyScan -Key $script:TestKey -Roots $scanRoots
+  $bad = @($scan.Hits | Where-Object { $_.bad })
+  $scanRows = [ordered]@{
+    keyLength = $script:TestKey.Length; keyPrefix = 'sk-mwfix-<redacted>'
+    scanned = $scan.Scanned; hits = @($scan.Hits).Count; badHits = $bad.Count
+    skipped = @($scan.Skipped); unreadable = @($scan.Unreadable)
+    roots = $scanRoots; tempDirs = @($tempRoots); maxBytes = 67108864
+  }
+  $scanEv = Save-EvidenceJson -Name 'key-scan.json' -Object $scanRows
+  Add-PhaseCheck -Id 'c10-key-scan' -Criterion 10 `
+    -Requirement '合成密钥只出现在工作区 secrets，不得泄漏到程序/日志/缓存/临时/验收产物' `
+    -Steps @('在 {Ws}\secrets\deepseek-key.txt 写入合成 key', '扫描 GuestRoot 与 %APPDATA%\MinglingWorkbench 的所有文件（ASCII/UTF16LE/BE）', '按路径分类，不输出密钥原文') `
+    -Assertion 'scanned>0；badHits=0；不可读=0；跳过项单独记录' `
+    -Expected 'badHits=0, unreadable=0' -Actual ('scanned=' + $scan.Scanned + ', hits=' + @($scan.Hits).Count + ', bad=' + $bad.Count + ', unreadable=' + @($scan.Unreadable).Count) `
+    -Evidence @($scanEv, (Join-Path $Ws 'secrets\deepseek-key.txt')) `
+    -Status $(if ($scan.Scanned -gt 0 -and $bad.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail ('扫描根：' + ($scanRoots -join ' ; ') + '；%TEMP% 只按名字过滤后扫描，未命中的目录属于已知未覆盖范围；>64MB 的文件跳过并记录（' + @($scan.Skipped).Count + ' 个）。命中路径只记路径，不记内容。') `
+    -Data $scanRows
+
+  # ---- 项 11：默认 manual 独立性
+  Set-MwProgress -Step 'full-11 - 默认 manual 组件'
+  $manDef = Invoke-Cap -Label 'check-default-manual' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Check') -TimeoutSeconds 900 `
+    -StepText 'full-11 - 默认 Check 的 manual 计数'
+  $manDefText = [string]$manDef.stdoutText
+  $manDefNums = Get-BootstrapNumbers -Text $manDefText
+  $manDefOks = Get-OkIds -Text $manDefText
+  $manualIds = @('qq-login','bili-login','deepseek-provider')
+  $manualWrongOk = @($manDefOks | Where-Object { $manualIds -contains $_ })
+  Add-PhaseCheck -Id 'c11-default-manual' -Criterion 11 `
+    -Requirement '默认执行时未完成的 manual 组件不被报成完成' `
+    -Steps @('运行默认 -Check', '解析 manual 计数与 ##OK') `
+    -Assertion 'manual>=3；##OK 不含 qq-login/bili-login/deepseek-provider' `
+    -Expected 'manual>=3 且无 manual 的 ##OK' `
+    -Actual ('manual=' + $manDefNums.manual + '; wrongOk=' + ($manualWrongOk -join ',')) `
+    -Evidence @($manDef.stdoutPath, $manDef.stderrPath) `
+    -Status $(if ($manDefNums.manual -ge 3 -and $manualWrongOk.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail '若复用已登录 profile，manual 可能少 1~2 个；本机是干净来宾，按 3 个独立人工项判定。' `
+    -Data ([ordered]@{ exitCode = $manDef.exitCode; result = $manDefNums; okIds = @($manDefOks); wrongOk = @($manualWrongOk) })
+
+  # 收尾：停桩（AstrBot 已在幂等前停掉）
+  Stop-ModelStub -Stub $stub
+  $summary.metrics['stubListening'] = $(if ($stub) { $stub.Listening } else { $false })
+}
+
+# ================================================================ 阶段：recovery
+function Copy-TreeIfExists {
+  param([string]$From, [string]$To)
+  if (-not (Test-Path -LiteralPath $From)) { return $false }
+  if (-not (Test-Path -LiteralPath $To)) { New-Item -ItemType Directory -Force -Path $To | Out-Null }
+  # 通配符复制必须用 -Path（旧夹具的 -LiteralPath + * 是缺陷）
+  Copy-Item -Path (Join-Path $From '*') -Destination $To -Recurse -Force -ErrorAction Stop
+  return $true
+}
+
+function Get-NodeExeFromLayout {
+  param([string]$Root)
+  $direct = Join-Path $Root 'sidecar\node\node.exe'
+  if (Test-Path -LiteralPath $direct) { return $direct }
+  $side = Join-Path $Root 'sidecar'
+  if (Test-Path -LiteralPath $side) {
+    foreach ($d in @(Get-ChildItem -LiteralPath $side -Directory -ErrorAction SilentlyContinue)) {
+      $c = Join-Path $d.FullName 'node.exe'
+      if (Test-Path -LiteralPath $c) { return $c }
+    }
+  }
+  foreach ($f in @(Get-ChildItem -LiteralPath $Root -Recurse -Filter 'node.exe' -File -ErrorAction SilentlyContinue)) {
+    return $f.FullName
+  }
+  return ''
+}
+
+function Resolve-Qrcode {
+  param([string]$NodeExe, [string]$ProjectDir, [string]$Label)
+  $rec = $null
+  $cwd = ''
+  Push-Location -LiteralPath $ProjectDir
+  try {
+    $cwd = (Get-Location).Path
+    $rec = Invoke-Cap -Label $Label -FilePath $NodeExe -Arguments @('-e', "require.resolve('qrcode')") `
+      -WorkDir $ProjectDir -TimeoutSeconds 60 -StepText ('recovery - qrcode 解析（cwd=' + $ProjectDir + '）')
+  } finally {
+    Pop-Location
+  }
+  return [pscustomobject]@{ Record = $rec; Cwd = $cwd }
+}
+
+function Invoke-RecoveryPhase {
+  if (-not (Test-Path -LiteralPath $Bootstrap)) {
+    Add-PhaseCheck -Id 'c0-recovery-precondition' -Criterion 7 -Requirement 'pre/full 已装好 3.1' `
+      -Assertion '存在 {App}\tools\bootstrap.ps1' -Expected $Bootstrap -Actual '缺失' `
+      -Status 'blocked-precondition' -Detail '安装未完成，无法做中断恢复。'
+    return
+  }
+
+  # ---------- A. 真实中断恢复
+  Set-MwProgress -Step 'recovery-1 - 启动可观察安装并中断进程树'
+  $intState = Start-MwCommand -Label 'interrupt-bili-whale' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Component','bili-whale','-Force') `
+    -EvidenceDir $script:EvidenceDir -RunId $RunId
+  $observed = ''
+  $killed = $false
+  $fallbackKill = $false
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  if ($intState.Started) {
+    while (-not $intState.Process.HasExited -and $sw.Elapsed.TotalSeconds -lt 180) {
+      $tail = Get-MwCommandTail -State $intState -Bytes 6000
+      # 记录最后一个 ##STEP（不要求它正好落在 npm 文案上），再用关键字加速
+      foreach ($mm in [regex]::Matches([string]$tail, '##STEP\s+\d+\|[^\r\n]*')) { $observed = $mm.Value }
+      if ($observed -match 'npm|bili|node_modules') { break }
+      if ($sw.Elapsed.TotalSeconds -ge 45 -and $observed) { $fallbackKill = $true; break }
+      Start-Sleep -Milliseconds 400
+    }
+    if (-not $intState.Process.HasExited) {
+      [void](Stop-MwProcessTree -ProcessId $intState.Process.Id)
+      $killed = $true
+    }
+  }
+  $intRec = Complete-MwCommand -State $intState -TimeoutSeconds 120 -EvidenceDir $script:EvidenceDir
+  [void]$commands.Add($intRec)
+  $intPid = 0
+  if ($intState.Process) { $intPid = $intState.Process.Id }
+  $intEv = Save-EvidenceJson -Name 'interrupt.json' -Object ([ordered]@{
+    observed = $observed; killed = $killed; fallbackKill = $fallbackKill; pid = $intPid; exitCode = $intRec.exitCode
+    stdout = $intRec.stdoutPath; stderr = $intRec.stderrPath; at = (Get-Date).ToUniversalTime().ToString('o')
+  })
+  Add-PhaseCheck -Id 'c7-interrupt-observed' -Criterion 7 `
+    -Requirement '真实中断：在可观察安装阶段结束测试进程树' `
+    -Steps @('以 -Component bili-whale -Force 启动 bootstrap', '轮询 stdout 出现 ##STEP 且处于 npm/安装阶段', 'Stop-MwProcessTree 结束整棵进程树') `
+    -Assertion '捕获到 ##STEP 且确实杀了进程树；不是伪造的中断' `
+    -Expected 'observed != empty 且 killed=true' -Actual ('observed=' + $observed + '; killed=' + $killed + '; fallback=' + $fallbackKill + '; exit=' + $intRec.exitCode) `
+    -Evidence @($intEv, $intRec.stdoutPath) `
+    -Status $(if ($observed -and $killed) { 'pass' } else { 'fail-fixture' }) `
+    -Detail '若安装阶段在 180s 内跑完，说明该组件太快，无法形成可观察中断窗口；此时是夹具限制，不冒充成功。45s 后仍看不到 npm 关键字但存在 ##STEP 时会按“已知安装阶段”结束进程树（fallbackKill=true）。' `
+    -Data ([ordered]@{ observed = $observed; killed = $killed; fallbackKill = $fallbackKill; pid = $intPid })
+
+  $biliDir = Join-Path $BotsRoot 'bili-whale'
+  $qrcodePkg = Join-Path $biliDir 'node_modules\qrcode\package.json'
+  $qrcodeAfterKill = Test-Path -LiteralPath $qrcodePkg
+  $nodeExe = Get-NodeExeFromLayout -Root $Ws
+  if (-not $nodeExe) { $nodeExe = Get-NodeExeFromLayout -Root $App }
+  $nodeDir = $(if ($nodeExe) { Split-Path -Parent $nodeExe } else { Join-Path $Ws 'sidecar\node' })
+  $nodeMapBefore = Get-FileMap -Roots @($nodeDir)
+  $nodeBeforeRec = $null
+  if ($nodeExe) { $nodeBeforeRec = Save-EvidenceJson -Name 'node-before-interrupt.json' -Object ([ordered]@{ exe = $nodeExe; hash = (Get-FileHash -LiteralPath $nodeExe -Algorithm SHA256).Hash; mtime = (Get-Item -LiteralPath $nodeExe).LastWriteTimeUtc.ToString('o') }) }
+
+  Set-MwProgress -Step 'recovery-2 - 中断后离线重跑（应失败）'
+  $offlineAfterKill = Invoke-Long -Label 'bili-offline-after-interrupt' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Component','bili-whale','-Offline') `
+    -TimeoutSeconds 900 -StepText 'recovery-2 - 离线重跑 bili-whale'
+
+  Set-MwProgress -Step 'recovery-3 - 联网重跑（应修好）'
+  $onlineAfterKill = Invoke-Long -Label 'bili-online-after-interrupt' -FilePath $Bootstrap `
+    -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Component','bili-whale') `
+    -TimeoutSeconds 1800 -StepText 'recovery-3 - 联网重跑 bili-whale'
+
+  $qrcodeAfterOnline = Test-Path -LiteralPath $qrcodePkg
+  $resolveAfter = $null
+  if ($nodeExe -and (Test-Path -LiteralPath $biliDir)) {
+    $resolveAfter = Resolve-Qrcode -NodeExe $nodeExe -ProjectDir $biliDir -Label 'qrcode-resolve-after-recovery'
+  }
+  $nodeMapAfter = Get-FileMap -Roots @($nodeDir)
+  $nodeChanges = @(Compare-FileMaps -Before $nodeMapBefore.Map -After $nodeMapAfter.Map)
+  $nodeAfterRec = Save-EvidenceJson -Name 'node-after-interrupt.json' -Object ([ordered]@{
+    exe = $nodeExe; hash = $(if ($nodeExe) { (Get-FileHash -LiteralPath $nodeExe -Algorithm SHA256).Hash } else { '' })
+    mtime = $(if ($nodeExe) { (Get-Item -LiteralPath $nodeExe).LastWriteTimeUtc.ToString('o') } else { '' })
+    changes = $nodeChanges
+  })
+
+  Add-PhaseCheck -Id 'c7-offline-fails-after-interrupt' -Criterion 7 `
+    -Requirement '真实中断后，离线重跑必须失败（不能假装补齐）' `
+    -Steps @('中断后立刻 -Component bili-whale -Offline') `
+    -Assertion 'exit != 0；qrcode 不存在' `
+    -Expected '非 0 退出' -Actual ('exit=' + $offlineAfterKill.exitCode + '; qrcode=' + $qrcodeAfterKill) `
+    -Evidence @($offlineAfterKill.stdoutPath, $offlineAfterKill.stderrPath, $intEv) `
+    -Status $(if (-not $killed) { 'not-run' } elseif ($offlineAfterKill.exitCode -ne 0 -and -not $qrcodeAfterKill) { 'pass' } else { 'fail-product' }) `
+    -Detail $(if (-not $killed) { '未形成真实中断（安装阶段太快/进程已自行结束），本项不执行断言，按 not-run 记录。' } else { '中断发生在 npm 安装阶段；离线无法取包，必须报缺而不是跳过。' }) `
+    -Data ([ordered]@{ exitCode = $offlineAfterKill.exitCode; qrcodeExists = $qrcodeAfterKill })
+
+  Add-PhaseCheck -Id 'c7-online-recovers' -Criterion 7 `
+    -Requirement '联网重跑必须修好被中断的组件' `
+    -Steps @('联网 -Component bili-whale', '检查 node_modules\qrcode\package.json 与 require.resolve') `
+    -Assertion 'exit 0；qrcode 包存在；require.resolve 返回 0' `
+    -Expected 'exit=0, resolve=0' `
+    -Actual ('exit=' + $onlineAfterKill.exitCode + '; qrcode=' + $qrcodeAfterOnline + '; resolve=' + $(if ($resolveAfter) { $resolveAfter.Record.exitCode } else { 'n/a' })) `
+    -Evidence @($onlineAfterKill.stdoutPath, $onlineAfterKill.stderrPath, $(if ($resolveAfter) { $resolveAfter.Record.stdoutPath } else { $onlineAfterKill.stdoutPath })) `
+    -Status $(if (-not $killed) { 'not-run' } elseif ($onlineAfterKill.exitCode -eq 0 -and $qrcodeAfterOnline -and $resolveAfter -and $resolveAfter.Record.exitCode -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail $(if (-not $killed) { '没有真实中断，恢复路径无从验证，按 not-run 记录。' } else { 'qrcode 解析在 cwd=' + $(if ($resolveAfter) { $resolveAfter.Cwd } else { '未执行' }) + ' 下进行。' }) `
+    -Data ([ordered]@{ exitCode = $onlineAfterKill.exitCode; resolveExit = $(if ($resolveAfter) { $resolveAfter.Record.exitCode } else { $null }); resolveCwd = $(if ($resolveAfter) { $resolveAfter.Cwd } else { '' }) })
+
+  Add-PhaseCheck -Id 'c7-completed-not-reinstalled' -Criterion 7 `
+    -Requirement '已完成的 node 组件在恢复过程中不被重装/覆盖' `
+    -Steps @('中断前后对 {Ws}\sidecar\node（不存在则回退 {App}）做 sha256+size+mtime 快照', '比较两次快照') `
+    -Assertion 'changes=0（node.exe 哈希与 mtime 不变）' `
+    -Expected 'changes=0' -Actual ('changes=' + $nodeChanges.Count) `
+    -Evidence @($nodeBeforeRec, $nodeAfterRec) `
+    -Status $(if (-not $killed) { 'not-run' } elseif (-not $nodeExe) { 'blocked-precondition' } elseif ($nodeChanges.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail ('node 布局从实际安装根推导：exe=' + $nodeExe + '；快照根=' + $nodeDir + '。node 已在 full 阶段装好；恢复 bili-whale 只应补 npm 包。') `
+    -Data ([ordered]@{ nodeExe = $nodeExe; changes = $nodeChanges })
+
+  # ---------- B. 构造半安装（合成，单独一条 check）
+  Set-MwProgress -Step 'recovery-4 - 构造半安装'
+  $half = Join-Path $GuestRoot ('冥零 验收\半装 ' + $RunId)
+  Reset-TestDir -Path $half
+  $halfBots = Join-Path $half 'bots'
+  $halfBili = Join-Path $halfBots 'bili-whale'
+  New-Item -ItemType Directory -Force -Path (Join-Path $half 'logs\setup\dl'), (Join-Path $half 'logs\setup\npm-cache'), $halfBili | Out-Null
+
+  $nodeCache = @()
+  $wsDl = Join-Path $Ws 'logs\setup\dl'
+  if (Test-Path -LiteralPath $wsDl) {
+    $nodeCache = @(Get-ChildItem -LiteralPath $wsDl -File -Filter 'node-*' -ErrorAction SilentlyContinue)
+    foreach ($f in $nodeCache) { Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $half 'logs\setup\dl') -Force }
+  }
+  $nodeInstall = Invoke-Long -Label 'half-node-offline' -FilePath $Bootstrap `
+    -Arguments @('-Base',$half,'-Workspace',$half,'-Bots',$halfBots,'-Component','node','-Offline') `
+    -TimeoutSeconds 600 -StepText 'recovery-4 - 半装：node -Offline'
+  $halfNodeExe = Get-NodeExeFromLayout -Root $half
+  $biliCopied = $false
+  $biliSrc = Join-Path $App 'sidecar\bili-whale'
+  if (Test-Path -LiteralPath $biliSrc) {
+    $biliCopied = Copy-TreeIfExists -From $biliSrc -To $halfBili
+  }
+  $halfBiliOffline = Invoke-Long -Label 'half-bili-offline' -FilePath $Bootstrap `
+    -Arguments @('-Base',$half,'-Workspace',$half,'-Bots',$halfBots,'-Component','bili-whale','-Offline') `
+    -TimeoutSeconds 300 -StepText 'recovery-4 - 半装：bili-whale -Offline（必须失败）'
+  $halfQrcode = Join-Path $halfBili 'node_modules\qrcode\package.json'
+  $halfRemovedQrcode = $false
+  if ($biliCopied -and (Test-Path -LiteralPath (Join-Path $halfBili 'node_modules\qrcode'))) {
+    # 合成前提：包里若自带 qrcode，先移除，才能构造“缺包”的半安装状态
+    Remove-Item -LiteralPath (Join-Path $halfBili 'node_modules\qrcode') -Recurse -Force
+    $halfRemovedQrcode = $true
+  }
+  $halfQrcode = Join-Path $halfBili 'node_modules\qrcode\package.json'
+  $halfResolve = $null
+  if ($halfNodeExe -and (Test-Path -LiteralPath $halfBili)) {
+    $halfResolve = Resolve-Qrcode -NodeExe $halfNodeExe -ProjectDir $halfBili -Label 'half-qrcode-resolve'
+  }
+  $halfEv = Save-EvidenceJson -Name 'half-install.json' -Object ([ordered]@{
+    half = $half; nodeExe = $halfNodeExe; nodeCache = @($nodeCache.Name); biliCopied = $biliCopied
+    nodeExit = $nodeInstall.exitCode; biliOfflineExit = $halfBiliOffline.exitCode
+    qrcodeExists = (Test-Path -LiteralPath $halfQrcode)
+    removedShippedQrcode = $halfRemovedQrcode
+    resolveExit = $(if ($halfResolve) { $halfResolve.Record.exitCode } else { $null })
+    resolveCwd = $(if ($halfResolve) { $halfResolve.Cwd } else { '' })
+    resolveOut = $(if ($halfResolve) { ([string]$halfResolve.Record.stdoutText).Trim() } else { '' })
+  })
+
+  $halfOk = ($nodeInstall.exitCode -eq 0 -and $biliCopied -and $halfBiliOffline.exitCode -eq 2 -and
+             -not (Test-Path -LiteralPath $halfQrcode) -and $halfResolve -and $halfResolve.Record.exitCode -ne 0)
+  Add-PhaseCheck -Id 'c7-half-install-synthetic' -Criterion 7 `
+    -Requirement '构造半安装（node 在、qrcode 缺）：离线必须报缺，qrcode 解析必须失败' `
+    -Steps @('node -Offline 装到合成目录', '用 -Path 通配符复制 sidecar\bili-whale（不用 -LiteralPath）', 'bili-whale -Offline', 'cd 到半装 bili-whale 后 node -e require.resolve(''qrcode'')') `
+    -Assertion 'node exit 0；bili 离线 exit 2；qrcode\package.json 不存在；resolve 非 0' `
+    -Expected 'node=0, bili=2, resolve!=0' `
+    -Actual ('node=' + $nodeInstall.exitCode + '; bili=' + $halfBiliOffline.exitCode + '; resolve=' + $(if ($halfResolve) { $halfResolve.Record.exitCode } else { 'n/a' })) `
+    -Evidence @($halfEv, $halfBiliOffline.stdoutPath, $(if ($halfResolve) { $halfResolve.Record.stdoutPath } else { $halfEv })) `
+    -Status $(if ($halfOk) { 'pass' } elseif (-not $biliCopied) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail ('node.exe 从真实布局推导得到：' + $halfNodeExe + '；qrcode 解析 cwd=' + $(if ($halfResolve) { $halfResolve.Cwd } else { '未执行' }) + '；解析输出只记路径不伪造。') `
+    -Data ([ordered]@{ nodeExe = $halfNodeExe; biliExit = $halfBiliOffline.exitCode; qrcode = (Test-Path -LiteralPath $halfQrcode) })
+
+  # 半装联网补齐（只补包，不重装 node）
+  $nodeHalfBefore = Get-FileMap -Roots @((Join-Path $half 'sidecar'))
+  $halfOnline = Invoke-Long -Label 'half-bili-online' -FilePath $Bootstrap `
+    -Arguments @('-Base',$half,'-Workspace',$half,'-Bots',$halfBots,'-Component','bili-whale') `
+    -TimeoutSeconds 1800 -StepText 'recovery-4b - 半装联网补齐 bili-whale'
+  $halfOnlineResolve = $null
+  if ($halfNodeExe -and (Test-Path -LiteralPath $halfBili)) {
+    $halfOnlineResolve = Resolve-Qrcode -NodeExe $halfNodeExe -ProjectDir $halfBili -Label 'half-qrcode-resolve-online'
+  }
+  $nodeHalfAfter = Get-FileMap -Roots @((Join-Path $half 'sidecar'))
+  $nodeHalfChanges = @(Compare-FileMaps -Before $nodeHalfBefore.Map -After $nodeHalfAfter.Map)
+  $halfOnlineEv = Save-EvidenceJson -Name 'half-install-online.json' -Object ([ordered]@{
+    exitCode = $halfOnline.exitCode; qrcode = (Test-Path -LiteralPath $halfQrcode)
+    resolveExit = $(if ($halfOnlineResolve) { $halfOnlineResolve.Record.exitCode } else { $null })
+    nodeChanges = $nodeHalfChanges; resolveCwd = $(if ($halfOnlineResolve) { $halfOnlineResolve.Cwd } else { '' })
+  })
+  Add-PhaseCheck -Id 'c7-half-install-online-fix' -Criterion 7 `
+    -Requirement '半安装联网只补缺失的包，不覆盖已装 node' `
+    -Steps @('对半装目录联网运行 bili-whale', '检查 qrcode 与 resolve', '比较 half\sidecar 前后哈希') `
+    -Assertion 'exit 0；qrcode 存在；resolve=0；node 文件零变化' `
+    -Expected 'exit=0, resolve=0, nodeChanges=0' `
+    -Actual ('exit=' + $halfOnline.exitCode + '; qrcode=' + (Test-Path -LiteralPath $halfQrcode) + '; nodeChanges=' + $nodeHalfChanges.Count) `
+    -Evidence @($halfOnlineEv, $halfOnline.stdoutPath) `
+    -Status $(if ($halfOnline.exitCode -eq 0 -and (Test-Path -LiteralPath $halfQrcode) -and $nodeHalfChanges.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+    -Detail 'npm 缓存固定在 {base}\logs\setup\npm-cache；这是产品实现，未额外清空。' `
+    -Data ([ordered]@{ nodeChanges = $nodeHalfChanges })
+
+  # ---------- C. 项 8：离线三态（uv）
+  Set-MwProgress -Step 'recovery-5 - 离线三态（线上/有效缓存/空缓存/坏缓存）'
+  $offlineBase = Join-Path $GuestRoot ('冥零 验收\离线 ' + $RunId)
+  Reset-TestDir -Path $offlineBase
+  $uvOnlineBase = Join-Path $offlineBase 'online'
+  $uvValidBase = Join-Path $offlineBase 'valid'
+  $uvEmptyBase = Join-Path $offlineBase 'empty'
+  $uvBadBase = Join-Path $offlineBase 'bad'
+
+  $uvOnline = Invoke-Long -Label 'uv-online' -FilePath $Bootstrap `
+    -Arguments @('-Base',$uvOnlineBase,'-Workspace',$uvOnlineBase,'-Bots',(Join-Path $uvOnlineBase 'bots'),'-Component','uv') `
+    -TimeoutSeconds 900 -StepText 'recovery-5 - uv 联网安装'
+  $uvCacheDir = Join-Path $uvOnlineBase 'logs\setup\dl'
+  $uvCache = @()
+  if (Test-Path -LiteralPath $uvCacheDir) { $uvCache = @(Get-ChildItem -LiteralPath $uvCacheDir -File -Filter 'uv-*' -ErrorAction SilentlyContinue) }
+
+  foreach ($b in @($uvValidBase, $uvEmptyBase, $uvBadBase)) {
+    New-Item -ItemType Directory -Force -Path (Join-Path $b 'logs\setup\dl') | Out-Null
+  }
+  foreach ($f in $uvCache) {
+    Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $uvValidBase 'logs\setup\dl') -Force
+    Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $uvBadBase 'logs\setup\dl') -Force
+  }
+  $badFile = ''
+  $badDir = Join-Path $uvBadBase 'logs\setup\dl'
+  $badCands = @(Get-ChildItem -LiteralPath $badDir -File -ErrorAction SilentlyContinue)
+  if ($badCands.Count -gt 0) {
+    $badFile = $badCands[0].FullName
+    $fs = [IO.File]::Open($badFile, 'Open', 'ReadWrite')
+    try { $b0 = $fs.ReadByte(); $fs.Position = 0; $fs.WriteByte(($b0 -bxor 255)) } finally { $fs.Dispose() }
+  }
+  $uvValid = Invoke-Long -Label 'uv-offline-valid' -FilePath $Bootstrap `
+    -Arguments @('-Base',$uvValidBase,'-Workspace',$uvValidBase,'-Bots',(Join-Path $uvValidBase 'bots'),'-Component','uv','-Offline') `
+    -TimeoutSeconds 300 -StepText 'recovery-5 - uv 离线（有效缓存）'
+  $uvEmpty = Invoke-Long -Label 'uv-offline-empty' -FilePath $Bootstrap `
+    -Arguments @('-Base',$uvEmptyBase,'-Workspace',$uvEmptyBase,'-Bots',(Join-Path $uvEmptyBase 'bots'),'-Component','uv','-Offline') `
+    -TimeoutSeconds 300 -StepText 'recovery-5 - uv 离线（空缓存）'
+  $uvBad = Invoke-Long -Label 'uv-offline-bad' -FilePath $Bootstrap `
+    -Arguments @('-Base',$uvBadBase,'-Workspace',$uvBadBase,'-Bots',(Join-Path $uvBadBase 'bots'),'-Component','uv','-Offline') `
+    -TimeoutSeconds 300 -StepText 'recovery-5 - uv 离线（坏缓存）'
+  $uvExeOnline = Join-Path $uvOnlineBase 'uv\bin\uv.exe'
+  $uvExeValid = Join-Path $uvValidBase 'uv\bin\uv.exe'
+  $uvExeBad = Join-Path $uvBadBase 'uv\bin\uv.exe'
+  $uvEv = Save-EvidenceJson -Name 'offline-uv.json' -Object ([ordered]@{
+    cache = @($uvCache.Name); badFile = $badFile
+    online = $uvOnline.exitCode; valid = $uvValid.exitCode; empty = $uvEmpty.exitCode; bad = $uvBad.exitCode
+    exeOnline = (Test-Path -LiteralPath $uvExeOnline); exeValid = (Test-Path -LiteralPath $uvExeValid); exeBad = (Test-Path -LiteralPath $uvExeBad)
+  })
+
+  Add-PhaseCheck -Id 'c8-offline-valid-cache' -Criterion 8 `
+    -Requirement '有效缓存 + -Offline 可以成功安装' `
+    -Steps @('联网安装 uv 产生缓存', '复制缓存到独立 Base', '-Offline 重装') `
+    -Assertion 'online=0；valid=0；uv.exe 存在' `
+    -Expected '0/0' -Actual ('online=' + $uvOnline.exitCode + '; valid=' + $uvValid.exitCode) `
+    -Evidence @($uvEv, $uvValid.stdoutPath) `
+    -Status $(if ($uvOnline.exitCode -eq 0 -and $uvValid.exitCode -eq 0 -and (Test-Path -LiteralPath $uvExeValid)) { 'pass' } else { 'fail-product' }) `
+    -Detail '缓存位置 {Base}\logs\setup\dl。' `
+    -Data ([ordered]@{ online = $uvOnline.exitCode; valid = $uvValid.exitCode })
+
+  Add-PhaseCheck -Id 'c8-offline-empty-cache' -Criterion 8 `
+    -Requirement '空缓存 + -Offline 必须失败' `
+    -Steps @('新建空 Base', '-Offline 安装 uv') `
+    -Assertion 'exit 2；uv.exe 不存在' `
+    -Expected '2' -Actual ([string]$uvEmpty.exitCode) `
+    -Evidence @($uvEv, $uvEmpty.stdoutPath) `
+    -Status $(if ($uvEmpty.exitCode -eq 2 -and -not (Test-Path -LiteralPath (Join-Path $uvEmptyBase 'uv\bin\uv.exe'))) { 'pass' } else { 'fail-product' }) `
+    -Detail '没有网也没有缓存时必须报缺，不能假成功。' `
+    -Data ([ordered]@{ exitCode = $uvEmpty.exitCode })
+
+  Add-PhaseCheck -Id 'c8-offline-bad-cache' -Criterion 8 `
+    -Requirement '坏缓存 + -Offline 必须拒绝安装（哈希不符）' `
+    -Steps @('复制有效缓存', '翻转缓存文件首字节', '-Offline 安装 uv') `
+    -Assertion 'exit 2；uv.exe 不存在' `
+    -Expected '2' -Actual ([string]$uvBad.exitCode) `
+    -Evidence @($uvEv, $uvBad.stdoutPath, $badFile) `
+    -Status $(if ($badFile -and $uvBad.exitCode -eq 2 -and -not (Test-Path -LiteralPath $uvExeBad)) { 'pass' } elseif (-not $badFile) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail '篡改首个字节，bootstrap 必须按清单 sha256 拒绝。' `
+    -Data ([ordered]@{ exitCode = $uvBad.exitCode; file = $badFile })
+
+  # ---------- D. 真实断网（保留 192.168.206.0/24 的宿主证据通道）
+  Set-MwProgress -Step 'recovery-6 - 真实断网'
+  $netResult = [ordered]@{ attempted = $false; adapter = ''; ifIndex = 0; disabled = $false; restored = $false
+    externalFailed = $false; hostChannelOk = $false; emptyOfflineExit = $null; reason = ''
+    externalError = ''; hostError = ''; netOffStdout = ''; netOffStderr = '' }
+  $defaultRoutes = @(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+    Where-Object { $_.State -eq 'Alive' -or $_.State -eq 'Preferred' })
+  $hostIface = $null
+  try {
+    $hostRoutes = @(Find-NetRoute -RemoteIPAddress '192.168.206.1' -ErrorAction Stop)
+    # Find-NetRoute 返回顺序不保证；取第一个带有效 InterfaceIndex 的路由
+    foreach ($hr in $hostRoutes) {
+      if ($hr.PSObject.Properties.Name -contains 'InterfaceIndex' -and [int]$hr.InterfaceIndex -gt 0) {
+        $hostIface = [int]$hr.InterfaceIndex; break
+      }
+    }
+  } catch { }
+  $pick = $null
+  foreach ($r in $defaultRoutes) {
+    if ($hostIface -and $r.InterfaceIndex -eq $hostIface) { continue }
+    $pick = $r; break
+  }
+  if (-not $pick) {
+    $netResult.reason = '找不到与宿主证据通道分离的默认路由网卡'
+  } else {
+    $netResult.attempted = $true
+    $netResult.ifIndex = [int]$pick.InterfaceIndex
+    $adp = Get-NetAdapter -InterfaceIndex $pick.InterfaceIndex -ErrorAction SilentlyContinue
+    if ($adp) { $netResult.adapter = [string]$adp.Name }
+    try {
+      Disable-NetAdapter -InterfaceIndex $pick.InterfaceIndex -Confirm:$false -ErrorAction Stop
+      $netResult.disabled = $true
+    } catch {
+      $netResult.reason = '禁用网卡失败：' + $_.Exception.Message
+    }
+    if ($netResult.disabled) {
+      try {
+      Start-Sleep -Seconds 3
+      try {
+        Invoke-WebRequest -Uri 'http://example.com/' -UseBasicParsing -TimeoutSec 12 -ErrorAction Stop | Out-Null
+      } catch { $netResult.externalFailed = $true; $netResult.externalError = $_.Exception.Message }
+      try {
+        $hr = Invoke-WebRequest -Uri ($StageUrl.TrimEnd('/') + '/ping.txt') -UseBasicParsing -TimeoutSec 12 -ErrorAction Stop
+        $netResult.hostChannelOk = ($hr.StatusCode -eq 200)
+      } catch { $netResult.hostChannelOk = $false; $netResult.hostError = $_.Exception.Message }
+      if ($netResult.externalFailed -and $netResult.hostChannelOk) {
+        $netEmptyBase = Join-Path $offlineBase 'netcut'
+        Reset-TestDir -Path $netEmptyBase
+        New-Item -ItemType Directory -Force -Path (Join-Path $netEmptyBase 'logs\setup\dl') | Out-Null
+        $netOff = Invoke-Long -Label 'uv-offline-netcut' -FilePath $Bootstrap `
+          -Arguments @('-Base',$netEmptyBase,'-Workspace',$netEmptyBase,'-Bots',(Join-Path $netEmptyBase 'bots'),'-Component','uv','-Offline') `
+          -TimeoutSeconds 300 -StepText 'recovery-6 - 断网 + 空缓存 + Offline'
+        $netResult.emptyOfflineExit = $netOff.exitCode
+        $netResult.netOffStdout = $netOff.stdoutPath
+        $netResult.netOffStderr = $netOff.stderrPath
+      }
+      } finally {
+        try { Enable-NetAdapter -InterfaceIndex $netResult.ifIndex -Confirm:$false -ErrorAction Stop; $netResult.restored = $true }
+        catch { $netResult.reason = '恢复网卡失败（finally）：' + $_.Exception.Message }
+      }
+    }
+  }
+  if ($netResult.disabled -and -not $netResult.restored) {
+    try { Enable-NetAdapter -InterfaceIndex $netResult.ifIndex -Confirm:$false -ErrorAction Stop; $netResult.restored = $true } catch { $netResult.reason = '恢复网卡失败：' + $_.Exception.Message }
+  }
+  $netEv = Save-EvidenceJson -Name 'network-cut.json' -Object $netResult
+  $netPass = ($netResult.attempted -and $netResult.disabled -and $netResult.externalFailed -and $netResult.hostChannelOk -and $netResult.emptyOfflineExit -eq 2 -and $netResult.restored)
+  Add-PhaseCheck -Id 'c8-real-network-cut' -Criterion 8 `
+    -Requirement '真实断网：外网不可达、宿主证据通道仍可用、空缓存离线安装失败' `
+    -Steps @('找与 192.168.206.1 通道不同的默认路由网卡', 'Disable-NetAdapter', '请求 example.com（必失败）', '请求宿主 /stage/ping.txt（必须成功）', '空缓存 -Offline 装 uv', '恢复网卡') `
+    -Assertion '外网请求失败；宿主通道 200；离线 exit 2；网卡已恢复' `
+    -Expected 'external=false, host=true, exit=2, restored=true' `
+    -Actual ('disabled=' + $netResult.disabled + '; externalFailed=' + $netResult.externalFailed + '; host=' + $netResult.hostChannelOk + '; offline=' + $netResult.emptyOfflineExit + '; restored=' + $netResult.restored) `
+    -Evidence @($netEv) `
+    -Status $(if ($netPass) { 'pass' } elseif (-not $netResult.attempted) { 'blocked-env' } elseif (-not $netResult.disabled) { 'blocked-env' } else { 'fail-product' }) `
+    -Detail ($netResult.reason + ' 选择网卡：' + $netResult.adapter + '（ifIndex=' + $netResult.ifIndex + '）；宿主通道 ifIndex=' + $hostIface + '。外网错误=' + $netResult.externalError + '；宿主通道错误=' + $netResult.hostError + '。Disable-NetAdapter 需要管理员；非管理员会以 blocked-env 记录而不是伪造断网。') `
+    -Data $netResult
+}
+
+# ================================================================ 阶段：upgrade
+function Get-TreeSnapshot {
+  param([Parameter(Mandatory)][string]$Root, [string[]]$ExcludeTopDirs = @())
+  $map = @{}
+  if (-not (Test-Path -LiteralPath $Root)) { return $map }
+  foreach ($f in @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+    $rel = $f.FullName.Substring($Root.Length).TrimStart('\')
+    $skip = $false
+    foreach ($ex in $ExcludeTopDirs) {
+      if ($rel -eq $ex -or $rel -like ($ex + '\*')) { $skip = $true; break }
+    }
+    if ($skip) { continue }
+    try { $map[$rel] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash } catch { }
+  }
+  return $map
+}
+
+function Get-ProtectedSnapshot {
+  param([Parameter(Mandatory)][string]$Root)
+  $map = @{}
+  foreach ($d in @('bots','private','secrets','out','logs')) {
+    $p = Join-Path $Root $d
+    if (-not (Test-Path -LiteralPath $p)) { continue }
+    foreach ($f in @(Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+      $rel = $f.FullName.Substring($Root.Length).TrimStart('\')
+      try { $map[$rel] = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash } catch { }
+    }
+  }
+  return $map
+}
+
+function Compare-Snapshot {
+  param([hashtable]$Before, [hashtable]$After)
+  $changes = New-Object System.Collections.ArrayList
+  foreach ($k in $Before.Keys) {
+    if (-not $After.ContainsKey($k)) { [void]$changes.Add('removed:' + $k) }
+    elseif ($After[$k] -ne $Before[$k]) { [void]$changes.Add('content:' + $k) }
+  }
+  foreach ($k in $After.Keys) {
+    if (-not $Before.ContainsKey($k)) { [void]$changes.Add('added:' + $k) }
+  }
+  return @($changes)
+}
+
+function Seed-ProtectedFixture {
+  param([Parameter(Mandatory)][string]$Root)
+  $rows = [ordered]@{
+    'bots\AstrBot\data\config\acceptance.json' = '{"fixture":"upgrade-12"}'
+    'private\backend.txt' = "url: http://127.0.0.1:6185`nusername: admin`npassword: MwFix-2026-TestOnly`n"
+    'secrets\deepseek-key.txt' = $script:TestKey
+    'out\验收 产物.txt' = 'upgrade fixture out'
+    'logs\existing.log' = 'upgrade fixture log'
+    'bots\AstrBot\data\memory\queue.jsonl' = '{"q":1}'
+  }
+  foreach ($k in $rows.Keys) { Write-FixtureFile -Path (Join-Path $Root $k) -Content $rows[$k] -Bom $false }
+  return $rows
+}
+
+function Set-MwTestSettings {
+  param([string]$BasePath, [string]$WsPath)
+  $dir = Join-Path $env:APPDATA 'MinglingWorkbench'
+  if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+  Save-MwJson -Path (Join-Path $dir 'settings.json') -Object ([ordered]@{ base = $BasePath; workspace = $WsPath }) -NoSafe
+}
+
+function Install-MwVersion {
+  param(
+    [Parameter(Mandatory)][string]$InstallerPath,
+    [Parameter(Mandatory)][string]$Dir,
+    [Parameter(Mandatory)][string]$WsDir,
+    [Parameter(Mandatory)][string]$LogPath,
+    [Parameter(Mandatory)][string]$Label,
+    [string]$StepText = ''
+  )
+  if (-not (Test-Path -LiteralPath $InstallerPath)) { return $null }
+  $a = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-','/CURRENTUSER',
+          ('/DIR=' + $Dir), ('/WORKSPACE=' + $WsDir), ('/LOG=' + $LogPath))
+  return Invoke-Long -Label $Label -FilePath $InstallerPath -Arguments $a -TimeoutSeconds 1200 -StepText $StepText
+}
+
+function Invoke-UpgradePhase {
+  $inst31 = Resolve-StagePath -NameOrPath $Installer31
+  $inst30 = Resolve-StagePath -NameOrPath $Installer30
+  $missing = @()
+  foreach ($p in @($inst31, $inst30)) { if (-not (Test-Path -LiteralPath $p)) { $missing += $p } }
+  if ($missing.Count -gt 0) {
+    Add-PhaseCheck -Id 'c0-upgrade-precondition' -Criterion 12 -Requirement '需要 3.0 与 3.1 安装包' `
+      -Assertion '两个安装包都存在' -Expected 'both exist' -Actual ($missing -join '; ') `
+      -Status 'blocked-precondition' -Detail '缺安装包，升级验收无法执行。'
+    return
+  }
+
+  # 3.0 的 iss 不在仓库里，/WORKSPACE 是否被接受无法静态确认；保留传参，结论按实测记录。
+  $wsNote30 = '未验证命令：V3.0 安装器是否接受 /WORKSPACE（仓库只确认 3.1 读 {param:WORKSPACE}）；若被忽略，工作区会落到默认位置，受保护目录断言会 fail-product 而不是伪造通过。'
+
+  $settingsDir = Join-Path $env:APPDATA 'MinglingWorkbench'
+  $settingsPath = Join-Path $settingsDir 'settings.json'
+  $settingsBackup = Join-Path $FixtureDir 'settings.json.orig'
+  $hadSettings = Test-Path -LiteralPath $settingsPath
+  if ($hadSettings) { Copy-Item -LiteralPath $settingsPath -Destination $settingsBackup -Force }
+  $regPath = 'HKCU:\Software\MinglingWorkbench'
+  $regBackup = $null
+  try {
+    if (Test-Path $regPath) { $regBackup = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue }
+  } catch { }
+  $restoreSettings = {
+    try {
+      if ($hadSettings) { Copy-Item -LiteralPath $settingsBackup -Destination $settingsPath -Force }
+      elseif (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath -Force }
+    } catch { }
+    try {
+      if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }
+      if ($regBackup -and $regBackup.ProgramRoot) { Set-ItemProperty -Path $regPath -Name 'ProgramRoot' -Value $regBackup.ProgramRoot }
+      else { Set-ItemProperty -Path $regPath -Name 'ProgramRoot' -Value $App }
+    } catch { }
+  }
+  $helper = Join-Path $env:TEMP ('mingling-updater-acceptance-' + $RunId + '.exe')
+
+  try {
+    # ---------- 路径 1：V3.0 自定义目录
+    Set-MwProgress -Step 'upgrade-1 - V3.0 自定义目录基线'
+    $custom = Join-Path $GuestRoot '冥零 验收\升级 自定义'
+    $customWs = Join-Path $GuestRoot '冥零 验收\升级 自定义 工作区'
+    Reset-TestDir -Path $custom
+    Reset-TestDir -Path $customWs
+    Set-MwTestSettings -BasePath $custom -WsPath $customWs
+    $log30c = Join-Path $script:EvidenceDir 'install-3.0-custom.log'
+    $i30c = Install-MwVersion -InstallerPath $inst30 -Dir $custom -WsDir $customWs -LogPath $log30c `
+      -Label 'install-3.0-custom' -StepText 'upgrade-1 - 安装 V3.0 到自定义目录'
+    $customExe = Join-Path $custom 'MinglingWorkbench.exe'
+    if ($i30c) { [void](Wait-FileVersion -Path $customExe -Pattern '^3\.0\.' -TimeoutSeconds 120) }
+    $v30c = Get-FileVersion -Path $customExe
+
+    Seed-ProtectedFixture -Root $customWs | Out-Null
+    $protectedBefore1 = Get-ProtectedSnapshot -Root $customWs
+    $programBefore1 = Get-TreeSnapshot -Root $custom -ExcludeTopDirs @('bots','private','secrets','out','logs','旧版')
+    $snap1Before = Save-EvidenceJson -Name 'upgrade-custom-before.json' -Object ([ordered]@{
+      protected = $protectedBefore1; programFiles = $programBefore1.Count; version = $v30c
+    })
+
+    Set-MwProgress -Step 'upgrade-2 - V3.0 → 3.1（自定义目录，CLI --wb-update）'
+    $upd1 = $null
+    if (Test-Path -LiteralPath $customExe) {
+      $upd1 = Invoke-Long -Label 'update-custom' -FilePath $customExe `
+        -Arguments @('--wb-update', $inst31, '3.1.0-acceptance') -TimeoutSeconds 1200 `
+        -StepText 'upgrade-2 - 自定义目录 --wb-update'
+    }
+    $v31c = Wait-FileVersion -Path $customExe -Pattern '^3\.1\.' -TimeoutSeconds 240
+    Start-Sleep -Seconds 3
+    $protectedAfter1 = Get-ProtectedSnapshot -Root $customWs
+    $changes1 = @(Compare-Snapshot -Before $protectedBefore1 -After $protectedAfter1)
+
+    # backup-install.ps1 把备份写到 <工作区>\旧版；updater 自己的 workbench-<tag>
+    # 目录落在 WorkspaceDir\旧版（此路径1里两者都可能出现），所以两处都找。
+    $backupDirs = @()
+    foreach ($bdir in @((Join-Path $customWs '旧版'), (Join-Path $custom '旧版'))) {
+      if (Test-Path -LiteralPath $bdir) {
+        $backupDirs += @(Get-ChildItem -LiteralPath $bdir -Directory -ErrorAction SilentlyContinue |
+          Sort-Object LastWriteTime -Descending)
+      }
+    }
+    $manifestPath = ''
+    foreach ($d in $backupDirs) {
+      $mp = Join-Path $d.FullName 'backup-manifest.json'
+      if (Test-Path -LiteralPath $mp) { $manifestPath = $mp; break }
+    }
+    $manifestRows = @()
+    $backupMatched = 0
+    $backupMismatched = 0
+    $backupUnins = $false
+    if ($manifestPath) {
+      try {
+        $mj = ConvertFrom-Json -InputObject (Read-TextAuto -Path $manifestPath)
+        foreach ($it in @($mj.files)) {
+          $rel = ([string]$it.path).TrimStart('\')
+          $sha = ([string]$it.sha256).ToUpper()
+          $have = $programBefore1[$rel]
+          $ok = ($have -and ([string]$have).ToUpper() -eq $sha)
+          if ($ok) { $backupMatched++ } else { $backupMismatched++ }
+          $manifestRows += [ordered]@{ path = $rel; manifestSha = $sha; beforeSha = $have; match = [bool]$ok }
+        }
+      } catch { }
+      $backupUnins = ((Test-Path -LiteralPath (Join-Path (Split-Path -Parent $manifestPath) 'unins000.exe')) -and
+                      (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $manifestPath) 'unins000.dat')))
+    }
+    $snap1After = Save-EvidenceJson -Name 'upgrade-custom-after.json' -Object ([ordered]@{
+      version = $v31c; protectedChanges = $changes1; manifest = $manifestPath
+      backupMatched = $backupMatched; backupMismatched = $backupMismatched; backupUnins = $backupUnins
+      manifestRows = $manifestRows
+    })
+
+    Add-PhaseCheck -Id 'c12-custom-upgrade' -Criterion 12 `
+      -Requirement 'V3.0 自定义目录经 --wb-update 升级到 3.1' `
+      -Steps @('静默安装 V3.0 到中文+空格自定义目录', '运行 MinglingWorkbench.exe --wb-update <3.1 安装包>', '等待 FileVersion 变 3.1') `
+      -Assertion 'update exit 0；FileVersion ^3.1；原目录不变' `
+      -Expected 'exit=0, version=3.1.x' `
+      -Actual ('v30=' + $v30c + '; updateExit=' + $(if ($upd1) { $upd1.exitCode } else { 'n/a' }) + '; v31=' + $v31c) `
+      -Evidence @($snap1Before, $snap1After, $log30c, $(if ($upd1) { $upd1.stdoutPath } else { $log30c })) `
+      -Status $(if ($upd1 -and $upd1.exitCode -eq 0 -and $v31c -match '^3\.1\.') { 'pass' } elseif (-not (Test-Path -LiteralPath $customExe)) { 'blocked-precondition' } else { 'fail-product' }) `
+      -Detail ('同一条升级路径里同时验证版本与路径；安装目录仍是原自定义目录。' + $wsNote30) `
+      -Data ([ordered]@{ v30 = $v30c; v31 = $v31c; exit = $(if ($upd1) { $upd1.exitCode } else { $null }) })
+
+    Add-PhaseCheck -Id 'c12-custom-protected' -Criterion 12 `
+      -Requirement '升级不改变 bots/private/secrets/out/logs（含种子文件）' `
+      -Steps @('升级前写 6 个受保护种子文件并全量快照', '升级后重新快照', '比较新增/缺失/内容') `
+      -Assertion 'changes=0' -Expected 'changes=0' -Actual ('changes=' + $changes1.Count) `
+      -Evidence @($snap1Before, $snap1After) `
+      -Status $(if ($changes1.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+      -Detail '已知交叉点：安装器 [Run] 会写 {Workspace}\logs\setup\installer-check.log；若出现该文件，属于产品行为导致的受保护目录变化，不豁免。' `
+      -Data ([ordered]@{ changes = @($changes1 | Select-Object -First 60); total = $changes1.Count })
+
+    Add-PhaseCheck -Id 'c12-custom-backup' -Criterion 12 `
+      -Requirement '升级前完整备份旧程序（含 unins），且有 backup-manifest.json' `
+      -Steps @('在 {App}\旧版 下找 backup-manifest.json', '逐文件与升级前程序快照比对 sha256', '检查 unins000.exe/.dat') `
+      -Assertion 'manifest 存在；unins 存在；每个 manifest 文件的 sha 与升级前一致' `
+      -Expected 'manifest=ok, unins=ok, mismatched=0' `
+      -Actual ('manifest=' + [bool]$manifestPath + '; files=' + $manifestRows.Count + '; matched=' + $backupMatched + '; mismatched=' + $backupMismatched + '; unins=' + $backupUnins) `
+      -Evidence @($snap1After, $(if ($manifestPath) { $manifestPath } else { $snap1After })) `
+      -Status $(if ($manifestPath -and $backupUnins -and $backupMismatched -eq 0 -and $backupMatched -gt 0) { 'pass' } else { 'fail-product' }) `
+      -Detail 'updater 自己的 workbench-<tag> 备份目录没有 manifest；这里只认 backup-install.ps1 写出的 manifest。' `
+      -Data ([ordered]@{ manifest = $manifestPath; rows = @($manifestRows | Select-Object -First 40) })
+
+    # ---------- 路径 2：V3.0 默认目录
+    Set-MwProgress -Step 'upgrade-3 - V3.0 默认目录基线'
+    $def = Join-Path $env:LOCALAPPDATA 'Programs\MinglingWorkbench'
+    $defWs = Join-Path $GuestRoot '冥零 验收\升级 默认 工作区'
+    Reset-TestDir -Path $defWs
+    if (-not (Test-Path -LiteralPath $def)) { New-Item -ItemType Directory -Force -Path $def | Out-Null }
+    Set-MwTestSettings -BasePath $def -WsPath $defWs
+    $log30d = Join-Path $script:EvidenceDir 'install-3.0-default.log'
+    $i30d = Install-MwVersion -InstallerPath $inst30 -Dir $def -WsDir $defWs -LogPath $log30d `
+      -Label 'install-3.0-default' -StepText 'upgrade-3 - 安装 V3.0 到默认目录'
+    $defExe = Join-Path $def 'MinglingWorkbench.exe'
+    if ($i30d) { [void](Wait-FileVersion -Path $defExe -Pattern '^3\.0\.' -TimeoutSeconds 120) }
+    $v30d = Get-FileVersion -Path $defExe
+    Seed-ProtectedFixture -Root $defWs | Out-Null
+    $protBefore2 = Get-ProtectedSnapshot -Root $defWs
+    $snap2Before = Save-EvidenceJson -Name 'upgrade-default-before.json' -Object ([ordered]@{ version = $v30d; protected = $protBefore2 })
+
+    Set-MwProgress -Step 'upgrade-4 - V3.0 → 3.1（默认目录）'
+    $upd2 = $null
+    if (Test-Path -LiteralPath $defExe) {
+      $upd2 = Invoke-Long -Label 'update-default' -FilePath $defExe `
+        -Arguments @('--wb-update', $inst31, '3.1.0-default-sync') -TimeoutSeconds 1200 `
+        -StepText 'upgrade-4 - 默认目录 --wb-update'
+    }
+    $v31d = Wait-FileVersion -Path $defExe -Pattern '^3\.1\.' -TimeoutSeconds 240
+    Start-Sleep -Seconds 3
+    $protAfter2 = Get-ProtectedSnapshot -Root $defWs
+    $changes2 = @(Compare-Snapshot -Before $protBefore2 -After $protAfter2)
+    $snap2After = Save-EvidenceJson -Name 'upgrade-default-after.json' -Object ([ordered]@{ version = $v31d; protectedChanges = $changes2 })
+
+    Add-PhaseCheck -Id 'c12-default-upgrade' -Criterion 12 `
+      -Requirement 'V3.0 默认目录经 --wb-update 升级到 3.1' `
+      -Steps @('静默安装 V3.0 到 %LOCALAPPDATA%\Programs\MinglingWorkbench', '--wb-update', '等待版本') `
+      -Assertion 'exit 0；版本 ^3.1' -Expected 'exit=0, 3.1.x' `
+      -Actual ('v30=' + $v30d + '; exit=' + $(if ($upd2) { $upd2.exitCode } else { 'n/a' }) + '; v31=' + $v31d) `
+      -Evidence @($snap2Before, $snap2After, $log30d, $(if ($upd2) { $upd2.stdoutPath } else { $log30d })) `
+      -Status $(if ($upd2 -and $upd2.exitCode -eq 0 -and $v31d -match '^3\.1\.') { 'pass' } elseif (-not (Test-Path -LiteralPath $defExe)) { 'blocked-precondition' } else { 'fail-product' }) `
+      -Detail ('默认目录由安装器 DefaultInstallDir 决定，不显式传默认值时也走这条路。' + $wsNote30) `
+      -Data ([ordered]@{ v30 = $v30d; v31 = $v31d; exit = $(if ($upd2) { $upd2.exitCode } else { $null }) })
+
+    Add-PhaseCheck -Id 'c12-default-protected' -Criterion 12 `
+      -Requirement '默认目录升级不改变受保护目录' `
+      -Steps @('升级前后快照 bots/private/secrets/out/logs') `
+      -Assertion 'changes=0' -Expected 'changes=0' -Actual ('changes=' + $changes2.Count) `
+      -Evidence @($snap2Before, $snap2After) `
+      -Status $(if ($changes2.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+      -Detail '同样不豁免 installer-check.log。' `
+      -Data ([ordered]@{ changes = @($changes2 | Select-Object -First 60) })
+
+    # ---------- 路径 3：V3.0 旧版独立助手
+    Set-MwProgress -Step 'upgrade-5 - 回退 3.0 准备旧版助手基线'
+    $log30e = Join-Path $script:EvidenceDir 'install-3.0-helper-base.log'
+    $i30e = Install-MwVersion -InstallerPath $inst30 -Dir $def -WsDir $defWs -LogPath $log30e `
+      -Label 'install-3.0-helper-base' -StepText 'upgrade-5 - 回退安装 V3.0'
+    if ($i30e) { [void](Wait-FileVersion -Path $defExe -Pattern '^3\.0\.' -TimeoutSeconds 180) }
+    $v30e = Get-FileVersion -Path $defExe
+    Seed-ProtectedFixture -Root $defWs | Out-Null
+    $protBefore3 = Get-ProtectedSnapshot -Root $defWs
+
+    $helperOk = $false
+    if (Test-Path -LiteralPath $defExe) { Copy-Item -LiteralPath $defExe -Destination $helper -Force; $helperOk = $true }
+    $hb = Join-Path $GuestRoot '冥零 验收\old-helper-backup'
+    if (-not (Test-Path -LiteralPath $hb)) { New-Item -ItemType Directory -Force -Path $hb | Out-Null }
+    $logHelper = Join-Path $script:EvidenceDir 'old-helper.inno.log'
+    $upd3 = $null
+    if ($helperOk) {
+      $upd3 = Invoke-Long -Label 'update-old-helper' -FilePath $helper `
+        -Arguments @('--wb-update-run', $hb, $inst31, $logHelper, '0', $defExe) -TimeoutSeconds 1200 `
+        -StepText 'upgrade-5 - 旧版独立助手 --wb-update-run'
+    }
+    $v31e = Wait-FileVersion -Path $defExe -Pattern '^3\.1\.' -TimeoutSeconds 240
+    Start-Sleep -Seconds 4
+    $protAfter3 = Get-ProtectedSnapshot -Root $defWs
+    $changes3 = @(Compare-Snapshot -Before $protBefore3 -After $protAfter3)
+    $snap3After = Save-EvidenceJson -Name 'upgrade-old-helper-after.json' -Object ([ordered]@{
+      version = $v31e; helper = $helper; helperExists = $helperOk; protectedChanges = $changes3
+    })
+
+    Add-PhaseCheck -Id 'c12-old-helper-upgrade' -Criterion 12 `
+      -Requirement 'V3.0 旧版独立助手（--wb-update-run）也能升级到 3.1' `
+      -Steps @('回退安装 V3.0', '复制 V3.0 exe 到 %TEMP% 作为旧助手', '运行 helper --wb-update-run <backup> <3.1包> <log> 0 <目标exe>', '等待目标 exe 版本变化') `
+      -Assertion 'exit 0；目标 exe 版本 ^3.1' -Expected 'exit=0, 3.1.x' `
+      -Actual ('v30=' + $v30e + '; exit=' + $(if ($upd3) { $upd3.exitCode } else { 'n/a' }) + '; v31=' + $v31e) `
+      -Evidence @($snap3After, $logHelper, $(if ($upd3) { $upd3.stdoutPath } else { $logHelper })) `
+      -Status $(if ($upd3 -and $upd3.exitCode -eq 0 -and $v31e -match '^3\.1\.') { 'pass' } elseif (-not $helperOk) { 'blocked-precondition' } else { 'fail-product' }) `
+      -Detail ('3.0 助手不带 /DIR，依赖 3.1 安装器从父进程命令行提取旧 exe 路径；这是 DetectLegacyLayout 的真实分支。' + $wsNote30) `
+      -Data ([ordered]@{ v30 = $v30e; v31 = $v31e; helper = $helper; exit = $(if ($upd3) { $upd3.exitCode } else { $null }) })
+
+    Add-PhaseCheck -Id 'c12-old-helper-protected' -Criterion 12 `
+      -Requirement '旧助手上推不改变受保护目录' `
+      -Steps @('升级前后快照') -Assertion 'changes=0' -Expected 'changes=0' -Actual ('changes=' + $changes3.Count) `
+      -Evidence @($snap3After) `
+      -Status $(if ($changes3.Count -eq 0) { 'pass' } else { 'fail-product' }) `
+      -Detail '旧助手路径下 installer 仍会写 installer-check.log，按真实结果记录。' `
+      -Data ([ordered]@{ changes = @($changes3 | Select-Object -First 60) })
+  } finally {
+    & $restoreSettings
+    try { if (Test-Path -LiteralPath $helper) { Remove-Item -LiteralPath $helper -Force } } catch { }
+  }
+}
+
+# ================================================================ 阶段：final
+function Get-BootstrapChildTrace {
+  param([int]$EntryPid, [datetime]$Since, [int]$TimeoutSeconds = 90)
+  $found = New-Object System.Collections.ArrayList
+  $sw = [Diagnostics.Stopwatch]::StartNew()
+  while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+    try {
+      $all = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+      foreach ($p in $all) {
+        $cmd = [string]$p.CommandLine
+        if (-not $cmd) { continue }
+        if ($cmd -notmatch 'bootstrap\.ps1') { continue }
+        if ($p.ProcessId -eq $EntryPid) { continue }
+        if ($Since -and $p.CreationDate -and $p.CreationDate -lt $Since.AddSeconds(-5)) { continue }
+        $dup = $false
+        foreach ($f in $found) { if ([int]$f.pid -eq [int]$p.ProcessId) { $dup = $true; break } }
+        if ($dup) { continue }
+        [void]$found.Add([ordered]@{
+          pid = [int]$p.ProcessId; parentPid = [int]$p.ParentProcessId
+          name = [string]$p.Name; exe = [string]$p.ExecutablePath; cmd = $cmd
+          createdAt = $(if ($p.CreationDate) { $p.CreationDate.ToString('o') } else { '' })
+        })
+      }
+    } catch { }
+    if ($found.Count -gt 0) { break }
+    Start-Sleep -Seconds 1
+  }
+  return @($found)
+}
+
+function Send-PhaseEvidence {
+  param([string[]]$Files)
+  $rows = New-Object System.Collections.ArrayList
+  foreach ($f in $Files) {
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $leaf = [IO.Path]::GetFileName($f)
+    $name = $leaf
+    if ($f -match '\\checks\\') { $name = 'check-' + $leaf }
+    $uri = $EvidenceUrl.TrimEnd('/') + '/' + $RunId + '/' + $Phase + '/' + [uri]::EscapeDataString($name)
+    $code = -1
+    $err = ''
+    try {
+      $resp = Invoke-WebRequest -Uri $uri -Method Post -InFile $f -ContentType 'application/octet-stream' `
+        -UseBasicParsing -TimeoutSec 180 -ErrorAction Stop
+      $code = [int]$resp.StatusCode
+    } catch {
+      $r = $null
+      try { $r = $_.Exception.Response } catch { }
+      if ($r) { $code = [int]$r.StatusCode }
+      $err = $_.Exception.Message
+    }
+    [void]$rows.Add([ordered]@{
+      file = $f; name = $name; url = $uri; httpStatus = $code; ok = ($code -ge 200 -and $code -lt 300); error = $err
+    })
+  }
+  return @($rows)
+}
+
+function Invoke-FinalPhase {
+  Set-MwProgress -Step 'final-1 - 核对程序包版本/哈希/签名'
+  $inst = Resolve-StagePath -NameOrPath $Installer31
+  $instMeta = [ordered]@{ path = $inst; exists = (Test-Path -LiteralPath $inst) }
+  if ($instMeta.exists) {
+    $fi = Get-Item -LiteralPath $inst
+    $instMeta.size = [long]$fi.Length
+    $instMeta.sha256 = (Get-FileHash -LiteralPath $inst -Algorithm SHA256).Hash
+    $instMeta.fileVersion = [string]$fi.VersionInfo.FileVersion
+    $instMeta.productVersion = [string]$fi.VersionInfo.ProductVersion
+    try {
+      $sig = Get-AuthenticodeSignature -LiteralPath $inst
+      $instMeta.signatureStatus = [string]$sig.Status
+      $instMeta.signer = $(if ($sig.SignerCertificate) { [string]$sig.SignerCertificate.Subject } else { '' })
+    } catch { $instMeta.signatureStatus = 'ERROR: ' + $_.Exception.Message }
+  }
+  $instEv = Save-EvidenceJson -Name 'installer-metadata.json' -Object $instMeta
+  Add-PhaseCheck -Id 'c13-installer-metadata' -Criterion 13 `
+    -Requirement '记录安装包版本/大小/SHA256/签名状态' `
+    -Steps @('读取安装包文件信息', '计算 SHA256', 'Get-AuthenticodeSignature') `
+    -Assertion '字段齐全；签名状态如实记录（未签名不算通过其它项）' `
+    -Expected 'size/sha256/version/signature 均有值' `
+    -Actual ('size=' + $instMeta.size + '; version=' + $instMeta.fileVersion + '; sig=' + $instMeta.signatureStatus) `
+    -Evidence @($instEv) `
+    -Status $(if ($instMeta.exists -and $instMeta.sha256 -and $instMeta.signatureStatus) { 'pass' } elseif (-not $instMeta.exists) { 'blocked-precondition' } else { 'evidence-incomplete' }) `
+    -Detail '只记录签名状态，不要求必须已签名。' `
+    -Data $instMeta
+
+  # ---------- 项 13：静态解析 + 工作台子进程 + 技能包装
+  Set-MwProgress -Step 'final-2 - 技能包装静态解析'
+  $resolver = Join-Path $App 'skill\mingling-install\scripts\resolve-program-root.ps1'
+  $skillBoot = Join-Path $App 'skill\mingling-install\scripts\bootstrap.ps1'
+  $appBoot = Join-Path $App 'tools\bootstrap.ps1'
+  $resolveRec = $null
+  $resolved = ''
+  if (Test-Path -LiteralPath $resolver) {
+    $resolveRec = Invoke-Cap -Label 'resolve-program-root' -FilePath $resolver -TimeoutSeconds 120 `
+      -StepText 'final-2 - resolve-program-root.ps1'
+    $resolved = ([string]$resolveRec.stdoutText).Trim()
+  }
+  $resolveEv = Save-EvidenceJson -Name 'resolve-program-root.json' -Object ([ordered]@{
+    resolver = $resolver; output = $resolved; expected = $App
+    exitCode = $(if ($resolveRec) { $resolveRec.exitCode } else { $null })
+  })
+  Add-PhaseCheck -Id 'c13-entry-static' -Criterion 13 `
+    -Requirement '技能包装的 resolve-program-root 解析到真实程序根' `
+    -Steps @('运行 skill\mingling-install\scripts\resolve-program-root.ps1') `
+    -Assertion '输出（Trim 后）等于 {App}' -Expected $App -Actual $resolved `
+    -Evidence @($resolveEv, $(if ($resolveRec) { $resolveRec.stdoutPath } else { $resolveEv })) `
+    -Status $(if ($resolved -and [IO.Path]::GetFullPath($resolved).TrimEnd('\') -eq [IO.Path]::GetFullPath($App).TrimEnd('\')) { 'pass' } elseif (-not $resolveRec) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail '解析顺序：HKCU ProgramRoot → Uninstall 键 → %LOCALAPPDATA%\Programs；每个候选都要有 tools\bootstrap.ps1。' `
+    -Data ([ordered]@{ output = $resolved; expected = $App })
+
+  Set-MwProgress -Step 'final-3 - 工作台 --autosetup 子进程追踪'
+  $trace = @()
+  $autosetupRec = $null
+  $entryPid = 0
+  if (Test-Path -LiteralPath $AppExe) {
+    $started = Get-Date
+    $st = Start-MwCommand -Label 'autosetup' -FilePath $AppExe -Arguments @('--autosetup') `
+      -EvidenceDir $script:EvidenceDir -RunId $RunId
+    if ($st.Process) { $entryPid = $st.Process.Id }
+    $trace = @(Get-BootstrapChildTrace -EntryPid $entryPid -Since $started -TimeoutSeconds 90)
+    if ($st.Process -and -not $st.Process.HasExited) { [void](Stop-MwProcessTree -ProcessId $entryPid) }
+    $autosetupRec = Complete-MwCommand -State $st -TimeoutSeconds 120 -EvidenceDir $script:EvidenceDir
+    [void]$commands.Add($autosetupRec)
+  }
+  $traceEv = Save-EvidenceJson -Name 'autosetup-trace.json' -Object ([ordered]@{
+    entryPid = $entryPid; startedVia = '--autosetup'; trace = $trace
+    stdout = $(if ($autosetupRec) { $autosetupRec.stdoutPath } else { '' })
+    stderr = $(if ($autosetupRec) { $autosetupRec.stderrPath } else { '' })
+    exitCode = $(if ($autosetupRec) { $autosetupRec.exitCode } else { $null })
+  })
+  $traceOk = ($trace.Count -gt 0)
+  $traceMatch = 0
+  foreach ($t in $trace) {
+    if ([string]$t.cmd -like ('*' + $appBoot + '*')) { $traceMatch++ }
+  }
+  Add-PhaseCheck -Id 'c13-autosetup-trace' -Criterion 13 `
+    -Requirement '真实工作台子进程（--autosetup）执行 bootstrap.ps1，路径落在程序根' `
+    -Steps @('Start-Process MinglingWorkbench.exe --autosetup', '90s 内枚举 Win32_Process，按 CommandLine 匹配 bootstrap.ps1', '记录 PID/父 PID/ExecutablePath/CommandLine', '结束进程树') `
+    -Assertion '抓到至少一条子进程记录；命令行里的 bootstrap.ps1 绝对路径等于 {App}\tools\bootstrap.ps1' `
+    -Expected $appBoot -Actual ('trace=' + $trace.Count + '; matchAppBoot=' + $traceMatch + '; first=' + $(if ($traceOk) { [string]$trace[0].cmd } else { '无记录' })) `
+    -Evidence @($traceEv, $(if ($autosetupRec) { $autosetupRec.stdoutPath } else { $traceEv })) `
+    -Status $(if ($traceOk -and $traceMatch -gt 0) { 'pass' } elseif (-not (Test-Path -LiteralPath $AppExe)) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail '父进程链可能经 cmd/powershell 中转，所以用全量 WMI 扫描而不是只看直接子进程；90s 窗口比旧夹具的 45s 宽。抓到了进程但路径落点不对，记 fail-product（可能是 Root() 回落到了工作区）。' `
+    -Data ([ordered]@{ trace = $trace; entryPid = $entryPid; matchAppBoot = $traceMatch; appBoot = $appBoot })
+
+  Set-MwProgress -Step 'final-4 - 技能包装入口（真实 bootstrap 路径与哈希）'
+  $wrapRec = $null
+  $wrapPath = ''
+  if (Test-Path -LiteralPath $skillBoot) {
+    $wrapRec = Invoke-Long -Label 'skill-bootstrap-check' -FilePath $skillBoot `
+      -Arguments @('-Base',$Ws,'-Workspace',$Ws,'-Bots',$BotsRoot,'-Check') -TimeoutSeconds 900 `
+      -StepText 'final-4 - 技能包装 -Check'
+    $wrapText = [string]$wrapRec.stdoutText + "`n" + [string]$wrapRec.stderrText
+    $bm = [regex]::Match($wrapText, '##BOOTSTRAP\s+([^\r\n]+)')
+    if ($bm.Success) { $wrapPath = $bm.Groups[1].Value.Trim() }
+  }
+  $appHash = ''
+  $wrapHash = ''
+  if (Test-Path -LiteralPath $appBoot) { $appHash = (Get-FileHash -LiteralPath $appBoot -Algorithm SHA256).Hash }
+  if ($wrapPath -and (Test-Path -LiteralPath $wrapPath)) { $wrapHash = (Get-FileHash -LiteralPath $wrapPath -Algorithm SHA256).Hash }
+  $wrapEv = Save-EvidenceJson -Name 'skill-wrapper.json' -Object ([ordered]@{
+    wrapper = $skillBoot; shownPath = $wrapPath; appBoot = $appBoot; appSha256 = $appHash; shownSha256 = $wrapHash
+    exitCode = $(if ($wrapRec) { $wrapRec.exitCode } else { $null })
+  })
+  Add-PhaseCheck -Id 'c13-skill-wrapper' -Criterion 13 `
+    -Requirement '技能包装入口执行同一个 bootstrap.ps1（同路径 + 同 SHA256）' `
+    -Steps @('运行 skill\mingling-install\scripts\bootstrap.ps1 -Check', '从输出抓 ##BOOTSTRAP <path>', '比对路径与 SHA256') `
+    -Assertion 'shownPath == {App}\tools\bootstrap.ps1；hash 相等；不落到工作区 tools' `
+    -Expected $appBoot -Actual $wrapPath `
+    -Evidence @($wrapEv, $(if ($wrapRec) { $wrapRec.stdoutPath } else { $wrapEv })) `
+    -Status $(if ($wrapPath -and [IO.Path]::GetFullPath($wrapPath).TrimEnd('\') -eq [IO.Path]::GetFullPath($appBoot).TrimEnd('\') -and $appHash -and $appHash -eq $wrapHash) { 'pass' } elseif (-not $wrapRec) { 'blocked-precondition' } else { 'fail-product' }) `
+    -Detail '包装脚本先 resolve-program-root，再打 ##BOOTSTRAP，然后 & 同一个脚本。' `
+    -Data ([ordered]@{ shownPath = $wrapPath; appSha256 = $appHash; shownSha256 = $wrapHash; exit = $(if ($wrapRec) { $wrapRec.exitCode } else { $null }) })
+
+  # ---------- 证据清单
+  Set-MwProgress -Step 'final-5 - 汇总证据清单'
+  $inv = New-Object System.Collections.ArrayList
+  $totalBytes = [long]0
+  foreach ($f in @(Get-ChildItem -LiteralPath $RunDir -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+    if ($f.FullName -like (Join-Path $RunDir 'stage') + '\*') { continue }
+    if ($f.Length -gt 67108864) { [void]$inv.Add([ordered]@{ path = $f.FullName; size = $f.Length; sha256 = 'skipped-large' }); continue }
+    try { $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash } catch { $h = 'unreadable' }
+    $totalBytes += $f.Length
+    [void]$inv.Add([ordered]@{ path = $f.FullName; size = $f.Length; sha256 = $h })
+  }
+  $invEv = Save-EvidenceJson -Name 'evidence-inventory.json' -Object ([ordered]@{
+    runDir = $RunDir; phase = $Phase; files = $inv.Count; totalBytes = $totalBytes; rows = @($inv)
+  })
+  Add-PhaseCheck -Id 'c13-evidence-inventory' -Criterion 13 `
+    -Requirement '本 run 的证据清单与 SHA256 可复核' `
+    -Steps @('递归枚举 run\<RunId>（排除 stage 大文件）', '逐文件 SHA256') `
+    -Assertion '清单非空；每个文件都有 sha256' -Expected 'files>0' -Actual ('files=' + $inv.Count + '; bytes=' + $totalBytes) `
+    -Evidence @($invEv) `
+    -Status $(if ($inv.Count -gt 0) { 'pass' } else { 'evidence-incomplete' }) `
+    -Detail 'stage 下的安装包可达 88MB，不入清单以免拖慢；>64MB 的文件标记 skipped-large。' `
+    -Data ([ordered]@{ files = $inv.Count; totalBytes = $totalBytes })
+
+  # ---------- 上传关键证据
+  Set-MwProgress -Step 'final-6 - 上传证据到宿主'
+  $uploadFiles = New-Object System.Collections.ArrayList
+  foreach ($n in @('phase.json','results.jsonl','commands.jsonl','manifest.json','installer-metadata.json','autosetup-trace.json','skill-wrapper.json','resolve-program-root.json','evidence-inventory.json','done.json')) {
+    $p = Join-Path $script:EvidenceDir $n
+    if (Test-Path -LiteralPath $p) { [void]$uploadFiles.Add($p) }
+  }
+  $phDir = Join-Path $RunDir ('phases\' + $Phase)
+  foreach ($n in @('phase.json','results.jsonl','commands.jsonl','manifest.json','manifest.json.sha256')) {
+    $p = Join-Path $phDir $n
+    if (Test-Path -LiteralPath $p) { [void]$uploadFiles.Add($p) }
+  }
+  foreach ($c in @(Get-ChildItem -LiteralPath (Join-Path $script:EvidenceDir 'checks') -File -Filter '*.json' -ErrorAction SilentlyContinue | Select-Object -First 40)) {
+    [void]$uploadFiles.Add($c.FullName)
+  }
+  $upRows = @(Send-PhaseEvidence -Files @($uploadFiles))
+  $upEv = Save-EvidenceJson -Name 'upload-results.json' -Object ([ordered]@{
+    evidenceUrl = $EvidenceUrl; runId = $RunId; phase = $Phase
+    uploaded = @($upRows | Where-Object { $_.ok }).Count; failed = @($upRows | Where-Object { -not $_.ok }).Count
+    rows = $upRows
+  })
+  $upOk = (@($upRows | Where-Object { -not $_.ok }).Count -eq 0 -and $upRows.Count -gt 0)
+  Add-PhaseCheck -Id 'c0-evidence-upload' -Criterion 13 `
+    -Requirement '每阶段关键证据 POST 到宿主证据服务，并记录 HTTP 状态码' `
+    -Steps @('POST $EvidenceUrl/<RunId>/<Phase>/<name>', '记录 httpStatus 与错误文本', '失败也不静默') `
+    -Assertion '全部 2xx；失败条目在 upload-results.json 中可见' `
+    -Expected 'failed=0' -Actual ('uploaded=' + @($upRows | Where-Object { $_.ok }).Count + '; failed=' + @($upRows | Where-Object { -not $_.ok }).Count) `
+    -Evidence @($upEv) `
+    -Status $(if ($upOk) { 'pass' } else { 'evidence-incomplete' }) `
+    -Detail '用 Invoke-WebRequest（任务指定），不是库里的 curl 封装。' `
+    -Data ([ordered]@{ rows = $upRows })
+}
+
+# ================================================================ 主调度
+$fatalError = $null
+try {
+  Set-MwProgress -Step ('phase - 开始执行 ' + $Phase) -Command ('Invoke-Phase.ps1 ' + $Phase)
+  switch ($Phase) {
+    'pre'      { Invoke-PrePhase }
+    'full'     { Invoke-FullPhase }
+    'recovery' { Invoke-RecoveryPhase }
+    'upgrade'  { Invoke-UpgradePhase }
+    'final'    { Invoke-FinalPhase }
+    default    { throw ('未知阶段：' + $Phase) }
+  }
+} catch {
+  $fatalError = $_
+  $msg = [string]$_.Exception.Message
+  $stack = [string]$_.ScriptStackTrace
+  Add-PhaseCheck -Id 'c0-harness-fatal' -Criterion 0 `
+    -Requirement '夹具自身必须可执行；崩溃时不得留下假结果' `
+    -Preconditions @('脚本已启动并加载验收库') `
+    -Steps @('捕获未处理异常并记录消息与调用栈') `
+    -Assertion '失败以 fail-fixture 呈现' -Expected '无异常' -Actual $msg `
+    -Evidence @($script:EvidenceDir) `
+    -Status 'fail-fixture' `
+    -Detail ($msg + "`n" + $stack) `
+    -Data ([ordered]@{ message = $msg; stack = $stack })
+} finally {
+  $endedUtc = (Get-Date).ToUniversalTime().ToString('o')
+  $counts = $null
+  try { $counts = Get-MwCounts -Results $checks } catch { $counts = [ordered]@{} }
+  $exitCode = 11
+  try { $exitCode = Get-MwPhaseExitCode -Results $checks } catch { $exitCode = 11 }
+  if ($fatalError) { $exitCode = 11 }
+  $failedCount = 0
+  if ($counts -and $counts.Contains('fail-product')) { $failedCount = [int]$counts['fail-product'] + [int]$counts['fail-fixture'] }
+  $status = 'completed'
+  if ($fatalError -or $failedCount -gt 0) { $status = 'failed' }
+
+  $summary['counts'] = $counts
+  $summary['exitCode'] = $exitCode
+  $summary['status'] = $status
+  $summary['endedUtc'] = $endedUtc
+  $summary['fatal'] = $(if ($fatalError) { [string]$fatalError.Exception.Message } else { '' })
+  $summary['commands'] = $commands.Count
+
+  try { Complete-MwProgress -Status $status -Summary ('checks=' + $checks.Count + ' exit=' + $exitCode) } catch { }
+
+  $save = $null
+  try { $save = Save-MwPhase -RunDir $RunDir -Phase $Phase -Summary $summary -Results $checks -Commands $commands } catch {
+    try { Add-Content -LiteralPath (Join-Path $script:EvidenceDir 'save-error.txt') -Value ([string]$_.Exception.Message) } catch { }
+  }
+
+  $done = [ordered]@{
+    phase = $Phase; runId = $RunId; status = $status; exitCode = $exitCode
+    startedUtc = $startedUtc; endedUtc = $endedUtc
+    checks = $checks.Count
+    counts = $counts
+    failProduct = $(if ($counts -and $counts.Contains('fail-product')) { $counts['fail-product'] } else { 0 })
+    failFixture = $(if ($counts -and $counts.Contains('fail-fixture')) { $counts['fail-fixture'] } else { 0 })
+    blocked = $(if ($counts -and $counts.Contains('blocked-precondition')) { $counts['blocked-precondition'] } else { 0 })
+    evidenceIncomplete = $(if ($counts -and $counts.Contains('evidence-incomplete')) { $counts['evidence-incomplete'] } else { 0 })
+    phasesDir = $(if ($save) { $save.dir } else { '' })
+    fatal = $(if ($fatalError) { [string]$fatalError.Exception.Message } else { '' })
+    host = $env:COMPUTERNAME; user = $env:USERNAME
+  }
+  Save-MwJson -Path (Join-Path $script:EvidenceDir 'done.json') -Object $done -Depth 10
+
+  # 每个阶段都回传证据（成功/失败都一样），不能等到 final 才拿得到日志。
+  # 宿主机还有 copyDirectoryFromGuestToHost 作为主通道；这里是发生 VM 通道半坏时的兜底，
+  # 上传回执（HTTP 状态 + 文件名）单独落盘，便于判定“到底是产物没生成还是没回传”。
+  try {
+    $uploadFiles = New-Object System.Collections.ArrayList
+    if ($save) {
+      foreach ($n in @('phase.json', 'results.jsonl', 'commands.jsonl', 'manifest.json', 'manifest.sha256')) {
+        $up = Join-Path $save.dir $n
+        if (Test-Path -LiteralPath $up) { [void]$uploadFiles.Add($up) }
+      }
+    }
+    $upDone = Join-Path $script:EvidenceDir 'done.json'
+    if (Test-Path -LiteralPath $upDone) { [void]$uploadFiles.Add($upDone) }
+    $rows = @(Send-PhaseEvidence -Files @($uploadFiles))
+    Save-MwJson -Path (Join-Path $script:EvidenceDir 'upload-phase.json') -Object $rows -Depth 8
+  } catch {
+    try { [IO.File]::WriteAllText((Join-Path $script:EvidenceDir 'upload-phase-error.txt'), $_.Exception.ToString(), (New-Object Text.UTF8Encoding($true))) } catch { }
+  }
+
+  exit $exitCode
+}
+

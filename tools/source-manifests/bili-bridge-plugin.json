@@ -1,0 +1,53 @@
+{
+    "schema":  1,
+    "algorithm":  "sha256(path\\0size\\0file_sha256, sorted, UTF-8)",
+    "root":  "astrbot_plugin_bili_bridge",
+    "digest":  "e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f",
+    "files":  [
+                  {
+                      "path":  "__pycache__/main.cpython-312.pyc",
+                      "size":  76393,
+                      "sha256":  "92495814111f0f3acec190e22aafa82abce3b7a79df6e49bebadb955c58281b8"
+                  },
+                  {
+                      "path":  "__pycache__/main.cpython-314.pyc",
+                      "size":  75445,
+                      "sha256":  "1f126ec3ba4a52e77f4ce8fea69acd0ef2d63d89944d412da70f2911a49c56fd"
+                  },
+                  {
+                      "path":  "_conf_schema.json",
+                      "size":  2162,
+                      "sha256":  "66b7989c539c26f4e7135d5f57fc48d20bf318c7dbae860d80bcb3331155c773"
+                  },
+                  {
+                      "path":  "data/cmd_config.json",
+                      "size":  8135,
+                      "sha256":  "33c655a393ffcc4bedeee84ceb9d81b66542ef25c4ff74d183f76fae8cfc739f"
+                  },
+                  {
+                      "path":  "data/t2i_templates/astrbot_powershell.html",
+                      "size":  5122,
+                      "sha256":  "d41a240dbd441c4e975adc7867de72f3590cc32a337195a95d58baf9e9ed2b74"
+                  },
+                  {
+                      "path":  "data/t2i_templates/astrbot_vitepress.html",
+                      "size":  14132,
+                      "sha256":  "f77775d78015ccde13d63b3b9a571631dd50711c453d17eb05aeb70257fb4371"
+                  },
+                  {
+                      "path":  "data/t2i_templates/base.html",
+                      "size":  11553,
+                      "sha256":  "ac59f5c77cbed04ad7ea731491fa50f27e67c6f61cfc8d0743259f6cf95f8b56"
+                  },
+                  {
+                      "path":  "main.py",
+                      "size":  47947,
+                      "sha256":  "a85513e55d4df514b21a9659c1a12e9ccd3d0740ed232c40bc9c919dcd8d6771"
+                  },
+                  {
+                      "path":  "metadata.yaml",
+                      "size":  220,
+                      "sha256":  "70fd77818426a453b8e0cf9c9c2a618b2ea4dff240894b00eb1c37f9a24777ee"
+                  }
+              ]
+}

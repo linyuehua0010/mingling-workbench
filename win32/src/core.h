@@ -80,6 +80,9 @@ wstring SecretsDir();
 // secrets\name 优先，private\name 兜底；两边都没有时返回「应该放在哪」。
 wstring SecretFile(const wchar_t* name);
 bool EnsureSecrets();                     // 建目录 + README（幂等）
+// 升级重启的首次启动不补 README / 目录 / 更新缓存，避免改动受保护用户目录。
+bool IsUpdateRestart();
+void ConsumeUpdateRestart();
 wstring SidecarDir();                     // <exe>\sidecar（或 <exe>\..\sidecar）
 wstring SidecarWhaleDir();
 wstring SidecarNodeExe();                 // <sidecar>\node\node.exe

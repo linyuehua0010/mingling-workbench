@@ -46,10 +46,17 @@ std::wstring Base() {
 }
 
 std::wstring Root() {
-    static std::wstring r;
-    if (!r.empty()) return r;
-    r = Up(ExeDir());
-    return r;
+    // 安装版 tools/pack 跟 exe 同级；开发版 exe 在 bin（或 win32/build）里。
+    // 旧快照可能只有 exe，最后才借用已配置工作区里的资源。
+    const std::wstring exe = ExeDir();
+    if (DirExists(JoinPath(exe, L"tools"))) return exe;
+    const std::wstring parent = Up(exe);
+    const std::wstring leaf = Lower(exe.substr(parent.size() + 1));
+    if (leaf == L"bin" && DirExists(JoinPath(parent, L"tools"))) return parent;
+    if (leaf == L"build" && DirExists(JoinPath(Up(parent), L"tools"))) return Up(parent);
+    for (const std::wstring& dir : {WorkspaceDir(), Base()})
+        if (DirExists(JoinPath(dir, L"tools"))) return dir;
+    return exe;  // 缺资源时也指向实际安装目录，不再猜安装目录的上一级。
 }
 
 std::wstring P(const wchar_t* rel) { return JoinPath(Base(), rel); }

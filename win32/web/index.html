@@ -285,6 +285,7 @@ html:not([data-theme="dark"]) .hero h1{text-shadow:none}
 html:not([data-theme="dark"]) ::-webkit-scrollbar-thumb{background:var(--line-2);border-color:var(--bg)}
 .theme-colors{display:flex;gap:16px;flex-wrap:wrap;margin:14px 0}.theme-colors label{display:grid;gap:7px;color:var(--sub)}
 .theme-colors input[type="color"]{width:92px;height:38px;padding:3px;border:1px solid var(--line-2);border-radius:8px}
+.feature-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin:16px 0}.feature-fields label{display:grid;gap:8px;color:var(--sub)}.feature-fields input,.feature-fields select{width:100%;box-sizing:border-box}.feature-config-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.feature-note{white-space:pre-wrap;overflow-wrap:anywhere}
 .bar,.me{user-select:none}.bar :is(button,input,select),.me button{user-select:auto}
 html:not([data-theme="dark"]) .rail nav button{background:none;border-color:transparent}
 html:not([data-theme="dark"]) .quiet{background:none;border:0}
@@ -294,10 +295,10 @@ html:not([data-theme="dark"]) .quiet{background:none;border:0}
 <div class="shell">
   <aside class="rail">
     <div class="me"><span class="ava"><img src="avatar.png" alt="冥零"></span><div class="me-t"><strong>冥零</strong><small id="side-version"></small></div></div>
-    <div class="rail-label">她 的 桌 子</div>
+    <div class="rail-label" id="rail-label">她 的 夜 晚</div>
     <nav id="nav" aria-label="主导航"></nav>
     <div class="rail-foot">
-      <div class="bubble" id="mood">（趴在桌上）我在。<small>有事喊一声就好</small></div>
+      <div class="bubble" id="mood">（打哈欠）灯还亮着<small>有事喊一声就好</small></div>
       <div class="rail-meta"><span class="live"><i></i><span id="connection">正在叫她…</span></span></div>
     </div>
   </aside>
@@ -307,7 +308,7 @@ html:not([data-theme="dark"]) .quiet{background:none;border:0}
       <div class="bar-r"><time id="clock"></time><span class="chip" id="chip"></span></div>
     </header>
     <div class="page" id="page"></div>
-    <footer class="foot"><span id="workspace"></span><span>冥零 · 值夜班</span></footer>
+    <footer class="foot"><span id="workspace"></span><span id="theme-signature">冥零 · 夜色相伴</span></footer>
   </main>
 </div>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -381,7 +382,11 @@ function overview(){
 function bili(){
   const tabs=['今天看啥','丢个链接','看完了','配置'];
   let html=head('02','一起看看','<span class="act">（把椅子拖过来）</span>想看什么，丢给我。',btn('打开产物目录','btn:open_shotdir'))+`<div class="seg">${tabs.map((n,i)=>`<button data-bsec="${i}" class="${state.bsec===i?'selected':''}">${n}</button>`).join('')}</div>`;
-  if(state.bsec===0)html+=card('今天看啥',state.feed.length?state.feed.map((f,i)=>`<div class="row"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(f.title)}</b><small>${esc(f.up)} · ${esc(f.dur)} · ${esc(f.bv)}</small></div><button class="slim" data-pick="${i}">就看这个</button></div>`).join(''):empty(state.feedBusy?'正在捞…':'今天还没挑','点一下，我随便捞几支','（挠头）'),`<button class="slim" data-feed${state.feedBusy?' disabled':''}>${state.feedBusy?'在找了…':'换一批'}</button>`);
+  if(state.bsec===0){
+    html+=card('今天看啥',`<p class="dim" role="status">${esc(state.feedNote||'')}</p>`+(state.feed.length?state.feed.map((f,i)=>`<div class="row"><span class="no">${String(i+1).padStart(2,'0')}</span><div class="grow"><b>${esc(f.title)}</b><small>${esc(f.up)} · ${esc(f.dur)} · ${esc(f.bv)}</small></div><button class="slim" data-pick="${i}">就看这个</button></div>`).join(''):empty(state.feedBusy?'正在捞…':'今天还没挑','点一下，我随便捞几支','（挠头）')),`<button class="slim" data-feed${state.feedBusy?' disabled':''}>${state.feedBusy?'在找了…':'换一批'}</button>`);
+    const a=state.biliAgent||{},status={pending:'待看',running:'正在看',done:'看完了',failed:'失败',cancelled:'已取消',interrupted:'上次中断',skipped:'已看过'};
+    html+=card('让她自己安排',`<p class="dim">使用已保存的对话 API 选片，每轮最多三条。自动模式按 B 站配置的作息运行；工作台需保持打开。</p><p role="status">${esc(a.note||'尚未开启')}</p>${a.enabled?`<p class="dim">自动安排已开启${a.nextRefresh?' · 下次刷新不早于 '+esc(new Date(a.nextRefresh*1000).toLocaleString('zh-CN')):''}</p>`:''}<div class="actions"><button data-bili-agent="once"${a.busy?' disabled':''}>${a.busy?'正在安排…':'API 安排一轮'}</button><button data-bili-agent="enable"${a.enabled?' disabled':''}>开启自动安排</button><button data-bili-agent="stop">停止安排</button></div>${(a.tasks||[]).map(t=>`<div class="row"><div class="grow"><b>${esc(t.title)}</b><small>${esc(t.bv)} · ${esc(t.reason||'')}</small><small>${esc(new Date(t.due*1000).toLocaleString('zh-CN'))}</small></div><span class="pill">${esc(status[t.status]||t.status)}</span></div>`).join('')}`);
+  }
   if(state.bsec===1)html+=card('丢个链接',`<p class="dim">视频会整理成笔记，网页会留下摘要和来源。</p>${inputBox()}<div class="progress"><i style="width:${state.progress||0}%"></i></div><p class="dim">${esc(state.watchStatus)||'还没开始。挑一个你感兴趣的。'}</p><div class="quick"><button data-bsec="2">看完了 →</button>${btn('打开日记','btn:diary')}</div>`);
   if(state.bsec===2)html+=card(esc(state.resultTitle)||'看完了',state.resultOk?`<pre>${esc(state.result)}</pre><div class="quick">${btn('复制结果','btn:copy')}${btn('九宫格','btn:open_sheet')}${btn('封面','btn:open_cover')}${btn(state.dshBusy?'正在问…':'问一句','dsh',false,state.dshBusy)}</div>${state.dsh?`<div class="sec-h"><h2>她的补充</h2></div><pre>${esc(state.dsh)}</pre>`:''}`:empty('啥也没看呢','先去丢个链接','（摊手）','<button data-nav="1" data-section-go="1">丢个链接</button>'));
   if(state.bsec===3)html+=`<div class="seg">${['B 站与 bili-whale','链接与对话 API'].map((n,i)=>`<button data-config-tab="${i}" class="${cfgSec===i?'selected':''}">${n}</button>`).join('')}</div>`+configForm();
@@ -390,7 +395,7 @@ function bili(){
 function configForm(){
   const kind=cfgSec?'link':'bili',rows=(cfgSec?state.lconfig:state.bconfig)||[];
   const fields=rows.map(r=>`<label class="form-row"><span><b>${esc(r.label)}</b>${r.hint?`<small>${esc(r.hint)}</small>`:''}</span>${r.kind===2?`<input type="checkbox" data-row="${r.row??0}" ${/开|true|^1$/.test(r.value)?'checked':''}>`:`<input data-row="${r.row??0}" type="${r.kind===5?'password':'text'}" value="${esc(r.value)}" ${r.kind===4?'readonly':''} ${r.kind===5?'placeholder="已保存的密钥不显示；留空就保留" autocomplete="new-password"':''}>`}</label>`).join('');
-  return card(cfgSec?'链接与对话 API':'B 站配置',`<p class="dim">${esc(state.configNote)||'填完点保存。密钥这块我不碰。'}</p><form id="config-form" data-kind="${kind}">${fields}<div class="actions"><button type="submit" class="primary">保存</button>${cfgSec?'<button type="button" data-action="testapi">测一下连接</button>':''}</div></form>`);
+  return card(cfgSec?'链接与对话 API':'B 站配置',`<p id="config-feedback" class="dim" role="status">${esc(state.configNote)||'填完点保存。测试使用当前填写的参数，测试成功后请保存。'}</p><form id="config-form" data-kind="${kind}">${fields}<div class="actions"><button type="submit" class="primary">保存</button>${cfgSec?`<button id="api-test" type="button" data-test-api${state.apiTestBusy?' disabled':''}>${state.apiTestBusy?'正在测试…':'测一下连接'}</button>`:''}</div></form>`);
 }
 function jobs(){
   return head('03','做过的事','<span class="act">（翻本子）</span>都记着呢，一条没落。',btn('刷新','btn:jobs_refresh'))
@@ -415,7 +420,45 @@ function optRow(title,note,opts,current,busy){
 
 const themeDefaults={bg:'#101827',panel:'#1b2940',ink:'#e9effc',accent:'#79adff'};
 let themeDirty=false;
+let featurePanel='sing',featureDirty=false;
+function featureConfig(){
+ const all=state.featureSettings||{},sing=all.sing||{},pet=all.pet||{},doubao=all.doubao||{},breeze=all.breeze||{};
+ const disabled=state.maintBusy||all.config_error?' disabled':'';
+ const input=(key,label,value,type='text',placeholder='')=>`<label>${esc(label)}<input data-feature-field="${key}" type="${type}" value="${type==='password'?'':esc(value??'')}" placeholder="${esc(placeholder)}"${disabled}></label>`;
+ const number=(key,label,value,min,max)=>`<label>${esc(label)}<input data-feature-field="${key}" type="number" min="${min}" max="${max}" value="${value}"${disabled}></label>`;
+ const button=(label,action,primary=false)=>`<button type="submit" data-feature-intent="${action}"${primary?' class="primary"':''}${disabled}>${label}</button>`;
+ const credentials=input('app_id','豆包 APP ID',doubao.app_id)+input('token','Access Token','','password',doubao.token_set?'已保存，留空保留':'填写火山引擎 Access Token');
+ const tabs=[['sing','唱歌配置'],['pet','桌宠配置'],['doubao','豆包语音'],['breeze','在线 Breeze']];
+ let fields='',buttons='',note='';
+ if(featurePanel==='sing'){
+  fields=`<label>唱歌方式<select data-feature-field="backend"${disabled}><option value="doubao" ${sing.backend!=='soulx'?'selected':''}>豆包云端</option><option value="soulx" ${sing.backend==='soulx'?'selected':''}>SoulX 本地</option></select></label>`
+   +input('root','本地唱歌安装目录',sing.root||'')+input('server_url','本地服务地址',sing.server_url||'http://127.0.0.1:18620')
+   +number('tries','豆包最多尝试次数',sing.tries||2,1,5)+credentials
+   +input('breeze_voice','已有 Breeze 音色名称',sing.breeze_voice||'mingling')+input('breeze_url','本机 Breeze 地址',sing.breeze_url||'http://127.0.0.1:8137/v1')
+   +input('breeze_text','生成唱歌参考时读的句子',sing.breeze_text||'');
+  buttons=button('保存设置','save')+button('保存并启用唱歌','apply',true)+button('部署本地服务','install')+button('启动本地服务','start')+button('检测所选方式','check')+button('使用已有冥零参考','voice_existing')+button('用已有 Breeze 音色制作唱歌参考','voice_breeze')+button('生成本地试听','test');
+  note=`两种方式的配置可同时保留。豆包使用云端额度；SoulX 在本机运行。试听生成本机音频，不发送 QQ。\n本地环境：${sing.installed?'已部署':'尚未部署'} · 服务：${sing.running?'正在运行'+(sing.device?' · '+sing.device:''):sing.checking?'检测中':'未就绪'} · 唱歌音色：${sing.voice_name||'待应用冥零参考'}\n使用已有冥零音频，或让 Breeze 以已有音色读参考句，再交给 SoulX 唱歌；不会重新设计音色，也不会生成伴奏。首次制作参考会安装中文对齐工具。`;
+ }else if(featurePanel==='pet'){
+  fields=input('dsh_home','DSH 数据目录',pet.dsh_home||'')+number('recent_count','带入最近几条消息',pet.recent_count??8,0,50)+number('recent_hours','只带几小时内的消息',pet.recent_hours??12,1,168)
+   +`<label>桌宠提醒<select data-feature-field="redirect_reminders" data-feature-type="boolean"${disabled}><option value="true" ${pet.redirect_reminders!==false?'selected':''}>到点发到 QQ 私聊</option><option value="false" ${pet.redirect_reminders===false?'selected':''}>留在桌宠会话</option></select></label>`;
+  buttons=button('保存设置','save')+button('保存并启用互通','apply',true)+button('接通现有桌宠','connect')+button('检测连接','check');
+  note='先在 DSH 中安装 dsh-pet。接通会配置桌宠桥，让桌宠使用 QQ 中冥零的大脑。';
+ }else if(featurePanel==='doubao'){
+  fields=credentials;buttons=button('保存凭据','save')+button('保存并使用豆包语音','apply',true)+button('检查凭据','check');
+  note='保存并使用会将语音路线切换为豆包。唱歌与豆包语音共用这套凭据，云端合成消耗账号额度。';
+ }else{
+  fields=input('key','Breeze API 密钥','','password',breeze.key_set?'已保存，留空保留':'填写在线服务密钥')+input('voice_id','音色 ID',breeze.voice_id||'','text','voc_ 开头');
+  buttons=button('保存配置','save')+button('保存并使用在线 Breeze','apply',true)+button('检查凭据','check');
+  note='使用在线服务的 voc_ 音色 ID。保存并使用会切换语音路线，合成消耗在线账号额度。';
+ }
+ return card('功能配置',`${all.config_error?`<p role="alert" class="feature-note">${esc(all.config_error)}</p>`:''}<nav class="feature-config-tabs" aria-label="功能配置">${tabs.map(([key,label])=>`<button data-feature-panel="${key}" class="${featurePanel===key?'selected':''}">${label}</button>`).join('')}</nav><p class="dim feature-note">${esc(note)}</p><form id="feature-form" data-kind="${featurePanel}"><div class="feature-fields">${fields}</div><p class="dim">密钥不回显，留空会保留已保存的值。</p><div class="actions">${buttons}<button type="button" data-feature-reset${disabled}>放弃修改</button></div></form><p id="feature-feedback" class="feature-note" role="status">${esc(state.lastOp||'')}</p><p id="feature-progress" class="dim feature-note">${esc(all.progress?.text||'')}</p>`);
+}
 function themeColors(s){return Object.fromEntries(Object.entries(themeDefaults).map(([k,v])=>[k,/^#[0-9a-f]{6}$/i.test(s['theme_'+k])?s['theme_'+k]:v]))}
+function themeCopy(s){
+ if(s.theme==='light')return {label:'她 的 白 昼',mood:'（伸懒腰）晒会儿太阳',signature:'冥零 · 晴日相伴'};
+ if(s.theme==='custom')return {label:'她 的 配 色',mood:s.themeBase==='light'?'（眯眼）这配色不错':'（窝好）这配色不错',signature:s.themeBase==='light'?'冥零 · 自选浅色':'冥零 · 自选深色'};
+ return {label:'她 的 夜 晚',mood:'（打哈欠）灯还亮着',signature:'冥零 · 夜色相伴'};
+}
 function applyTheme(s){
  const root=document.documentElement;if(!root)return;
  const mode=['dark','light','custom'].includes(s.theme)?s.theme:'dark';
@@ -425,6 +468,10 @@ function applyTheme(s){
  const c=mode==='light'?'#3269d6':colors.accent;
  const lum=[1,3,5].map(i=>parseInt(c.slice(i,i+2),16)/255).map(x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4);
  root.style.setProperty('--primary-ink',lum[0]*.2126+lum[1]*.7152+lum[2]*.0722>.179?'#101827':'#ffffff');
+ const copy=themeCopy(s);
+ if($('rail-label'))$('rail-label').textContent=copy.label;
+ if($('theme-signature'))$('theme-signature').textContent=copy.signature;
+ if($('mood'))$('mood').innerHTML=`${esc(copy.mood)}<small>${esc((NAV[s.tab]||NAV[0]).hint)}</small>`;
 }
 function themeSettings(){
  const mode=state.theme||'dark',colors=themeColors(state);
@@ -444,26 +491,28 @@ function saveTheme(mode){
 }
 
 function maintenance(){
-  const tabs=['外观主题','组件状态','一键操作','相处的习惯','她会做的事'];
+  const tabs=['组件与操作','相处的习惯','她会做的事','外观主题'];
   let html=head('06','照顾她','<span class="act">（把工具箱推过来）</span>要动哪儿，先跟我说一声。',btn('再查一遍','mref',false,state.maintBusy),state.note||'')
     +`<nav class="seg" aria-label="照顾她分类">${tabs.map((n,i)=>`<button data-maint="${i}" class="${maintSec===i?'selected':''}" aria-current="${maintSec===i?'page':'false'}">${n}</button>`).join('')}</nav>`;
-  if(maintSec===0)return html+themeSettings();
-  if(maintSec===1)return html+card('组件状态',`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`);
+  if(maintSec===3)return html+themeSettings();
   const ops=[['日常',[['重启大脑','restart_brain'],['重登 QQ','relogin'],['重启 QQ','restart_qq'],['自设定','selfsetup'],['一键自动配置','autosetup'],['导入人设','import_skill'],['修开机自启','autostart_fix']]],['组件',[['启动 Breeze','start_breeze'],['启动 Ollama','start_ollama'],['更新技能','skill_update']]],['兜底',[['备份到桌面','backup'],['生成求助信息','diag']]]];
-  if(maintSec===2)return html+card('一键操作',ops.map(([g,list])=>`<div class="group-label">${g}</div><div class="quick" style="margin-top:0">${list.map(([n,a])=>btn(n,'op:'+a,false,state.maintBusy)).join('')}</div>`).join('')+`<p class="dim" style="margin-top:12px">${esc(state.lastOp)||'动过什么，会写在这里。'}</p>`);
+  if(maintSec===0)return html
+    +card('一键操作',ops.map(([g,list])=>`<div class="group-label">${g}</div><div class="quick" style="margin-top:0">${list.map(([n,a])=>btn(n,'op:'+a,false,state.maintBusy)).join('')}</div>`).join('')+`<p class="dim" style="margin-top:12px" role="status">${esc(state.lastOp)||'动过什么，会写在这里。'}</p>`)
+    +card('组件状态',`<div class="grid">${(state.items||[]).map((i,n)=>`<div class="item"><div class="item-h"><b>${esc(i.name)}</b><span class="pill ${/正常|在线|已/.test(i.state)?'':'off'}">${esc(i.state)}</span></div><p>${esc(i.text)}</p><div class="actions">${i.fix?btn(i.fixLabel||'修一下','fix:'+i.fix,false,state.maintBusy):''}${i.linkLabel?btn(i.linkLabel,'lnk:'+n):''}</div></div>`).join('')}</div>`);
   let rows=optRow('群里怎么回复','@ 不 @ 引用，随你',[['不 @','freq:group:off','off'],['@ 对方','freq:group:mention','mention'],['引用','freq:group:quote','quote'],['都加','freq:group:both','both']],state.group,state.maintBusy);
   rows+=optRow('表情包','发多少',[['少','freq:meme:few','few'],['适中','freq:meme:mid','mid'],['多','freq:meme:many','many']],state.meme,state.maintBusy);
   rows+=optRow('语音','多久说一次',[['少','freq:voice:few','few'],['适中','freq:voice:mid','mid'],['多','freq:voice:many','many']],state.voiceFreq,state.maintBusy);
   rows+=optRow('掉线提醒','断了就吱一声',[['开','op:watch_on',true],['关','op:watch_off',false],['改间隔','op:watch_every',null],['试一条','op:watch_test',null]],state.watchOn,state.maintBusy);
   rows+=optRow('打游戏模式','打的时候，先让她安静会儿',[[state.gameOn?'打完了，恢复':'开启',state.gameOn?'op:game_off':state.gameCan?'op:game_on':'op:game_hint',true]],state.gameOn,state.maintBusy);
-  if(maintSec===3)return html+card('相处的习惯',rows);
+  if(maintSec===1)return html+card('相处的习惯',rows);
   const plugins=['astrbot_plugin_dafeiyu_petlink','astrbot_plugin_dafeiyu_sing','astrbot_plugin_seed_audio_tts','astrbot_plugin_breeze_online_tts'];
   const pn=[['桌宠','让桌宠也用她的人设'],['唱歌','想听什么，点一首'],['豆包语音','用豆包的声音'],['在线 Breeze','用在线 Breeze 音色']];
-  let rows2=pn.map((p,i)=>optRow(p[0],p[1],[['开','plugin/'+plugins[i]+'/1',true],['关','plugin/'+plugins[i]+'/0',false]],state.features[i],state.maintBusy)).join('');
+  let rows2=pn.map((p,i)=>optRow(p[0],p[1],[['开','plugin/'+plugins[i]+'/1',true],['关','plugin/'+plugins[i]+'/0',false]],state.features[i],state.maintBusy).replace('</div></div>',`<button data-feature-panel="${['pet','sing','doubao','breeze'][i]}">配置</button></div></div>`)).join('');
   rows2+=optRow('长期记忆','聊过的小事，能记多久',[['关','memory/0',0],['本机 bge-m3','memory/1',1],['硅基流动','memory/2',2]],state.memory,state.maintBusy);
   rows2+=`<p class="dim" role="status">${esc(memoryQueueNote())}</p>`;
   rows2+=optRow('语音路线','今天用哪一种声音',[['关','voice/0',0],['Edge','voice/1',1],['豆包','voice/3',3],['本机 Breeze','voice/4',4],['在线 Breeze','voice/5',5]],state.voice,state.maintBusy);
   html+=card('她会做的事',rows2);
+  html+=featureConfig();
   return html;
 }
 function mdInline(s){return esc(s).replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>')}
@@ -506,8 +555,10 @@ function render(s){
   set('crumb',(NAV[s.tab]||{}).label||'');
   set('bar-hint',(NAV[s.tab]||{}).hint||'');
   set('connection',bridge?'连着':'预览');
-  const n=NAV[s.tab]||NAV[0];
-  if($('mood'))$('mood').innerHTML=`（趴在桌上）我在。<small>${esc(n.hint)}</small>`;
+  set('feature-feedback',s.lastOp||'');
+  set('feature-progress',s.featureSettings?.progress?.text||'');
+  set('config-feedback',s.configNote||'填完点保存。测试使用当前填写的参数，测试成功后请保存。');
+  const apiTest=$('api-test');if(apiTest){apiTest.disabled=!!s.apiTestBusy;apiTest.textContent=s.apiTestBusy?'正在测试…':'测一下连接'}
   const t=$('toast');
   if(t){t.textContent=s.toast||'';if(t.classList)t.classList.toggle('show',!!s.toast)}
   const note=$('notification');if(note)note.innerHTML=s.notify?card(esc(s.notify.title),`<p>${esc(s.notify.body)}</p><div class="actions">${btn('重启一下','notify:fix',true)}${btn('知道了','notify:close')}</div>`):'';
@@ -517,7 +568,7 @@ function render(s){
   const sig=JSON.stringify([comparable,helpSec,cfgSec,maintSec]);
   if(sig===signature&&!force)return;
   const focused=document.activeElement,form=$('config-form');
-  if(!changed&&!force&&(form||(themeDirty&&$('theme-form'))||(focused&&focused.matches('input,textarea,select'))||$('editor').open))return;
+  if(!changed&&!force&&(form||(themeDirty&&$('theme-form'))||(featureDirty&&$('feature-form'))||(focused&&focused.matches('input,textarea,select'))||$('editor').open))return;
   const draft=$('watch-input')?$('watch-input').value:undefined;
   signature=sig;force=false;
   paint();
@@ -526,9 +577,13 @@ function render(s){
 document.addEventListener('click',e=>{
   const b=e.target.closest('button,[data-job]');if(!b)return;
   const d=b.dataset;
+  if('featureReset'in d){featureDirty=false;force=true;render(state);return}
+  if('featurePanel'in d){if(featureDirty&&featurePanel!==d.featurePanel){const f=$('feature-feedback');if(f)f.textContent='当前配置有修改，请先保存后再切换';return}featurePanel=d.featurePanel;maintSec=2;force=true;render(state);$('feature-form')?.scrollIntoView?.({block:'center',behavior:'smooth'});return}
   if('maint'in d){maintSec=+d.maint;themeDirty=false;force=true;render(state);return}
   if('theme'in d){saveTheme(d.theme);return}
   if('nav'in d){force=true;const i=+d.nav;if(d.sectionGo!==undefined){send('tab',{index:i});send('section',{index:+d.sectionGo})}else send('tab',{index:i});return}
+  if('testApi'in d){const form=$('config-form');if(form)send('configtest',{value:'link',fields:configFields(form)});return}
+  if('biliAgent'in d){send('biliagent',{value:d.biliAgent});return}
   if('action'in d){act(d.action);return}
   if('watch'in d){const el=$('watch-input');send('watch',{value:el?el.value:''});if(el)el.blur();return}
   if('feed'in d){send('feed');return}
@@ -544,17 +599,29 @@ document.addEventListener('click',e=>{
   if('askcopy'in d){send('askcopy',{index:+d.askcopy});return}
   if('askedit'in d){editing=+d.askedit;$('ask-text').value=state.asks[editing].body;$('editor').showModal();return}
 });
+function configFields(form){return [...form.querySelectorAll('[data-row]')].filter(x=>!x.readOnly&&(x.type==='checkbox'?x.checked!==x.defaultChecked:x.value!==x.defaultValue)).map(x=>({row:+x.dataset.row,value:x.type==='checkbox'?(x.checked?'开':'关'):x.value}))}
 document.addEventListener('submit',e=>{
+  if(e.target.id==='feature-form'){
+    e.preventDefault();const form=e.target,fields={};
+    for(const x of form.querySelectorAll('[data-feature-field]')){
+      if(x.type==='password'&&!x.value)continue;
+      fields[x.dataset.featureField]=x.type==='number'?Number(x.value):x.dataset.featureType==='boolean'?x.value==='true':x.value;
+    }
+    const action=e.submitter?.dataset.featureIntent||'save';
+    send('featureconfig',{kind:form.dataset.kind,action,fields});
+    form.querySelectorAll('input[type=password]').forEach(x=>x.value='');featureDirty=false;return;
+  }
   if(e.target.id==='theme-form'){e.preventDefault();saveTheme('custom');return}
   if(e.target.id!=='config-form')return;e.preventDefault();
   const form=e.target;
-  send('configsave',{value:form.dataset.kind,fields:[...form.querySelectorAll('[data-row]')].filter(x=>!x.readOnly&&(x.type==='checkbox'?x.checked!==x.defaultChecked:x.value!==x.defaultValue)).map(x=>({row:+x.dataset.row,value:x.type==='checkbox'?(x.checked?'开':'关'):x.value}))});
+  send('configsave',{value:form.dataset.kind,fields:configFields(form)});
   form.querySelectorAll('input[type=password]').forEach(x=>x.value='');
 });
 document.addEventListener('mousedown',e=>{
  if(e.button===0&&e.target.closest('.bar,.me')&&!e.target.closest('button,input,select,a'))send('window',{value:e.detail===2?'maximize':'drag'});
 });
-document.addEventListener('input',e=>{if(e.target.closest('#theme-form'))themeDirty=true});
+document.addEventListener('input',e=>{if(e.target.closest('#theme-form'))themeDirty=true;if(e.target.closest('#feature-form'))featureDirty=true});
+document.addEventListener('change',e=>{if(e.target.closest('#feature-form'))featureDirty=true});
 $('save-ask').onclick=()=>{send('asksave',{index:editing,value:$('ask-text').value});$('editor').close();force=true};
 $('cancel-ask').onclick=()=>$('editor').close();
 document.addEventListener('keydown',e=>{

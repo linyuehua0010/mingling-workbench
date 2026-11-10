@@ -1,4 +1,4 @@
-# 抓取安装包需要的两个大件：node.exe 和 ffmpeg.exe
+﻿# 抓取安装包需要的两个大件：node.exe 和 ffmpeg.exe
 # 用法：
 #   powershell -ExecutionPolicy Bypass -File tools\fetch-runtime.ps1
 #   powershell ... -File tools\fetch-runtime.ps1 -NodeExe D:\node\node.exe -FfmpegExe D:\ff\ffmpeg.exe

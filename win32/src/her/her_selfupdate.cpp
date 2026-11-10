@@ -458,6 +458,24 @@ static bool CopyProgramOut(const std::wstring& destRoot, std::wstring* err,
         i++;
         if (prog) prog(i * 100 / (int)dirs.size());
     }
+    // 根目录下的程序文件（README、卸载器 unins000.exe/.dat、WebView2Loader.dll 等）
+    // 也会被新版安装器覆盖，必须和子目录一起备份；受保护的用户目录不在此层。
+    WIN32_FIND_DATAW fd{};
+    HANDLE h = FindFirstFileW(JoinPath(app, L"*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            wstring name = fd.cFileName;
+            if (name == L"." || name == L"..") continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            wstring from = JoinPath(app, name);
+            if (!CopyFileW(from.c_str(), JoinPath(destRoot, name).c_str(), FALSE)) {
+                FindClose(h);
+                if (err) *err = L"备份文件失败：" + from;
+                return false;
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
     // exe 自己不在任何白名单目录里，单独留一份；回滚时按原位置放回去
     const wstring self = SelfExePath();
     if (FileExists(self)) {
@@ -478,6 +496,21 @@ static bool CopyProgramOut(const std::wstring& destRoot, std::wstring* err,
 
 static bool CopyProgramBack(const std::wstring& bakRoot, std::wstring* err) {
     const wstring app = ProgramRoot();
+    WIN32_FIND_DATAW rfd{};
+    HANDLE rh = FindFirstFileW(JoinPath(bakRoot, L"*").c_str(), &rfd);
+    if (rh != INVALID_HANDLE_VALUE) {
+        do {
+            wstring name = rfd.cFileName;
+            if (name == L"." || name == L".." || name == L"_self") continue;
+            if (rfd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            if (!CopyFileW(JoinPath(bakRoot, name).c_str(), JoinPath(app, name).c_str(), FALSE)) {
+                FindClose(rh);
+                if (err) *err = L"回滚根目录文件失败：" + name;
+                return false;
+            }
+        } while (FindNextFileW(rh, &rfd));
+        FindClose(rh);
+    }
     for (auto& d : UpdateProgramDirs()) {
         wstring from = JoinPath(bakRoot, d);
         if (!DirExists(from)) continue;
@@ -537,6 +570,15 @@ UpdatePlan PlanUpdate(const std::wstring& setupPath, const std::wstring& tag) {
 static bool RunInstaller(const std::wstring& setup, const std::wstring& logPath, int* code, std::wstring* err) {
     if (code) *code = -1;
     wstring cmd = L"\"" + setup + L"\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS";
+    // 安装包收尾要跑 tools\bootstrap.ps1 -Check（只检测），它按 /WORKSPACE 找组件和落日志。
+    // 升级时不带这个参数，安装器只能退回默认的「文档\冥零工作台」，体检就会查错目录、
+    // 还在那儿建一个 logs\setup。工作区是这里唯一知道的值，顺手传进去。
+    wstring ws = WorkspaceDir();
+    while (ws.size() > 3 && (ws.back() == L'\\' || ws.back() == L'/')) ws.pop_back();
+    if (!ws.empty() && ws.find(L'"') == wstring::npos) cmd += L" /WORKSPACE=\"" + ws + L"\"";
+    // V3.1 起安装器可用 /DIR 精确覆盖原实例；历史调用不带也能从调用进程找回路径。
+    wstring app = ProgramRoot();
+    if (!app.empty() && app.find(L'"') == wstring::npos) cmd += L" /DIR=\"" + app + L"\"";
     if (!logPath.empty()) cmd += L" /LOG=\"" + logPath + L"\"";
     std::vector<wchar_t> buf(cmd.begin(), cmd.end());
     buf.push_back(0);

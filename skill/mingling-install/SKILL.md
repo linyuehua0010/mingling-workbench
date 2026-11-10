@@ -1,9 +1,9 @@
 ---
 name: mingling-install
-description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、SnowLuma/NapCat、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」时使用。
+description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、SnowLuma/NapCat、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」「部署本地唱歌」「SoulX 唱歌」「切换豆包唱歌」「用冥零声音唱歌」「用已有 Breeze 音色制作唱歌参考」时使用。
 ---
 
-# 帮人装、修、搬、卸冥零工作台（skill 0.2.0，2026-11-07）
+# 帮人装、修、搬、卸冥零工作台（skill 0.5.0，2026-11-09）
 
 你在帮一个可能完全不懂电脑的人，在**他自己的 Windows 电脑**上把「冥零工作台」装好、修好，
 或者搬去云服务器。整套东西是：
@@ -12,7 +12,7 @@ description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（M
 <工作区>（= 机器人根，一个文件夹，装哪由他挑）
 ├─ bin\MinglingWorkbench.exe      工作台本体（C++，一个窗口管全部）
 ├─ win32\ build.bat 的源码        只有开发机上才有
-├─ tools\                         脚本：self-setup.ps1、auto-setup.ps1、diag.ps1、backup.ps1……
+├─ tools\                         脚本：self-setup.ps1、bootstrap.ps1（装组件主入口）、diag.ps1、backup.ps1……
 ├─ pack\mingling-pack\            配置包：pack.json、plugins\、voice\
 ├─ bots\                          组件都在这（不是散在工作区根！）
 │   ├─ uv\bin\astrbot.exe         AstrBot 的 python 运行环境 + 入口
@@ -79,8 +79,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 工作台「照顾她 → 一键自动配置」做的事，命令行等价：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\auto-setup.ps1" -Workspace "<工作区>" -Bots "<工作区>\bots" -Base "<工作区>"
+powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\bootstrap.ps1" -Base "<工作区>" -Workspace "<工作区>" -Bots "<工作区>\bots"
 ```
+
+这个入口会从 `HKCU\Software\MinglingWorkbench\ProgramRoot`（或安装器登记的位置）解析程序目录，
+再执行**程序目录里的同一个** `tools\bootstrap.ps1`。程序目录和工作区分离时，不要把脚本路径写成
+`<工作区>\tools\bootstrap.ps1`；只有源码树里两者才恰好相同。
+
+只想体检、不下载任何东西，就在后面加 `-Check`：退出码 0 = 全都齐了，2 = 有缺项；
+输出仍是 `##STEP` / `##OK` / `##FAIL` / `##RESULT`，`-LogFile <路径>` 可以留一份日志。
+`auto-setup.ps1` 仍可用，它内部转发到 `bootstrap.ps1`——老教程里的命令不用改，但新写的命令一律用 `bootstrap.ps1`。
 
 它按 `answers.json` 装/补 uv、AstrBot、SnowLuma（或 NapCat）、ffmpeg、asr、Ollama、Breeze。
 可以重复跑，已经有的会跳过。慢的是下模型和 python 包装，先说清「在下什么、多大」。
@@ -90,7 +98,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\auto-setu
 工作台「照顾她」页那些开关和「自设定」按钮，背后都是同一个脚本：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setup.ps1" -Base "<工作区>" -Only <块>
+$program = powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\resolve-program-root.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.ps1" -Base "<工作区>" -Only <块>
 ```
 
 八块顺序：`provider`（DeepSeek/模型）→ `platform`（QQ 平台、白名单）→ `chat`（回复方式等 13 项）
@@ -105,6 +114,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
 再跑 `-Only plugins`（记忆改 `memory`，语音改 `plugins,voice`）。
 
 ## 第 4 步：按症状修
+
+需要部署本地唱歌、切换豆包云端与 SoulX、处理唱歌服务启动或显卡兼容问题时，读
+[references/本地唱歌.md](references/本地唱歌.md)。工作台 V3.1 的「照顾她 → 她会做的事 → 功能配置」
+可保存唱歌方式、服务目录、语音凭据和桌宠互通设置。密钥保存在本机，不要要求用户把它们发进聊天。
 
 先把「哪一块」对齐现实，再动手。以下都是踩过的：
 
@@ -124,15 +137,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
   `memory-mode.txt` 是 1 就要有 Ollama + bge-m3（`ollama list` 里有 `bge-m3`）。
 - **她不说话/答得慢**：`private\deepseek-key.txt` 的 key 还有没有钱；AstrBot 6185 通不通。
 - **她听不见语音、也看不懂视频里说什么**：`bots\asr\` 有没有模型，`bots\ffmpeg\bin\ffmpeg.exe` 在不在。
-- **换个角色**：改 `plugin\mingling_skill\persona\mingling.md` 里 `{user_persona}` / `{user_tone}` 两段，
-  再跑 `powershell -File "<工作区>\tools\import-mingling.ps1" -Base "<工作区>"`（「照顾她」→「导入冥零人设」是同一件事）。
+- **换个角色**：直接编辑 `plugin\mingling_skill\persona\mingling.md` 的完整正文（默认是公孙冥零，与主人是死党），
+  再跑 `powershell -File "$program\tools\import-mingling.ps1" -Base "<工作区>"`（「照顾她」→「导入冥零人设」是同一件事）。
 - **换个声音**：本机 Breeze 用 `pack\mingling-pack\voice\` 里那几条参考音；在线 Breeze 要密钥和音色 ID，
   按字扣积分，先跟他讲清楚再开。
 - **让她看视频**：`video-mode.txt=1`，再 `-Only plugins`；单个视频能不能看，去「做过的事」页看任务。
 
 ## 第 5 步：搬、备份、还原、卸
 
-- 备份：`powershell -File "<工作区>\tools\backup.ps1"`（「照顾她」→「备份到桌面」同一个）。
+- 备份：`powershell -File "$program\tools\backup.ps1"`（「照顾她」→「备份到桌面」同一个）。
 - 体检/求助信息：`tools\diag.ps1`，报告存桌面，能直接发给人看。
 - 搬云服务器：Windows 云主机（不支持 macOS），先把工作区整个搬过去，再跑第 2 步和第 3 步；
   账号类（QQ 登录）要在新机器上重新扫码。
@@ -143,8 +156,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<工作区>\tools\self-setu
 
 工作台的「检查更新」和「照顾她」靠两个文件认识这份 skill：
 
-- `<工作区>\tools\skill-home.txt` —— 这个 skill 装在哪（一行绝对路径）
-- `<工作区>\tools\skill-version.json` —— 装的是哪一版（`version.json` 的拷贝）
+- `<程序目录>\tools\skill-home.txt` —— 这个 skill 装在哪（一行绝对路径）
+- `<程序目录>\tools\skill-version.json` —— 装的是哪一版（`version.json` 的拷贝）
 
 跑一次就行（更新 skill 之后也要重跑）：
 

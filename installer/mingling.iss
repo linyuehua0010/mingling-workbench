@@ -40,7 +40,7 @@ VersionInfoProductTextVersion={#AppVerTag}
 VersionInfoCompany=冥零工作台
 VersionInfoDescription={#AppTitle} 安装程序
 AppPublisher=冥零工作台
-DefaultDirName={localappdata}\Programs\{#AppDir}
+DefaultDirName={code:DefaultInstallDir}
 DefaultGroupName={#AppTitle}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -72,7 +72,9 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 Source: "..\bin\WebView2Loader.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\win32\vendor\webview2\LICENSE.txt"; DestDir: "{app}\docs\webview2"; Flags: ignoreversion
 Source: "..\win32\vendor\webview2\NOTICE.txt"; DestDir: "{app}\docs\webview2"; Flags: ignoreversion
-Source: "..\bin\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\bin\{#AppExe}"; DestDir: "{app}"; DestName: "MinglingWorkbench.new.exe"; Flags: ignoreversion
+Source: "..\tools\backup-install.ps1"; Flags: dontcopy
+Source: "..\tools\finish-update.ps1"; Flags: dontcopy
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\art\*"; DestDir: "{app}\art"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -88,11 +90,20 @@ Source: "..\plugin\mingling_skill\*"; DestDir: "{app}\plugin\mingling_skill"; Fl
 Source: "..\tools\*.ps1"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\tools\*.py"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "..\tools\*.cmd"; DestDir: "{app}\tools"; Flags: ignoreversion
-Source: "..\tools\*.txt"; DestDir: "{app}\tools"; Flags: ignoreversion; Excludes: "skill-home.txt,pet-name-mine.txt,pet-persona-mine.txt"
-; 掉线提醒用的那个 pythonw（工作台按 tools\python\pythonw.exe 找）
-Source: "..\tools\python\*"; DestDir: "{app}\tools\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+; tools\*.txt 是运行时生成的（skill-home.txt 等），源码树里可能没有；没有就跳过，不能因此拒绝出包
+Source: "..\tools\*.txt"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist; Excludes: "skill-home.txt,pet-name-mine.txt,pet-persona-mine.txt"
+; 组件清单：bootstrap.ps1 按 components.json 决定装什么、怎么验。上面只带 *.ps1/*.py/*.cmd/*.txt，
+; 漏了这份 json，「一键自动配置」就不知道该装哪几样。
+Source: "..\tools\components.json"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\astrbot-requirements.txt"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\edge-tts-requirements.txt"; DestDir: "{app}\tools"; Flags: ignoreversion
+Source: "..\tools\source-manifests\*.json"; DestDir: "{app}\tools\source-manifests"; Flags: ignoreversion
+; 掉线提醒用的那个 pythonw（工作台按 tools\python\pythonw.exe 找）；全量包不带这个目录时跳过
+Source: "..\tools\python\*"; DestDir: "{app}\tools\python"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 ; 配置包：自设定读 pack\mingling-pack\pack.json（tools\self-setup.ps1 按 <根>\pack\ 找）
 Source: "..\pack\mingling-pack\*"; DestDir: "{app}\pack\mingling-pack"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 全依赖哈希锁里唯一没有 PyPI wheel 的 aiocqhttp，由固定 sdist（锁里有源码哈希）构建为 wheel，安装时只读这个本地经校验文件。
+Source: "..\pack\mingling-vendor\*"; DestDir: "{app}\pack\mingling-vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
 
 [Icons]
@@ -104,7 +115,15 @@ Name: "{group}\卸载 {#AppTitle}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppTitle}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
+; 旧版命令行 / 独立更新助手从“正在运行”的旧 exe 发起时，主程序文件被占用。
+; 安装器只落 .new，等旧进程退出后由这个脚本做同目录原子替换；fresh/unlocked 安装同步等待。
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{tmp}\finish-update.ps1"" -AppDir ""{app}"" -WaitSeconds 180 -ManifestLog ""{tmp}\finish-update-last.log"""; Flags: runhidden waituntilterminated; Check: CanWriteMainExe
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File ""{tmp}\finish-update.ps1"" -AppDir ""{app}"" -WaitSeconds 180 -ManifestLog ""{tmp}\finish-update-last.log"""; Flags: runhidden nowait; Check: not CanWriteMainExe
 Filename: "{app}\{#AppExe}"; Description: "启动 {#AppTitle}"; Flags: nowait postinstall skipifsilent
+; 装完做一次只检测的组件体检：不下载、不安装，缺什么写进日志。
+; -Check 有缺项时退出码是 2；Inno 的 [Run] 默认忽略退出码，所以不会把安装判成失败。
+; 工作区不一定是 {app}（用户可能选在别的盘），所以走 WorkspacePath 这个脚本常量。
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\tools\bootstrap.ps1"" -Base ""{code:WorkspacePath}"" -Workspace ""{code:WorkspacePath}"" -Bots ""{code:WorkspacePath}\bots"" -Check -LogFile ""{app}\logs\setup\installer-check.log"""; StatusMsg: "正在检查组件（只检测，不下载）……"; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 
@@ -118,6 +137,86 @@ Type: dirifempty; Name: "{app}"
 var
   WsPage: TInputDirWizardPage;
   WsPath: String;
+  DetectedDir: String;
+  DetectedWorkspace: String;
+  HadExistingApp: Boolean;
+
+function DefaultInstallDir(Param: String): String;
+var
+  Existing: String;
+begin
+  if DetectedDir <> '' then
+    Result := DetectedDir
+  else if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\MinglingWorkbench_is1', 'InstallLocation', Existing)
+    and (Existing <> '') and FileExists(AddBackslash(Existing) + '{#AppExe}') then
+    Result := Existing
+  else
+    Result := ExpandConstant('{localappdata}\Programs\{#AppDir}');
+end;
+
+{ 旧版 V3.0 的 --wb-update 不传 /DIR /WORKSPACE：
+  1) 从调用进程/旧更新助手的命令行找回原 exe 路径；
+  2) 从 settings.json 读工作区；
+  把结果放 HKCU 临时键，Inno 再以 Unicode 读回。这样中文路径不经过 ANSI 解码。 }
+procedure DetectLegacyLayout;
+var
+  Code: Integer;
+  Script: String;
+begin
+  DetectedDir := '';
+  DetectedWorkspace := '';
+  Script :=
+    '$ErrorActionPreference=''SilentlyContinue'';' +
+    '$q=Get-CimInstance Win32_Process -Filter (''ProcessId=''+$PID);' +
+    '$c=Get-CimInstance Win32_Process -Filter (''ProcessId=''+$q.ParentProcessId);' +
+    '$cand='''';' +
+    'if($c.ExecutablePath -and ($c.ExecutablePath -match ''MinglingWorkbench\.exe$'')){$cand=$c.ExecutablePath};' +
+    'if($c.CommandLine -match ''--wb-update-run''){$m=[regex]::Matches($c.CommandLine,''"([^"]*MinglingWorkbench\.exe)"'');if($m.Count){$cand=$m[$m.Count-1].Groups[1].Value}};' +
+    'if(-not $cand){$p=Get-CimInstance Win32_Process -Filter "Name=''MinglingWorkbench.exe''" | Where-Object {$_.ExecutablePath -notmatch ''setup''} | Select-Object -First 1;if($p){$cand=$p.ExecutablePath}};' +
+    '$dir='''';if($cand){$dir=Split-Path -Parent $cand};' +
+    'New-Item -Path ''HKCU:\Software\MinglingWorkbench\Installer'' -Force | Out-Null;' +
+    'Set-ItemProperty -Path ''HKCU:\Software\MinglingWorkbench\Installer'' -Name InstallLocation -Value $dir;' +
+    '$ws='''';foreach($f in @((Join-Path $env:APPDATA ''MinglingWorkbench\settings.json''),(Join-Path $env:APPDATA ''MinglingWorkbench\snapshot\settings.json''))){if(Test-Path -LiteralPath $f){try{$j=[IO.File]::ReadAllText($f,[Text.Encoding]::UTF8)|ConvertFrom-Json;if($j.workspace){$ws=[string]$j.workspace;break}}catch{}}};' +
+    'if($ws -and -not (Test-Path -LiteralPath $ws -PathType Container)){$ws=''''};' +
+    'Set-ItemProperty -Path ''HKCU:\Software\MinglingWorkbench\Installer'' -Name Workspace -Value $ws;';
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' + Script + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
+  RegQueryStringValue(HKCU, 'Software\MinglingWorkbench\Installer', 'InstallLocation', DetectedDir);
+  RegQueryStringValue(HKCU, 'Software\MinglingWorkbench\Installer', 'Workspace', DetectedWorkspace);
+end;
+
+function CanWriteMainExe: Boolean;
+var
+  Code: Integer;
+  Target: String;
+  Cmd: String;
+begin
+  Target := ExpandConstant('{app}\{#AppExe}');
+  if not FileExists(Target) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  { Inno 6.0 没有 FileOpen；用 PowerShell 以 FileShare.None 试开，运行中的 exe 会拒绝写。 }
+  Cmd := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "try{$s=[IO.File]::Open(''' +
+         Target + ''',[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None);$s.Dispose();exit 0}catch{exit 1}"';
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Cmd, '', SW_HIDE,
+          ewWaitUntilTerminated, Code) then
+    Result := (Code = 0)
+  else
+    Result := False;
+end;
+
+{ [Run] 里那条 bootstrap -Check 要的是真工作区（可能在别的盘），不是安装目录。
+  工作区在 InitializeSetup 里定好；万一没定（理论上不会），退回和安装器一样的默认值。 }
+function WorkspacePath(Param: String): String;
+begin
+  if WsPath = '' then
+    Result := ExpandConstant('{userdocs}\冥零工作台')
+  else
+    Result := WsPath;
+end;
 
 { 设置目录：正式版 %APPDATA%\MinglingWorkbench，快照版再下一层 \snapshot。
   必须和 win32\src\paths.cpp 的 StateDir() 是同一句话，否则装完 exe 读不到安装器写的 settings.json。 }
@@ -157,8 +256,12 @@ end;
 
 function InitializeSetup: Boolean;
 begin
+  DetectLegacyLayout;
+  if (DetectedDir <> '') and (not PathUsable(DetectedDir)) then DetectedDir := '';
+  if (DetectedWorkspace <> '') and (not PathUsable(DetectedWorkspace)) then DetectedWorkspace := '';
   WsPath := CleanPath(Trim(ExpandConstant('{param:WORKSPACE|}')));
   if not PathUsable(WsPath) then WsPath := '';
+  if (WsPath = '') and (DetectedWorkspace <> '') then WsPath := CleanPath(DetectedWorkspace);
   if WsPath = '' then WsPath := ExpandConstant('{userdocs}\冥零工作台');
   Log('WsPath=[' + WsPath + ']');
   Result := True;
@@ -211,9 +314,29 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   cfg, dir, js, b, w1, w2: String;
+  ResultCode: Integer;
+  Cmd: String;
 begin
+  if CurStep = ssInstall then
+  begin
+    HadExistingApp := FileExists(ExpandConstant('{app}\{#AppExe}'));
+    { 在任何程序文件被覆盖前，先把本安装器会碰到的旧文件逐字节备份。
+      备份脚本不进入 bots/private/secrets/out/logs，也不覆盖旧版备份。 }
+    ExtractTemporaryFile('backup-install.ps1');
+    ExtractTemporaryFile('finish-update.ps1');
+    Cmd := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ExpandConstant('{tmp}\backup-install.ps1') +
+           '" -AppDir "' + ExpandConstant('{app}') + '" -Workspace "' + WorkspacePath('') + '" -Reason install';
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Cmd, '', SW_HIDE,
+                ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+      RaiseException('覆盖前备份失败（退出码 ' + IntToStr(ResultCode) + '），安装已中止，旧程序没有被改动。');
+  end;
   if CurStep = ssPostInstall then
   begin
+    { 技能/助手解析程序根目录，不再把 <工作区>\tools\bootstrap.ps1 当成程序入口。 }
+    RegWriteStringValue(HKCU, 'Software\MinglingWorkbench', 'ProgramRoot', ExpandConstant('{app}'));
+    RegWriteStringValue(HKCU, 'Software\MinglingWorkbench', 'WorkspaceRoot', WsPath);
+    if HadExistingApp then
+      RegWriteDWordValue(HKCU, 'Software\MinglingWorkbench\Installer', 'SuppressStartupWrites', 1);
     dir := StateDirPath;
     cfg := dir + '\settings.json';
     { 已有 settings.json：一个字都别动。那份是工作台自己写的，里面还有别的键；

@@ -5,6 +5,7 @@
 #   powershell -ExecutionPolicy Bypass -File tools\self-setup.ps1 -Base F:\dafeiyu\bili -DryRun
 #   powershell -ExecutionPolicy Bypass -File tools\self-setup.ps1 -Only provider,persona
 #   powershell -ExecutionPolicy Bypass -File tools\self-setup.ps1 -Restore <快照路径>
+#   powershell -ExecutionPolicy Bypass -File tools\self-setup.ps1 -Verify（只核对八块，不写任何东西）
 #
 # 分八块，按依赖排：provider（接 DeepSeek）→ platform（QQ 平台 + 白名单）→ chat（聊天设置）
 # → plugins（大肥鱼那 10 个插件）→ memory（长期记忆）→ voice（语音）→ persona（人设，交给 import-mingling.ps1）
@@ -15,7 +16,8 @@
 #   ##STEP <0-100>|<在做什么>
 #   ##OK <块>|<结果>
 #   ##FAIL <块>|<为什么 + 怎么办>
-#   RESULT ok=<0|1> done=<块数> fail=<块数> why=<一句话> next=<下一步>
+#   RESULT ok=<0|1> done=<块数> fail=<块数> [mode=verify] why=<一句话> next=<下一步>
+# -Verify 只核对：不 PUT 配置、不拍快照、不写文件（diag-config 也只读）。不加 = 真改（-Apply 同义）。
 param(
     [string]$Base = "",
     [string]$Pack = "",
@@ -24,7 +26,10 @@ param(
     [string]$Answers = "",
     [switch]$Force,
     [switch]$DryRun,
-    [switch]$NoSnapshot
+    [switch]$NoSnapshot,
+    [switch]$Verify,
+    [switch]$Apply,
+    [switch]$Offline
 )
 
 $ErrorActionPreference = "Continue"
@@ -41,9 +46,24 @@ function OkLine([string]$blk, [string]$detail) { Write-Host ("##OK " + $blk + "|
 function FailLine([string]$blk, [string]$why) { Write-Host ("##FAIL " + $blk + "|" + $why) }
 function Done([int]$ok, [int]$done, [int]$fail, [string]$why, [string]$next) {
     # 前缀 ## 是跟工作台 / 一键自动配置约定的协议（BotsSetup/Configure 都只认 ##RESULT 行）
-    Write-Host ("##RESULT ok=" + $ok + " done=" + $done + " fail=" + $fail + " why=" + $why + " next=" + $next)
+    $modeTxt = ""
+    if ($script:VerifyMode) { $modeTxt = " mode=verify" }
+    Write-Host ("##RESULT ok=" + $ok + " done=" + $done + " fail=" + $fail + $modeTxt + " why=" + $why + " next=" + $next)
     if ($ok -ne 1) { exit 1 } else { exit 0 }
 }
+
+$script:VerifyMode = $false
+if ($Verify -and ($DryRun -or $Restore -or $Apply)) {
+    Say "参数冲突：-Verify 是只读核对，不能和 -DryRun / -Restore / -Apply 一起用"
+    FailLine "参数" "-Verify 只核对、不改东西；想看会改什么用 -DryRun，想真改用 -Apply（或什么都不加）"
+    Done 0 0 1 "参数组合不对" "去掉 -DryRun / -Restore / -Apply 里的写操作开关，再单独跑 -Verify"
+}
+if ($Apply -and $DryRun) {
+    Say "参数冲突：-Apply（真改）和 -DryRun（只看不改）不能一起用"
+    FailLine "参数" "-Apply 表示真改，-DryRun 表示只看；二选一"
+    Done 0 0 1 "参数组合不对" "去掉 -Apply 或 -DryRun 再跑"
+}
+$script:VerifyMode = [bool]$Verify
 
 $script:LastError = ""
 $script:Token = ""
@@ -100,7 +120,13 @@ function Read-Secret([string]$RelOrPath) {
     if (-not $RelOrPath) { return "" }
     $p = $RelOrPath
     if (-not [System.IO.Path]::IsPathRooted($p)) { $p = Join-Path $Base $p }
-    if (-not (Test-Path $p)) { return "" }
+    if (-not (Test-Path $p)) {
+        # 敏感项放 <Base>\secrets\；旧版放 <Base>\private\——两个位置都认。
+        $alt = ""
+        if ($RelOrPath -match '^(?i)private[\\/](.+)$') { $alt = Join-Path (Join-Path $Base 'secrets') $Matches[1] }
+        elseif ($RelOrPath -match '^(?i)secrets[\\/](.+)$') { $alt = Join-Path (Join-Path $Base 'private') $Matches[1] }
+        if ($alt -and (Test-Path $alt)) { $p = $alt } else { return "" }
+    }
     $t = (Get-Content $p -Raw -Encoding UTF8).TrimStart([char]0xFEFF).Trim()
     $t = $t -replace '^\s*["'']', '' -replace '["'']\s*$', ''
     $t = ($t -split "`r?`n")[0].Trim()
@@ -197,7 +223,7 @@ function Save-Config($cfg) {
 function Login {
     $port = 6185
     $bu = ""
-    if ($ans.base_url) { $bu = [string]$ans.base_url }
+    if ($ans.backend_url) { $bu = [string]$ans.backend_url }
     if ($bu -match ":(\d+)") { $port = [int]$matches[1] }
     $script:ApiRoot = "http://127.0.0.1:$port/api/v1"
 
@@ -216,6 +242,7 @@ function Login {
 
 # ------------------------------------------------------------------ 快照 / 退回
 function Take-Snapshot([string]$label) {
+    if ($Verify) { Say "  （verify，只读核对，不拍快照）"; return "" }
     if ($DryRun -or $NoSnapshot) { return "" }
     $cfg = Get-Config
     if ($null -eq $cfg) { Say "  快照没存成：读不到配置"; return "" }
@@ -328,9 +355,21 @@ function Do-Provider {
         FailLine "provider" ("没找到 key。把 sk-... 粘进 " + (Join-Path $Base $p.key_file) + " 再跑一次")
         return $false
     }
+    # AstrBot 4.13+ 支持 $ENV 引用。真实 Key 只留在 secrets，配置写变量名；
+    # 已运行的旧后台进程没有该变量，正式应用前用固定启动脚本重启并重新登录。
+    if (-not $script:VerifyMode -and -not $script:DryRun) {
+        $starter = Join-Path $PSScriptRoot 'start-astrbot.ps1'
+        $astrRoot = Join-Path $Base 'bots\AstrBot'
+        if ((Test-Path -LiteralPath $starter) -and (Test-Path -LiteralPath $astrRoot)) {
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $starter -Root $astrRoot -Base $Base -Restart
+            if ($LASTEXITCODE -ne 0) { FailLine "provider" "AstrBot 重启以加载密钥环境变量失败"; return $false }
+            $script:Token = ''
+            if (-not (Login)) { FailLine "provider" "AstrBot 重启后无法重新登录后台"; return $false }
+        }
+    }
     $src = @{
         id = $sid; provider = [string]$p.provider; type = [string]$p.type; provider_type = [string]$p.provider_type
-        enable = $true; key = @($key); api_base = [string]$p.api_base; timeout = [int]$p.timeout
+        enable = $true; key = @('$MINGLING_DEEPSEEK_KEY'); api_base = $(if ($ans.base_url) { [string]$ans.base_url } else { [string]$p.api_base }); timeout = [int]$p.timeout
         proxy = ""; custom_headers = @{}
     }
     Step 14 "接入 DeepSeek 提供商"
@@ -600,6 +639,39 @@ function Get-Feature([string]$name) {
 }
 
 function Do-Plugins {
+    # 工作台配置界面的持久覆盖；保持 pack 本身可分发，用户选择不被自设定盖回去。
+    $featureFile = Join-Path $Base 'private\feature-settings.json'
+    $featureSettings = $null
+    if (Test-Path -LiteralPath $featureFile) {
+        try { $featureSettings = Get-Content -LiteralPath $featureFile -Raw -Encoding UTF8 | ConvertFrom-Json }
+        catch { FailLine 'plugins' '功能配置文件读不了，未修改插件'; return $false }
+    }
+    foreach ($pluginItem in @($packRaw.plugins.items)) {
+        if ($pluginItem.name -eq 'astrbot_plugin_dafeiyu_sing') {
+            if (-not $pluginItem.config) { $pluginItem | Add-Member config ([pscustomobject]@{}) }
+            if ($featureSettings.sing) {
+                Set-Path $pluginItem.config 'backend' ([string]$featureSettings.sing.backend)
+                Set-Path $pluginItem.config 'server_url' ([string]$featureSettings.sing.server_url)
+                Set-Path $pluginItem.config 'doubao_tries' ([int]$featureSettings.sing.tries)
+            }
+            $cloudAppFile = Join-Path $Base 'private\volc-app-id.txt'
+            $cloudTokenFile = Join-Path $Base 'private\volc-token.txt'
+            if ((Test-Path -LiteralPath $cloudAppFile) -and (Test-Path -LiteralPath $cloudTokenFile)) {
+                $cloudApp = (Get-Content -LiteralPath $cloudAppFile -Raw -Encoding UTF8).Trim()
+                $cloudToken = (Get-Content -LiteralPath $cloudTokenFile -Raw -Encoding UTF8).Trim()
+                if ($cloudApp -and $cloudToken) {
+                    Set-Path $pluginItem.config 'doubao_app_id' $cloudApp
+                    Set-Path $pluginItem.config 'doubao_access_token' $cloudToken
+                }
+            }
+        }
+        if ($pluginItem.name -eq 'astrbot_plugin_dafeiyu_petlink' -and $featureSettings.pet) {
+            if (-not $pluginItem.config) { $pluginItem | Add-Member config ([pscustomobject]@{}) }
+            foreach ($settingName in @('recent_count','recent_hours','redirect_reminders')) {
+                Set-Path $pluginItem.config $settingName $featureSettings.pet.$settingName
+            }
+        }
+    }
     $items = @($packRaw.plugins.items)
     if ($items.Count -eq 0) { FailLine "plugins" "配置包里 plugins.items 是空的"; return $false }
     Step 56 "看现在装了哪些插件"
@@ -609,7 +681,7 @@ function Do-Plugins {
     foreach ($x in @($r.data)) { if ($x -and $x.name) { $have += [string]$x.name } }
     $pluginDir = Join-Path $PackDir "plugins"
     $newCount = 0; $cfgCount = 0; $on = 0; $off = 0
-    $missed = @(); $changed = @()
+    $missed = @(); $changed = @(); $applyFailed = @()
     $i = 0
     foreach ($it in $items) {
         $i++
@@ -633,11 +705,13 @@ function Do-Plugins {
         if ($it.config) {
             $conf = $null
             $g = Api "GET" ("/plugins/config?plugin_id=" + [uri]::EscapeDataString($name)) $null 30
+            if ($null -eq $g) { $applyFailed += $name; FailLine 'plugins' ('读不到插件配置，未覆盖：' + $name); continue }
             if ($g -and $g.data) { $conf = $g.data.config }
             if ($null -eq $conf) { $conf = [pscustomobject]@{} }
             $dirty = $false
             foreach ($k in $it.config.PSObject.Properties.Name) {
-                $v = Resolve-Placeholder ([string]$it.config.$k)
+                $sourceValue = $it.config.$k
+                $v = if ($sourceValue -is [string]) { Resolve-Placeholder $sourceValue } else { $sourceValue }
                 if ($null -eq $v) { continue }
                 if ([string](Get-Path $conf $k) -eq $v) { continue }
                 Set-Path $conf $k $v
@@ -647,7 +721,7 @@ function Do-Plugins {
                 if ($DryRun) { Say ("  （dry-run，不写 " + $name + " 的设置）") }
                 else {
                     $w = Api "PUT" "/plugins/config" @{ plugin_id = $name; config = $conf } 60
-                    if ($null -eq $w) { FailLine "plugins" ("设置没写进去 " + $name + "：" + $script:LastError) }
+                    if ($null -eq $w) { $applyFailed += $name; FailLine "plugins" ("设置没写进去 " + $name + "：" + $script:LastError) }
                     else { $cfgCount++; if ($changed -notcontains $name) { $changed += $name } }
                 }
             }
@@ -667,16 +741,17 @@ function Do-Plugins {
         if ($want) { $on++ } else { $off++ }
         if ($DryRun) { Say ("  （dry-run，" + $name + " → " + $(if ($want) { "开" } else { "关" }) + "）"); continue }
         $w = Api "PATCH" "/plugins/enabled" @{ plugin_id = $name; enabled = $want } 60
-        if ($null -eq $w) { FailLine "plugins" ("开关没设上 " + $name + "：" + $script:LastError) }
+        if ($null -eq $w) { $applyFailed += $name; FailLine "plugins" ("开关没设上 " + $name + "：" + $script:LastError) }
     }
     if ($changed.Count -gt 0 -and -not $DryRun) {
         Step 66 "重载改过的插件"
-        foreach ($name in $changed) { $null = Api "POST" "/plugins/reload" @{ plugin_id = $name } 180 }
+        foreach ($name in $changed) { $reload = Api "POST" "/plugins/reload" @{ plugin_id = $name } 180; if ($null -eq $reload) { $applyFailed += $name } }
     }
     if ($missed.Count -gt 0) {
         FailLine "plugins" ("有 " + $missed.Count + " 个没装上：" + ($missed -join "、") + "。看后台版本认不认这个 zip，或者手工在后台装")
         return $false
     }
+    if ($applyFailed.Count -gt 0) { FailLine 'plugins' ('部分插件配置未生效：' + (($applyFailed | Select-Object -Unique) -join '、')); return $false }
     $tailTxt = ""
     if ($newCount -gt 0) { $tailTxt = "（这次新装 " + $newCount + " 个）" }
     OkLine "plugins" ("插件 " + $items.Count + " 个：在位 " + $inPlace + " 个，开了 " + $on + " 个、关了 " + $off + " 个" + $tailTxt)
@@ -765,15 +840,45 @@ function Do-Memory {
     if ($have -notcontains $lm) {
         if ($DryRun) { Say ("  （dry-run，不装 " + $lm + "）") }
         else {
-            $mir = [string]$m.plugin.market_id
-            Say ("  先从插件市场装 " + $lm + "（" + $mir + "）…")
-            $w = Api "POST" "/plugins/install/github" @{ install_method = "market"; market_plugin_id = $mir } 600
-            if ($null -eq $w) {
-                FailLine "memory" ("装不上 " + $lm + "（" + $mir + "）：" + $script:LastError + "。后台连不上插件市场就先在后台手动装，再跑 --only memory")
-                return $false
+            $manifest = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'components.json'), [Text.Encoding]::UTF8) | ConvertFrom-Json
+            $comp = @($manifest.components | Where-Object { $_.id -eq 'memory-plugin' }) | Select-Object -First 1
+            if (-not $comp -or [string]$comp.source.sha256 -notmatch '^[0-9a-fA-F]{64}$') { FailLine "memory" "清单缺长期记忆插件的固定 SHA256，拒绝从市场盲装"; return $false }
+            $sha = ([string]$comp.source.sha256).ToLowerInvariant()
+            $url = [string]$comp.source.url
+            $cacheDir = Join-Path $Base 'logs\setup\dl'
+            New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+            $cache = Join-Path $cacheDir ('memory-plugin-' + $sha.Substring(0, 12) + '.tar.gz')
+            $valid = (Test-Path -LiteralPath $cache) -and ((Get-FileHash -LiteralPath $cache -Algorithm SHA256).Hash.ToLowerInvariant() -eq $sha)
+            if (-not $valid) {
+                if ($Offline) { FailLine "memory" "离线模式没有校验通过的长期记忆插件缓存：$cache"; return $false }
+                if (Test-Path -LiteralPath $cache) { Remove-Item -LiteralPath $cache -Force }
+                Say ("  下载固定提交的 " + $lm + "，校验 SHA256…")
+                & curl.exe -L -f -sS --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 300 -o $cache $url
+                if ($LASTEXITCODE -ne 0) { FailLine "memory" ("下载长期记忆插件失败（curl 退出码 " + $LASTEXITCODE + "）"); return $false }
+                if ((Get-FileHash -LiteralPath $cache -Algorithm SHA256).Hash.ToLowerInvariant() -ne $sha) {
+                    Remove-Item -LiteralPath $cache -Force -ErrorAction SilentlyContinue
+                    FailLine "memory" "长期记忆插件 SHA256 校验失败，已删除缓存并拒绝安装"
+                    return $false
+                }
+            }
+            $tmp = Join-Path $Base ('logs\setup\tmp\memory-plugin-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+            try {
+                New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+                & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $cache -C $tmp
+                if ($LASTEXITCODE -ne 0) { FailLine "memory" "解压长期记忆插件归档失败"; return $false }
+                $main = @(Get-ChildItem -LiteralPath $tmp -Recurse -Filter 'main.py' -File | Where-Object { Test-Path (Join-Path $_.DirectoryName 'metadata.yaml') } | Select-Object -First 1)
+                if ($main.Count -eq 0) { FailLine "memory" "插件归档里没有 metadata.yaml + main.py"; return $false }
+                $uploadRoot = Join-Path $tmp $lm
+                if ($main[0].DirectoryName -ne $uploadRoot) { Move-Item -LiteralPath $main[0].DirectoryName -Destination $uploadRoot }
+                $zip = Join-Path $tmp ($lm + '.zip')
+                if (-not (Zip-Folder $uploadRoot $zip)) { FailLine "memory" "打包长期记忆插件失败"; return $false }
+                $w = ApiUploadZip "/plugins/install/upload" $zip 600
+                if ($null -eq $w) { FailLine "memory" ("装不上固定版本 " + $lm + "：" + $script:LastError); return $false }
+            } finally {
+                Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
             }
             $have = Get-InstalledPlugins
-            if ($have -notcontains $lm) { FailLine "memory" ("市场里装完没看到 " + $lm + "，稍等一下再跑 --only memory"); return $false }
+            if ($have -notcontains $lm) { FailLine "memory" ("固定归档上传后没看到 " + $lm); return $false }
         }
     }
 
@@ -880,11 +985,14 @@ function Do-Voice {
 
     if ($mode -eq "1") {
         $e = $v.edge
-        Step 76 "语音：Edge（先用 pip 装 edge-tts）"
-        foreach ($pkg in $e.pip) {
-            if ($DryRun) { Say ("  （dry-run，不装 " + $pkg + "）"); continue }
-            $r = Api "POST" "/pip/install" @{ package = [string]$pkg } 600
-            if ($null -eq $r) { Say ("  装不上 " + $pkg + "：" + $script:LastError) }
+        Step 76 "语音：Edge（安装带哈希锁的 edge-tts / pyffmpeg）"
+        if (-not $DryRun) {
+            $boot = Join-Path $PSScriptRoot 'bootstrap.ps1'
+            & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $boot -Base $Base -Workspace $Base -Bots (Join-Path $Base 'bots') -Component edge-tts
+            if ($LASTEXITCODE -ne 0) {
+                FailLine "voice" "edge-tts / pyffmpeg 没装上（依赖锁或缓存校验失败）；语音设置未改动"
+                return $false
+            }
         }
         $conf = @{ id = [string]$e.id; type = "edge_tts"; provider = "microsoft"; provider_type = "text_to_speech"; enable = $true
                    voice = [string]$e.voice; rate = "+0%"; volume = "+0%"; pitch = "+0Hz"; timeout = 20; proxy = "" }
@@ -1050,11 +1158,284 @@ function Do-Verify {
     return $true
 }
 
+# ------------------------------------------------------------------ 块：verify（只读核对）
+# -Verify 走这一组：只用 GET 和 /providers/test 这类不改配置的接口，
+# 绝不 PUT / PATCH、不拍快照、不写任何文件（diag-config.ps1 也只读）。
+function Test-SameJson($a, $b) {
+    if ($null -eq $a -and $null -eq $b) { return $true }
+    if ($null -eq $a -or $null -eq $b) { return $false }
+    $ja = ConvertTo-Json -InputObject $a -Compress -Depth 10
+    $jb = ConvertTo-Json -InputObject $b -Compress -Depth 10
+    return ([string]$ja -eq [string]$jb)
+}
+
+function Get-PluginRows {
+    $r = Api "GET" "/plugins" $null 60
+    if ($null -eq $r) { return $null }
+    return @($r.data)
+}
+
+function Verify-Provider {
+    Step 8 "核对 DeepSeek 提供商（只读）"
+    $p = $packRaw.provider
+    $sid = [string]$p.source_id
+    if (-not (Get-DeepSeekKey)) {
+        FailLine "provider" ("缺 DeepSeek key：应在 " + (Join-Path $Base $p.key_file) + "；补上再跑 -Only provider")
+        return $false
+    }
+    $have = Api "GET" "/provider-sources" $null 30
+    if ($null -eq $have) { FailLine "provider" ("读不到提供商列表：" + $script:LastError); return $false }
+    $ids = @()
+    if ($have.data) {
+        if ($have.data -is [array]) { foreach ($s in $have.data) { $ids += [string]$s.id } }
+        elseif ($have.data.provider_sources) { foreach ($s in $have.data.provider_sources) { $ids += [string]$s.id } }
+    }
+    if ($ids -notcontains $sid) {
+        FailLine "provider" ("后台里没有提供商「" + $sid + "」；跑 -Only provider 接一下（会写配置）")
+        return $false
+    }
+    $cfg = Get-Config
+    if ($null -eq $cfg) { FailLine "provider" "读不到后台配置（AstrBot 没跑？）"; return $false }
+    $cur = [string](Get-Path $cfg "agent_runner.config.model.provider_id")
+    if (-not $cur) {
+        FailLine "provider" "提供商在，但默认对话模型没设（agent_runner.config.model.provider_id 是空的）；跑 -Only provider"
+        return $false
+    }
+    $tt = Test-ProviderId $cur
+    if (-not $tt.ok) {
+        FailLine "provider" ("默认模型 " + $cur + " 测不通（" + $tt.status + "）：" + $tt.err + "；看 key / 余额 / 网络")
+        return $false
+    }
+    OkLine "provider" ("DeepSeek 提供商在位，默认模型 " + $cur + " 测试通过")
+    return $true
+}
+
+function Verify-Platform {
+    Step 34 "核对 QQ 平台和白名单（只读）"
+    $p = $packRaw.platform
+    $wantId = [string]$p.id
+    $r = Api "GET" "/bots" $null 30
+    if ($null -eq $r) { FailLine "platform" ("读不到平台列表：" + $script:LastError); return $false }
+    $bots = @()
+    if ($r.data) { if ($r.data -is [array]) { $bots = $r.data } elseif ($r.data.bots) { $bots = $r.data.bots } }
+    $qq = @($bots | Where-Object { $_.type -eq "aiocqhttp" })
+    if ($qq.Count -eq 0) { FailLine "platform" ("还没加 QQ 平台「" + $wantId + "」；跑 -Only platform（会写配置）"); return $false }
+    $platId = ""
+    $exact = @($qq | Where-Object { [string]$_.id -eq $wantId })
+    if ($exact.Count -gt 0) { $platId = $wantId }
+    elseif ($qq.Count -eq 1) { $platId = [string]$qq[0].id }
+    else { FailLine "platform" ("有 " + $qq.Count + " 个 QQ 平台，但没有叫「" + $wantId + "」的；在后台删掉多余的或改回这个名"); return $false }
+    $owner = Get-OwnerQq
+    if (-not $owner) { FailLine "platform" ("平台「" + $platId + "」在位，但没填主人 QQ：写进 " + (Join-Path $Base $packRaw.owner_file)); return $false }
+    $cfg = Get-Config
+    if ($null -eq $cfg) { FailLine "platform" "读不到后台配置（AstrBot 没跑？）"; return $false }
+    $miss = @()
+    $wlArr = @()
+    $wl = Get-Path $cfg "platform_settings.id_whitelist"
+    if ($wl) { foreach ($e in $wl) { $wlArr += [string]$e } }
+    $sess = $platId + ":FriendMessage:" + $owner
+    if ($wlArr -notcontains $sess) { $miss += ("白名单里没有 " + $sess) }
+    foreach ($g in (Get-Groups)) {
+        $gs = $platId + ":GroupMessage:" + $g
+        if ($wlArr -notcontains $gs) { $miss += ("白名单里没有 " + $gs) }
+    }
+    if (-not [bool](Get-Path $cfg "platform_settings.enable_id_white_list")) { $miss += "白名单开关没开（platform_settings.enable_id_white_list）" }
+    $admArr = @()
+    $adm = Get-Path $cfg "admins_id"
+    if ($adm) { foreach ($a in $adm) { $admArr += [string]$a } }
+    if ($admArr -notcontains $owner) { $miss += ("管理员里没有主人 " + $owner) }
+    if ($miss.Count -gt 0) {
+        FailLine "platform" ("平台「" + $platId + "」在位，但：" + ($miss -join "；") + "。跑 -Only platform 补")
+        return $false
+    }
+    OkLine "platform" ("平台「" + $platId + "」在位，白名单 " + $wlArr.Count + " 条（主人在），管理员对")
+    return $true
+}
+
+function Verify-Chat {
+    Step 52 "核对聊天设置（只读）"
+    $cfg = Get-Config
+    if ($null -eq $cfg) { FailLine "chat" "读不到后台配置（AstrBot 没跑？）"; return $false }
+    $bad = @(); $n = 0
+    foreach ($k in $packRaw.chat.PSObject.Properties.Name) {
+        if ($k -eq "说明") { continue }
+        $n++
+        $want = $packRaw.chat.$k
+        $got = Get-Path $cfg $k
+        if (-not (Test-SameJson $want $got)) {
+            $gv = ConvertTo-Json -InputObject $got -Compress -Depth 6
+            $bad += ($k + "（现在是 " + $gv + "）")
+        }
+    }
+    if ($bad.Count -gt 0) {
+        $show = @($bad | Select-Object -First 4) -join "、"
+        if ($bad.Count -gt 4) { $show = $show + " 等" }
+        FailLine "chat" ("有 " + $bad.Count + "/" + $n + " 项和配置包不一样：" + $show + "。跑 -Only chat 补齐")
+        return $false
+    }
+    OkLine "chat" ("分段回复、记 " + (Get-Path $cfg "agent_runner.config.compression.max_turns") + " 轮对话、安全模式这些都对上了（" + $n + " 项）")
+    return $true
+}
+
+function Verify-Plugins {
+    Step 56 "核对插件（只读）"
+    $items = @($packRaw.plugins.items)
+    if ($items.Count -eq 0) { FailLine "plugins" "配置包里 plugins.items 是空的"; return $false }
+    $rows = Get-PluginRows
+    if ($null -eq $rows) {
+        if ($script:LastError) { FailLine "plugins" ("读不到插件列表：" + $script:LastError); return $false }
+        $rows = @()
+    } else {
+        $rows = @($rows)
+    }
+    $state = @{}
+    foreach ($x in $rows) { if ($x -and $x.name) { $state[[string]$x.name] = [bool]$x.activated } }
+    $missing = @(); $wrong = @(); $on = 0; $off = 0; $ov = 0
+    foreach ($it in $items) {
+        $name = [string]$it.name
+        if (-not $name) { continue }
+        if (-not $state.ContainsKey($name)) { $missing += $name; continue }
+        $want = $true
+        if ($null -ne $it.enable) { $want = [bool]$it.enable }
+        $o = Get-Feature $name
+        if ($null -ne $o) { $want = $o; $ov++ }
+        if ($want) { $on++ } else { $off++ }
+        if ($state[$name] -ne $want) {
+            $nowTxt = if ($state[$name]) { "开着" } else { "关着" }
+            $wantTxt = if ($want) { "该开" } else { "该关" }
+            $wrong += ($name + "（现在" + $nowTxt + "，" + $wantTxt + "）")
+        }
+    }
+    if ($missing.Count -gt 0) {
+        FailLine "plugins" ("有 " + $missing.Count + " 个没装：" + (($missing | Select-Object -First 6) -join "、") + "。跑 -Only plugins 装上")
+        return $false
+    }
+    if ($wrong.Count -gt 0) {
+        FailLine "plugins" ("插件都在，但开关不对：" + (($wrong | Select-Object -First 6) -join "、") + "。跑 -Only plugins 按配置包开关")
+        return $false
+    }
+    $tail = ""
+    if ($ov -gt 0) { $tail = "（features.txt 覆盖 " + $ov + " 个）" }
+    OkLine "plugins" ("插件 " + $items.Count + " 个都在位，开 " + $on + " 关 " + $off + " 和配置包一致" + $tail)
+    return $true
+}
+
+function Verify-Memory {
+    $m = $packRaw.memory
+    $mode = Get-ModeSetting "memory" "private\memory-mode.txt" ([string]$m.default_mode)
+    $lm = [string]$m.plugin.name
+    if ($mode -eq "0" -or $mode -eq "") {
+        Step 68 "记忆：这次不开"
+        OkLine "memory" ("记忆没开（memory=" + $mode + "），不用核对；想开把 answers.json 的 memory 改成 1 或 2 再跑 -Only memory")
+        return $true
+    }
+    Step 68 ("核对记忆（mode=" + $mode + "）")
+    $spec = $m.modes.$mode
+    if ($null -eq $spec) { FailLine "memory" ("不认识的 memory=" + $mode + "（0 不要 / 1 本机 / 2 硅基流动）"); return $false }
+    $rows = Get-PluginRows
+    if ($null -eq $rows) { FailLine "memory" ("读不到插件列表：" + $script:LastError); return $false }
+    $row = @($rows | Where-Object { $_ -and [string]$_.name -eq $lm }) | Select-Object -First 1
+    if ($null -eq $row) { FailLine "memory" ("记忆插件 " + $lm + " 还没装；跑 -Only memory 或 -Only plugins"); return $false }
+    if (-not [bool]$row.activated) { FailLine "memory" ("记忆插件 " + $lm + " 装了但没开；跑 -Only memory"); return $false }
+    $r = Api "GET" ("/plugins/config?plugin_id=" + [uri]::EscapeDataString($lm)) $null 30
+    $cur = ""
+    if ($r -and $r.data -and $r.data.config) { $cur = [string](Get-Path $r.data.config "provider_settings.embedding_provider_id") }
+    $want = [string]$spec.id
+    if ($cur -ne $want) { FailLine "memory" ("记忆插件指的 embedding provider 是「" + $cur + "」，应为「" + $want + "」；跑 -Only memory"); return $false }
+    $tt = Test-ProviderId $want
+    if (-not $tt.ok) { FailLine "memory" ("记忆模型「" + $want + "」测不通（" + $tt.status + "）：" + $tt.err); return $false }
+    OkLine "memory" ("记忆开着：" + [string]$spec."说明" + "，插件已开、embedding 指向对、测试通过")
+    return $true
+}
+
+function Verify-Voice {
+    $v = $packRaw.voice
+    $mode = Get-ModeSetting "voice" "private\voice-mode.txt" ([string]$v.default_mode)
+    if ($mode -eq "0" -or $mode -eq "") {
+        Step 76 "语音：这次不开"
+        OkLine "voice" ("语音没开（voice=" + $mode + "），不用核对；想开把 answers.json 的 voice 改成 1/3/4/5 再跑 -Only voice")
+        return $true
+    }
+    Step 76 ("核对语音（mode=" + $mode + "）")
+    $spec = $null; $label = ""; $ttsOn = $true; $need = ""
+    if ($mode -eq "1") { $spec = $v.edge; $label = "Edge"; $ttsOn = $true }
+    elseif ($mode -eq "3") { $spec = $v.doubao; $label = "豆包"; $ttsOn = (-not [bool]$v.doubao.whole_reply); $need = [string]$v.doubao.plugin }
+    elseif ($mode -eq "4") { $spec = $v.breeze; $label = "本机 Breeze"; $ttsOn = $true }
+    elseif ($mode -eq "5") { $spec = $v.breeze_online; $label = "Breeze 在线"; $ttsOn = $false; $need = "astrbot_plugin_breeze_online_tts" }
+    else { FailLine "voice" ("不认识的 voice=" + $mode + "（0 / 1 Edge / 3 豆包 / 4 本机 Breeze / 5 在线）"); return $false }
+    $wantId = [string]$spec.id
+    if ($need) {
+        $rows = Get-PluginRows
+        if ($null -eq $rows) { FailLine "voice" ("读不到插件列表：" + $script:LastError); return $false }
+        $row = @($rows | Where-Object { $_ -and [string]$_.name -eq $need }) | Select-Object -First 1
+        if ($null -eq $row) { FailLine "voice" ("语音插件 " + $need + " 还没装；先跑 -Only plugins"); return $false }
+        if (-not [bool]$row.activated) { FailLine "voice" ("语音插件 " + $need + " 装了但没开；跑 -Only voice"); return $false }
+    }
+    if ($mode -eq "5") {
+        $keyFile = Get-Answer "breeze_api_key_file"
+        if (-not $keyFile) { $keyFile = Join-Path $Base ([string]$v.breeze_online.key_file) }
+        if (-not (Test-Path $keyFile)) { FailLine "voice" ("缺 Breeze 线上密钥文件 " + $keyFile + "；存进去再跑 -Only voice"); return $false }
+    }
+    $cfg = Get-Config
+    if ($null -eq $cfg) { FailLine "voice" "读不到后台配置（AstrBot 没跑？）"; return $false }
+    $curId = [string](Get-Path $cfg "provider_tts_settings.provider_id")
+    if ($curId -ne $wantId) { FailLine "voice" ("全局语音 provider 是「" + $curId + "」，应为「" + $wantId + "」；跑 -Only voice"); return $false }
+    $en = [bool](Get-Path $cfg "provider_tts_settings.enable")
+    if ($en -ne $ttsOn) {
+        $wantTxt = if ($ttsOn) { "开着" } else { "关着" }
+        FailLine "voice" ("全局按段语音应" + $wantTxt + "（provider_tts_settings.enable=" + $en + "）；跑 -Only voice")
+        return $false
+    }
+    $conf = Get-ProviderConf $wantId
+    if ($null -eq $conf -or -not $conf.enable) { FailLine "voice" ("语音提供商「" + $wantId + "」没配或没启用；跑 -Only voice"); return $false }
+    $tt = Test-ProviderId $wantId
+    if (-not $tt.ok) { FailLine "voice" ("语音「" + $label + "」测不通（" + $tt.status + "）：" + $tt.err + "；看服务/凭证"); return $false }
+    OkLine "voice" ("语音开着：" + $label + "，provider 指向对、全局开关对、测试通过")
+    return $true
+}
+
+function Verify-Persona {
+    Step 84 "核对人设（只读）"
+    $itemId = [string]$packRaw.persona.id
+    $r = Api "GET" ("/personas/" + [uri]::EscapeDataString($itemId)) $null 30
+    if ($null -eq $r) { FailLine "persona" ("读不到人设：" + $script:LastError); return $false }
+    $has = ($r -and $r.data -and ([string]$r.data.persona_id -eq $itemId))
+    if (-not $has) { FailLine "persona" ("人设「" + $itemId + "」还没导入；跑 -Only persona（会写配置）"); return $false }
+    $cfg = Get-Config
+    if ($null -eq $cfg) { FailLine "persona" "读不到后台配置（AstrBot 没跑？）"; return $false }
+    $cur = [string](Get-Path $cfg "agent_runner.config.persona.persona_id")
+    if ($cur -ne $itemId) { FailLine "persona" ("人设「" + $itemId + "」在，但默认人设是「" + $cur + "」；跑 -Only persona 切过来"); return $false }
+    OkLine "persona" ("人设「" + $itemId + "」在，且是默认")
+    return $true
+}
+
+function Verify-SelfCheck {
+    Step 88 "跑 diag-config.ps1 全面核对（只读）"
+    $diag = Join-Path $RepoRoot ([string]$packRaw.tools.diag)
+    if (-not (Test-Path $diag)) { $alt = Join-Path $PSScriptRoot "diag-config.ps1"; if (Test-Path $alt) { $diag = $alt } }
+    if (-not (Test-Path $diag)) { FailLine "verify" "没找到 tools\diag-config.ps1"; return $false }
+    $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $diag -Base $Base 2>&1 | ForEach-Object { [string]$_ }
+    $diagExit = $LASTEXITCODE
+    $bad = 0; $checked = 0
+    foreach ($line in $out) {
+        if ($line -match '^CHECK\s+(\S+)\s+(ok|bad)\s*(.*)$') {
+            $checked++
+            $name = $matches[1]; $st = $matches[2]; $detail = $matches[3]
+            if ($st -eq "ok") { Say ("  [ok] " + $name + "  " + $detail) } else { $bad++; Say ("  [!!] " + $name + "  " + $detail) }
+        }
+    }
+    if ($diagExit -ne 0) { FailLine "verify" ("diag-config.ps1 没有正常完成（退出码 " + $diagExit + "）；检查诊断脚本或后台后重试"); return $false }
+    if ($checked -eq 0) { FailLine "verify" "diag-config.ps1 没有返回任何 CHECK 检查结果，无法确认配置；检查诊断脚本后重试"; return $false }
+    if ($bad -gt 0) { FailLine "verify" ("还有 " + $bad + " 项没通过，看上面 [!!] 的行"); return $false }
+    OkLine "verify" "后台、模型、平台、白名单、插件、记忆、语音、人设都对上了"
+    return $true
+}
+
 # ------------------------------------------------------------------ 主流程
 Say ("冥零 · 自设定")
 Say ("  根   : " + $Base)
 Say ("  包   : " + $Pack)
-Say ("  模式 : " + $(if ($DryRun) { "dry-run（只看不改）" } elseif ($Restore) { "退回快照" } else { "真改" }))
+Say ("  模式 : " + $(if ($Verify) { "verify（只读核对，不改任何东西）" } elseif ($DryRun) { "dry-run（只看不改）" } elseif ($Restore) { "退回快照" } else { "真改" }))
 
 if (-not (Login)) {
     Step 0 "连后台"
@@ -1065,6 +1446,10 @@ if (-not (Login)) {
 if ($Restore) { Do-Restore $Restore }
 
 $all = @{ provider = ${function:Do-Provider}; platform = ${function:Do-Platform}; chat = ${function:Do-Chat}; plugins = ${function:Do-Plugins}; memory = ${function:Do-Memory}; voice = ${function:Do-Voice}; persona = ${function:Do-Persona}; verify = ${function:Do-Verify} }
+$blocks = $all
+if ($Verify) {
+    $blocks = @{ provider = ${function:Verify-Provider}; platform = ${function:Verify-Platform}; chat = ${function:Verify-Chat}; plugins = ${function:Verify-Plugins}; memory = ${function:Verify-Memory}; voice = ${function:Verify-Voice}; persona = ${function:Verify-Persona}; verify = ${function:Verify-SelfCheck} }
+}
 $order = @("provider", "platform", "chat", "plugins", "memory", "voice", "persona", "verify")
 $wanted = $order
 if ($Only) {
@@ -1077,12 +1462,12 @@ if ($Only) {
     if ($wanted.Count -eq 0) { Done 0 0 0 ("-Only 里没有能跑的块：" + $Only) "写成 provider,platform,chat,plugins,memory,voice,persona,verify 里的一串" }
 }
 
-if (-not $Restore) { Take-Snapshot "selfsetup" | Out-Null }
+if (-not $Restore -and -not $Verify) { Take-Snapshot "selfsetup" | Out-Null }
 
 $done = 0; $fail = 0
 foreach ($b in $wanted) {
     try {
-        $okB = & $all[$b]
+        $okB = & $blocks[$b]
         if ($okB) { $done++ } else { $fail++ }
     } catch {
         $fail++
@@ -1090,7 +1475,7 @@ foreach ($b in $wanted) {
     }
 }
 
-$why = if ($fail -eq 0) { "自设定跑完了，都成了" } else { ("有 " + $fail + " 块没成") }
-$next = if ($fail -eq 0) { "去 QQ 上发 /reset 清掉旧对话，再发「在吗」" } else { "看上面 ##FAIL 的行，改好再跑一次（只补没成的块：--only provider,persona 之类）" }
+$why = if ($fail -eq 0) { if ($Verify) { if ($done -eq 8) { "核对完了，八块都对上了" } else { ("核对完了，这 " + $done + " 块都对上了") } } else { "自设定跑完了，都成了" } } elseif ($Verify) { ("有 " + $fail + " 块没通过核对") } else { ("有 " + $fail + " 块没成") }
+$next = if ($Verify) { "想真改就去掉 -Verify 跑同一命令（或 -Only 某块）" } elseif ($fail -eq 0) { "去 QQ 上发 /reset 清掉旧对话，再发「在吗」" } else { "看上面 ##FAIL 的行，改好再跑一次（只补没成的块：--only provider,persona 之类）" }
 if ($fail -eq 0) { Done 1 $done $fail $why $next }
 Done 0 $done $fail $why $next

@@ -1,0 +1,1600 @@
+﻿{
+  "schema": 1,
+  "说明": "冥零工作台组件清单。tools/bootstrap.ps1 读这一份，按 requires 拓扑排序后逐个 检测→安装→验证。每个 source 都有可信 SHA256；直接下载在安装前复核，uv 用逐包哈希锁，npm 用 package-lock integrity，Ollama 模型用不可变 manifest；纯人工项以 asset_count=0 和空资产摘要显式建模。",
+  "tokens": {
+    "base": "工作台数据根（settings.json 的 base）",
+    "workspace": "工作区（默认同 base）",
+    "bots": "组件根（默认 <workspace>\\bots）",
+    "sidecar": "sidecar 目录（默认 <base>\\sidecar，尊重 MINGLING_SIDECAR）",
+    "repo": "本脚本所在仓库根（tools 的上一级）",
+    "astrbot_data": "AstrBot 数据目录（后台配置优先，否则 <bots>\\AstrBot\\data）"
+  },
+  "mirrors": {
+    "github": [
+      "https://gh.dpik.top/",
+      "https://edgeone.gh-proxy.com/",
+      "https://hk.gh-proxy.org/",
+      "https://gh-proxy.org/",
+      ""
+    ],
+    "npm": [
+      "https://registry.npmmirror.com",
+      "https://registry.npmjs.org"
+    ],
+    "pip": [
+      "https://pypi.tuna.tsinghua.edu.cn/simple",
+      "https://mirrors.aliyun.com/pypi/simple",
+      "https://pypi.org/simple"
+    ],
+    "huggingface": [
+      "https://hf-mirror.com",
+      "https://huggingface.co"
+    ],
+    "uv_python": [
+      "https://registry.npmmirror.com/-/binary/python-build-standalone",
+      "https://github.com/astral-sh/python-build-standalone/releases/download"
+    ]
+  },
+  "defaults": {
+    "download_dir": "{base}\\logs\\setup\\dl",
+    "temp_dir": "{base}\\logs\\setup\\tmp",
+    "command_timeout_seconds": 600,
+    "install_timeout_seconds": 1800
+  },
+  "components": [
+    {
+      "id": "webview2",
+      "name": "WebView2 运行时",
+      "version": "156.0.4314.58",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "registry_value",
+            "root": "HKLM",
+            "key": "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "name": "pv"
+          },
+          {
+            "kind": "registry_value",
+            "root": "HKCU",
+            "key": "Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "name": "pv"
+          },
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "%ProgramFiles(x86)%\\Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe",
+              "%ProgramFiles%\\Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe"
+            ]
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d5cc3c1c-bb59-4158-aedc-db0035e44466/MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+        "urls": [
+          "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d5cc3c1c-bb59-4158-aedc-db0035e44466/MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+        ],
+        "sha256": "62863f0f0611a16ccf124b4f15650c3b66624504eba74d7cde1e2ae5d951249b",
+        "trust": "Microsoft winget-pkgs manifest 1.28.0, package version 156.0.4314.58, x64"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d5cc3c1c-bb59-4158-aedc-db0035e44466/MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+            ],
+            "sha256": "62863f0f0611a16ccf124b4f15650c3b66624504eba74d7cde1e2ae5d951249b",
+            "dest": "{base}\\logs\\setup\\dl\\webview2-runtime-156.0.4314.58.exe",
+            "layout": "file",
+            "needs_network": true
+          },
+          {
+            "kind": "command",
+            "exe": "{base}\\logs\\setup\\dl\\webview2-runtime-156.0.4314.58.exe",
+            "args": [
+              "/silent",
+              "/install"
+            ],
+            "accept_exit": [
+              0,
+              -2147219416,
+              -2147219187
+            ],
+            "timeout": 900
+          }
+        ]
+      },
+      "verify": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "registry_value",
+            "root": "HKLM",
+            "key": "SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "name": "pv"
+          },
+          {
+            "kind": "registry_value",
+            "root": "HKCU",
+            "key": "Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
+            "name": "pv"
+          },
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "%ProgramFiles(x86)%\\Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe",
+              "%ProgramFiles%\\Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe"
+            ]
+          }
+        ]
+      },
+      "notes": "固定版本、微软官方固定下载地址和 winget 清单中的 SHA256。普通用户可安装；系统级已存在的高版本直接满足，不回退。"
+    },
+    {
+      "id": "node",
+      "name": "Node.js 运行时",
+      "version": "22.14.0",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{sidecar}\\node\\node.exe",
+              "{bots}\\SnowLuma\\node.exe",
+              "{base}\\SnowLuma\\node.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "node",
+            "args": [
+              "-v"
+            ],
+            "expect_regex": "^v(2[2-9]|[3-9][0-9])\\."
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip",
+        "urls": [
+          "https://npmmirror.com/mirrors/node/v22.14.0/node-v22.14.0-win-x64.zip",
+          "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip"
+        ],
+        "sha256": "55b639295920b219bb2acbcfa00f90393a2789095b7323f79475c9f34795f217",
+        "size": 34906389
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://npmmirror.com/mirrors/node/v22.14.0/node-v22.14.0-win-x64.zip",
+              "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip"
+            ],
+            "sha256": "55b639295920b219bb2acbcfa00f90393a2789095b7323f79475c9f34795f217",
+            "size": 34906389,
+            "dest": "{sidecar}\\node",
+            "layout": "flatten",
+            "needs_network": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{sidecar}\\node\\node.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{sidecar}\\node\\node.exe",
+            "args": [
+              "-v"
+            ],
+            "expect_regex": "^v22\\."
+          }
+        ]
+      },
+      "notes": "装到 sidecar\\node，和 V3.0.0 的布局一致；也认 SnowLuma 自带的 node.exe。"
+    },
+    {
+      "id": "ffmpeg",
+      "name": "ffmpeg",
+      "version": "autobuild-2026-11-08-12-35",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{sidecar}\\ffmpeg\\bin\\ffmpeg.exe",
+              "{bots}\\bili-whale\\bin\\ffmpeg.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "ffmpeg",
+            "args": [
+              "-version"
+            ],
+            "expect_regex": "ffmpeg version"
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-08-12-35/ffmpeg-N-128691-gcc583787bb-win64-gpl.zip",
+        "urls": [
+          "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-08-12-35/ffmpeg-N-128691-gcc583787bb-win64-gpl.zip"
+        ],
+        "sha256": "33c5d91e11daaae7ad057b98216bb918182d80396f51891c539aa1ab15cc6aa1",
+        "size": 201796363
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-08-12-35/ffmpeg-N-128691-gcc583787bb-win64-gpl.zip"
+            ],
+            "sha256": "33c5d91e11daaae7ad057b98216bb918182d80396f51891c539aa1ab15cc6aa1",
+            "size": 201796363,
+            "dest": "{sidecar}\\ffmpeg\\bin",
+            "layout": "find_parent",
+            "find": "ffmpeg.exe",
+            "needs_network": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{sidecar}\\ffmpeg\\bin\\ffmpeg.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{sidecar}\\ffmpeg\\bin\\ffmpeg.exe",
+            "args": [
+              "-version"
+            ],
+            "expect_regex": "ffmpeg version"
+          }
+        ]
+      },
+      "notes": "BtbN 的 autobuild 有日期，清单里写死版本+sha256；要升级就改 version/url/sha256/size。"
+    },
+    {
+      "id": "uv",
+      "name": "uv",
+      "version": "0.13.7",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\uv\\bin\\uv.exe",
+              "{bots}\\AstrBot\\bin\\uv.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "uv",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "^uv "
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-pc-windows-msvc.zip",
+        "urls": [
+          "https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-pc-windows-msvc.zip"
+        ],
+        "sha256": "0cdc5b38fe5a8168ed6a25814f5ba43c21d313dd3187314fccb37b7cec46e021",
+        "size": 15236317
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-pc-windows-msvc.zip"
+            ],
+            "sha256": "0cdc5b38fe5a8168ed6a25814f5ba43c21d313dd3187314fccb37b7cec46e021",
+            "size": 15236317,
+            "dest": "{base}\\uv\\bin",
+            "layout": "flatten",
+            "needs_network": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\uv\\bin\\uv.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{base}\\uv\\bin\\uv.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "^uv "
+          }
+        ]
+      },
+      "notes": "AstrBot 的 uv 方式安装要用；在 PATH 里已有 uv 也算满足。"
+    },
+    {
+      "id": "python",
+      "name": "Python 3.12",
+      "version": "3.12.16+20261026",
+      "requires": [
+        "uv"
+      ],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\AstrBot\\python\\python.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\AstrBot\\python\\python.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "^Python 3\\.12\\.16"
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+        "urls": [
+          "https://registry.npmmirror.com/-/binary/python-build-standalone/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+          "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+        ],
+        "sha256": "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149",
+        "size": 22014416,
+        "trust": "python-build-standalone release 20261026, GitHub asset digest sha256"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://registry.npmmirror.com/-/binary/python-build-standalone/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+              "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+            ],
+            "sha256": "1f2ab53880fc67ea323398c6388e05af28addc99a8e389209f08a51fdff4b149",
+            "size": 22014416,
+            "dest": "{bots}\\AstrBot\\python",
+            "layout": "flatten",
+            "needs_network": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\AstrBot\\python\\python.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\AstrBot\\python\\python.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "^Python 3\\.12\\.16"
+          }
+        ]
+      },
+      "notes": "固定 python-build-standalone 发行版，不再用 winget 或 uv 的可变 3.12 解析；用户系统 Python 不算满足，AstrBot 必须使用组件内固定解释器。"
+    },
+    {
+      "id": "astrbot",
+      "name": "AstrBot",
+      "version": "4.29.4",
+      "requires": [
+        "python",
+        "uv"
+      ],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-astrbot.ps1",
+          "-Root",
+          "{bots}\\AstrBot",
+          "-RequireRunning"
+        ],
+        "expect_exit": 0,
+        "timeout": 90
+      },
+      "source": {
+        "kind": "uv-lock",
+        "url": "https://files.pythonhosted.org/packages/b2/82/e7834f2b0f3347c2f7bef532ee7ecfea780a79df143016efd9442ab65075/astrbot-4.29.4-py3-none-any.whl",
+        "urls": [
+          "https://files.pythonhosted.org/packages/b2/82/e7834f2b0f3347c2f7bef532ee7ecfea780a79df143016efd9442ab65075/astrbot-4.29.4-py3-none-any.whl"
+        ],
+        "sha256": "53d20a66ed025b7305db0227dcf02d1d5d5c8456cda436cf31ba0d2817f44317",
+        "package_sha256": "189e9b07bff6fb91fe0ebaa3e9273af6b028f190023dcc43cbbbe4d3ec00a5b5",
+        "lock": "tools\\astrbot-requirements.txt",
+        "trust": "PyPI 4.29.4 wheel + uv 生成的 Windows x64/Python 3.12 全依赖锁；每个发行包及构建依赖均有 sha256"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "uv_tool",
+            "package": "astrbot",
+            "uv_exe": "{base}\\uv\\bin\\uv.exe",
+            "tool_dir": "{bots}\\AstrBot\\tools\\astrbot",
+            "bin_dir": "{bots}\\AstrBot\\bin",
+            "python_dir": "{bots}\\AstrBot\\python",
+            "python_exe": "{bots}\\AstrBot\\python\\python.exe",
+            "requirements": "{repo}\\tools\\astrbot-requirements.txt",
+            "requirements_sha256": "53d20a66ed025b7305db0227dcf02d1d5d5c8456cda436cf31ba0d2817f44317",
+            "needs_network": true
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\AstrBot\\bin\\astrbot.exe",
+            "args": [
+              "init",
+              "--yes"
+            ],
+            "workdir": "{bots}\\AstrBot",
+            "timeout": 300
+          },
+          {
+            "kind": "mkdir",
+            "paths": [
+              "{bots}\\AstrBot\\data",
+              "{bots}\\AstrBot\\data\\config"
+            ]
+          },
+          {
+            "kind": "write_file",
+            "path": "{bots}\\AstrBot\\env.cmd",
+            "encoding": "ansi",
+            "content": "@echo off\r\nset UV_TOOL_DIR={bots}\\AstrBot\\tools\r\nset UV_TOOL_BIN_DIR={bots}\\AstrBot\\bin\r\nset UV_PYTHON_INSTALL_DIR={bots}\\AstrBot\\python\r\n"
+          },
+          {
+            "kind": "write_file",
+            "path": "{bots}\\AstrBot\\start.cmd",
+            "encoding": "ansi",
+            "content": "@echo off\r\ncd /d \"{bots}\\AstrBot\"\r\nif exist \"{base}\\secrets\\deepseek-key.txt\" set /p MINGLING_DEEPSEEK_KEY=<\"{base}\\secrets\\deepseek-key.txt\"\r\nif not defined MINGLING_DEEPSEEK_KEY if exist \"{base}\\private\\deepseek-key.txt\" set /p MINGLING_DEEPSEEK_KEY=<\"{base}\\private\\deepseek-key.txt\"\r\nif not exist .astrbot \"{bots}\\AstrBot\\bin\\astrbot.exe\" init --yes >> data\\run.log 2>&1\r\n\"{bots}\\AstrBot\\bin\\astrbot.exe\" run --port 6185 >> data\\run.log 2>&1\r\n"
+          },
+          {
+            "kind": "command",
+            "exe": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "{repo}\\tools\\start-astrbot.ps1",
+              "-Root",
+              "{bots}\\AstrBot",
+              "-Base",
+              "{base}"
+            ],
+            "timeout": 300
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-astrbot.ps1",
+          "-Root",
+          "{bots}\\AstrBot",
+          "-RequireRunning"
+        ],
+        "expect_exit": 0,
+        "timeout": 90
+      },
+      "notes": "固定 4.29.4 全依赖锁；init 幂等且不覆盖已有 data/config；verify 检查 .astrbot、固定解释器、实际后台进程所属目录和 6185 响应，不把 --help 当成功。"
+    },
+    {
+      "id": "snowluma",
+      "name": "SnowLuma（QQ 登录端）",
+      "version": "2.4.2",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\SnowLuma\\index.mjs"
+            ]
+          },
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "{bots}\\NapCat*\\package.json",
+              "{bots}\\NapCat*\\*\\package.json",
+              "{base}\\NapCat*\\package.json"
+            ]
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/TomyJan/SnowLuma/releases/download/v2.4.2/SnowLuma-v2.4.2-win-x64.zip",
+        "urls": [
+          "https://github.com/TomyJan/SnowLuma/releases/download/v2.4.2/SnowLuma-v2.4.2-win-x64.zip"
+        ],
+        "sha256": "0912926c5e73260f35b000278a8658493fc9452f36782c32fa86f0e825bad81a",
+        "size": 43361462
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://github.com/TomyJan/SnowLuma/releases/download/v2.4.2/SnowLuma-v2.4.2-win-x64.zip"
+            ],
+            "sha256": "0912926c5e73260f35b000278a8658493fc9452f36782c32fa86f0e825bad81a",
+            "size": 43361462,
+            "dest": "{bots}\\SnowLuma",
+            "layout": "flatten",
+            "needs_network": true
+          },
+          {
+            "kind": "write_file",
+            "path": "{bots}\\SnowLuma\\start.cmd",
+            "encoding": "ansi",
+            "content": "@echo off\r\ncd /d \"{bots}\\SnowLuma\"\r\nset SNOWLUMA_HOOK_AUTOLOAD=1\r\nset SNOWLUMA_ACCEPT_EULA=1\r\nset SNOWLUMA_ACCEPT_PRIVACY=1\r\nif exist \"{base}\\private\\snowluma-webui.txt\" set /p SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD=<\"{base}\\private\\snowluma-webui.txt\"\r\n.\\node.exe .\\index.mjs\r\npause\r\n"
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\SnowLuma\\index.mjs"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\SnowLuma\\start.cmd"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\SnowLuma\\node.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "^v"
+          }
+        ]
+      },
+      "manual_steps": [
+        "启动 SnowLuma 后要手机 QQ 扫码登录；扫码脚本只检测状态，不代扫"
+      ],
+      "notes": "已经装了 NapCat 也算这个组件满足（两个登录端二选一）。"
+    },
+    {
+      "id": "breeze",
+      "name": "Breeze 本地语音（可选）",
+      "version": "0.1.7",
+      "requires": [],
+      "optional": true,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "{bots}\\Breeze\\breeze-server*.exe",
+              "{bots}\\Breeze\\*\\breeze-server*.exe"
+            ]
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/v0.1.7/breeze-tts-2-v0.1.7-windows-x64-vulkan.zip",
+        "urls": [
+          "https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/v0.1.7/breeze-tts-2-v0.1.7-windows-x64-vulkan.zip"
+        ],
+        "sha256": "63fb117e5c6b04e33ac513d6ca80c621d01bdbdebcf7a8486f872d181ae3c88f",
+        "size": 72930161
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/v0.1.7/breeze-tts-2-v0.1.7-windows-x64-vulkan.zip"
+            ],
+            "sha256": "63fb117e5c6b04e33ac513d6ca80c621d01bdbdebcf7a8486f872d181ae3c88f",
+            "size": 72930161,
+            "dest": "{bots}\\Breeze",
+            "layout": "flatten",
+            "needs_network": true
+          },
+          {
+            "kind": "write_file",
+            "path": "{bots}\\Breeze\\start.cmd",
+            "encoding": "ansi",
+            "content": "@echo off\r\ncd /d \"{bots}\\Breeze\"\r\nset \"SRV=\"\r\nfor %%f in (breeze-server*.exe) do set \"SRV=%%~ff\"\r\nif not defined SRV (\r\n  echo 没找到 breeze-server.exe：重新跑 tools\\bootstrap.ps1 -Component breeze\r\n  pause\r\n  exit /b 1\r\n)\r\nset \"MODEL=\"\r\nfor /r \"%~dp0\" %%f in (*.gguf) do if not defined MODEL set \"MODEL=%%~ff\"\r\nif not defined MODEL (\r\n  echo 没有找到模型：把 breeze-tts-2-*.gguf 放进 {bots}\\Breeze\\models\\ 再重跑这个文件\r\n  pause\r\n  exit /b 1\r\n)\r\n\"%SRV%\" -m \"%MODEL%\" --host 127.0.0.1 --port 8137\r\npause\r\n"
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "{bots}\\Breeze\\breeze-server*.exe",
+              "{bots}\\Breeze\\*\\breeze-server*.exe"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\Breeze\\start.cmd"
+            ]
+          }
+        ]
+      },
+      "manual_steps": [
+        "语音模型 *.gguf 体积大、发布包里不一定带；缺模型时 start.cmd 会提示放哪"
+      ],
+      "notes": "可选但默认装（V3.0.0 行为）；不装不影响 QQ 文字对话。"
+    },
+    {
+      "id": "ollama",
+      "name": "Ollama 客户端",
+      "version": "0.40.15",
+      "requires": [],
+      "optional": true,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\Ollama\\ollama.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\Ollama\\ollama.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "client version is 0\\.40\\.15"
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip",
+        "urls": [
+          "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip"
+        ],
+        "sha256": "9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6",
+        "size": 1614941966,
+        "trust": "Ollama v0.40.15 官方 GitHub release 资产"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "download",
+            "urls": [
+              "https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip"
+            ],
+            "sha256": "9ca74a7ab66ec86870b1eecac7df160df08dc4e3a291ab5d2d59bcf9310221c6",
+            "size": 1614941966,
+            "dest": "{bots}\\Ollama",
+            "layout": "flatten",
+            "needs_network": true
+          },
+          {
+            "kind": "mkdir",
+            "paths": [
+              "{bots}\\Ollama\\models"
+            ]
+          },
+          {
+            "kind": "env_user",
+            "name": "OLLAMA_MODELS",
+            "value": "{bots}\\Ollama\\models"
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\Ollama\\ollama.exe"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{bots}\\Ollama\\ollama.exe",
+            "args": [
+              "--version"
+            ],
+            "expect_regex": "client version is 0\\.40\\.15"
+          }
+        ]
+      },
+      "notes": "只表示客户端版本；服务运行状态由 ollama-service 单独判定，两者不互相替代。"
+    },
+    {
+      "id": "ollama-service",
+      "name": "Ollama 本机服务",
+      "version": "0.40.15",
+      "requires": [
+        "ollama"
+      ],
+      "optional": true,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "command",
+        "exe": "{bots}\\Ollama\\ollama.exe",
+        "args": [
+          "list"
+        ],
+        "expect_exit": 0,
+        "timeout": 30
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "无下载资产；启动已校验的 ollama.exe"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "command",
+            "exe": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "{repo}\\tools\\start-ollama.ps1",
+              "-Base",
+              "{base}",
+              "-Exe",
+              "{bots}\\Ollama\\ollama.exe"
+            ],
+            "timeout": 180
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "{bots}\\Ollama\\ollama.exe",
+        "args": [
+          "list"
+        ],
+        "expect_exit": 0,
+        "timeout": 30
+      },
+      "notes": "与客户端安装分开；依据 11434 实际服务可调用性判定，不看 exe 是否存在。"
+    },
+    {
+      "id": "bili-whale",
+      "name": "bili-whale（B 站侧车）",
+      "version": "0.4.6",
+      "requires": [
+        "node"
+      ],
+      "optional": true,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\bili-whale\\package.json"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\bili-whale\\node_modules\\qrcode\\package.json"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{sidecar}\\node\\node.exe",
+            "args": [
+              "-e",
+              "require.resolve('qrcode')"
+            ],
+            "workdir": "{bots}\\bili-whale",
+            "expect_exit": 0
+          }
+        ]
+      },
+      "source": {
+        "kind": "bundled",
+        "url": "sidecar/bili-whale",
+        "sha256": "ee758a98aa9e841bead17712314b83789f7035ffaf9f1377ff1a0a6743a2f7d6",
+        "manifest": "tools\\source-manifests\\bili-whale.json",
+        "trust": "随安装包源码树确定性 SHA256（126 个文件）；排除 node_modules",
+        "secondary": [
+          {
+            "name": "qrcode",
+            "version": "1.5.4",
+            "registry": "npm",
+            "integrity": "sha512-1ca71Zgiu6ORjHqFBDpnSMTR2ReToX4l1Au1VFLyVeBTFavzQnv5JxMFr3ukHVKpSrSA2MCk0lNJSykjUfz7Zg==",
+            "tarball": "https://registry.npmjs.org/qrcode/-/qrcode-1.5.4.tgz",
+            "sha1": "5cb81d86eb57c675febb08cf007fff963405da88"
+          }
+        ]
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "copy_tree",
+            "from": "{repo}\\sidecar\\bili-whale",
+            "to": "{bots}\\bili-whale",
+            "exclude": [
+              "node_modules"
+            ],
+            "only_if_missing": true,
+            "sha256": "ee758a98aa9e841bead17712314b83789f7035ffaf9f1377ff1a0a6743a2f7d6",
+            "manifest": "tools\\source-manifests\\bili-whale.json"
+          },
+          {
+            "kind": "copy_file",
+            "from": "{repo}\\sidecar\\bili-whale\\package-lock.json",
+            "to": "{bots}\\bili-whale\\package-lock.json",
+            "only_if_missing": true
+          },
+          {
+            "kind": "npm_install",
+            "dir": "{bots}\\bili-whale",
+            "packages": [
+              "qrcode@1.5.4"
+            ],
+            "needs_network": true
+          },
+          {
+            "kind": "copy_file",
+            "from": "{repo}\\sidecar\\bili-whale.config.template.json",
+            "to": "{bots}\\bili-whale\\bili-whale.config.json",
+            "only_if_missing": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\bili-whale\\package.json"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{bots}\\bili-whale\\node_modules\\qrcode\\package.json"
+            ]
+          },
+          {
+            "kind": "command",
+            "exe": "{sidecar}\\node\\node.exe",
+            "args": [
+              "-e",
+              "require.resolve('qrcode')"
+            ],
+            "workdir": "{bots}\\bili-whale",
+            "expect_exit": 0
+          }
+        ]
+      },
+      "manual_steps": [
+        "首次用 B 站功能要人工登录（扫码/Cookie），脚本只检查文件，不代登录"
+      ],
+      "notes": "copy_tree 只补缺失文件，不覆盖已有配置；npm 使用 package-lock 与受控缓存，离线无有效缓存会明确失败。"
+    },
+    {
+      "id": "memory-plugin",
+      "name": "长期记忆插件（LivingMemory）",
+      "version": "f8bfee886cb6ab90b3a5fb4c6e7d47ea0f650c9b",
+      "requires": [
+        "astrbot"
+      ],
+      "optional": false,
+      "default_install": true,
+      "manual": true,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{astrbot_data}\\plugins\\astrbot_plugin_livingmemory\\main.py"
+            ]
+          },
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "{bots}\\AstrBot\\data\\plugins\\astrbot_plugin_livingmemory\\main.py"
+            ]
+          }
+        ]
+      },
+      "source": {
+        "kind": "download",
+        "url": "https://codeload.github.com/lxfight/astrbot_plugin_livingmemory/tar.gz/f8bfee886cb6ab90b3a5fb4c6e7d47ea0f650c9b",
+        "urls": [
+          "https://codeload.github.com/lxfight/astrbot_plugin_livingmemory/tar.gz/f8bfee886cb6ab90b3a5fb4c6e7d47ea0f650c9b"
+        ],
+        "sha256": "ff2056ce7c048072117c393f5c2e73555107f2d10a865cd2091c6b2788276822",
+        "size": 2352991,
+        "commit": "f8bfee886cb6ab90b3a5fb4c6e7d47ea0f650c9b",
+        "trust": "GitHub codeload 固定提交归档；self-setup 必须校验该哈希后才允许上传插件"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "启动后台后跑自设定 memory 块：tools\\self-setup.ps1 -Only memory（或工作台「自设定」）",
+              "插件从 AstrBot 插件市场装，脚本不伪造已装"
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{astrbot_data}\\plugins\\astrbot_plugin_livingmemory\\main.py"
+            ]
+          }
+        ]
+      },
+      "manual_steps": [
+        "启动 AstrBot 后在工作台「自设定」里跑 memory 块"
+      ],
+      "notes": "manual：bootstrap 只检测和提示，不假装装好；实际安装由 self-setup.ps1 的 memory 块负责（同一套逻辑，不重复实现）。"
+    },
+    {
+      "id": "bili-bridge-plugin",
+      "name": "bili_bridge 插件",
+      "version": "bundled",
+      "requires": [
+        "astrbot"
+      ],
+      "optional": true,
+      "default_install": false,
+      "manual": true,
+      "detect": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{astrbot_data}\\plugins\\astrbot_plugin_bili_bridge\\main.py"
+            ]
+          },
+          {
+            "kind": "file_glob",
+            "patterns": [
+              "{bots}\\AstrBot\\data\\plugins\\astrbot_plugin_bili_bridge\\main.py"
+            ]
+          }
+        ]
+      },
+      "source": {
+        "kind": "bundled",
+        "url": "plugin/astrbot_plugin_bili_bridge",
+        "sha256": "e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f",
+        "manifest": "tools\\source-manifests\\bili-bridge-plugin.json",
+        "trust": "随安装包源码树确定性 SHA256（9 个文件）"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "启动后台后在工作台「自设定」的 plugins 块里启用；插件文件随安装包提供"
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "any",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{astrbot_data}\\plugins\\astrbot_plugin_bili_bridge\\main.py"
+            ]
+          }
+        ]
+      },
+      "manual_steps": [
+        "后台在线后由自设定 plugins 块装/开"
+      ],
+      "notes": "manual：bootstrap 只检测；装插件要走 AstrBot API，统一由 self-setup.ps1 做。"
+    },
+    {
+      "id": "embedding-model",
+      "name": "本机嵌入模型 bge-m3（可选）",
+      "version": "bge-m3@latest（manifest sha256:7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab；层 daec91ff…/a406579c…）",
+      "requires": [
+        "ollama",
+        "ollama-service"
+      ],
+      "optional": true,
+      "default_install": false,
+      "manual": false,
+      "detect": {
+        "kind": "command",
+        "exe": "{bots}\\Ollama\\ollama.exe",
+        "args": [
+          "list"
+        ],
+        "expect_regex": "bge-m3"
+      },
+      "source": {
+        "kind": "ollama",
+        "url": "https://registry.ollama.ai/v2/library/bge-m3/manifests/sha256:7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+        "sha256": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+        "layers": [
+          {
+            "digest": "sha256:daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c",
+            "size": 1157671200
+          },
+          {
+            "digest": "sha256:a406579cd136771c705c521db86ca7d60a6f3de7c9b5460e6193a2df27861bde",
+            "size": 1068
+          }
+        ],
+        "trust": "完整性锚点是模型层的内容寻址 sha256（daec91ff… / a406579c…），安装后按 blob 文件名与字节数复核；manifest digest 只用于记录来源（实测旧 manifest digest 会被 registry 回收成 404，因此不作为唯一锚点）"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "command",
+            "exe": "{bots}\\Ollama\\ollama.exe",
+            "args": [
+              "pull",
+              "bge-m3"
+            ],
+            "timeout": 3600,
+            "needs_network": true
+          },
+          {
+            "kind": "command",
+            "exe": "powershell.exe",
+            "args": [
+              "-NoProfile",
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              "{repo}\\tools\\verify-embedding-model.ps1",
+              "-Models",
+              "{bots}\\Ollama\\models"
+            ],
+            "timeout": 300,
+            "needs_network": false
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "{bots}\\Ollama\\ollama.exe",
+        "args": [
+          "list"
+        ],
+        "expect_regex": "bge-m3"
+      },
+      "notes": "只在本机记忆模式（memory=1）需要；默认不装，用 -Component embedding-model 或 -IncludeOptional 才装。按 tag 拉取后由 verify-embedding-model.ps1 核对两个模型层 blob 的存在与字节数。"
+    },
+    {
+      "id": "soulx-singer",
+      "name": "SoulX 唱歌服务（可选）",
+      "version": "manual",
+      "requires": [],
+      "optional": true,
+      "default_install": false,
+      "manual": true,
+      "detect": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\sing\\SoulX-Singer"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\sing\\models\\SoulX-Singer\\model.pt"
+            ],
+            "min_bytes": 2800000000
+          }
+        ]
+      },
+      "source": {
+        "kind": "script",
+        "url": "https://codeload.github.com/Soul-AILab/SoulX-Singer/tar.gz/81aeb3ae772c70093c3de74dc23c92d983801ae4",
+        "urls": [
+          "https://codeload.github.com/Soul-AILab/SoulX-Singer/tar.gz/81aeb3ae772c70093c3de74dc23c92d983801ae4"
+        ],
+        "sha256": "b1a1e9615f8832012396aa306a5de5a6157f4c193c4ce08b3ee35a7983dcee7b",
+        "size": 12975795,
+        "commit": "81aeb3ae772c70093c3de74dc23c92d983801ae4",
+        "trust": "源码归档已固定；安装脚本后续下载的模型/CUDA 依赖目前没有可信固定哈希，bootstrap 不代下，禁止自动安装"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "确保有 NVIDIA 显卡和足够磁盘，然后跑：powershell -ExecutionPolicy Bypass -File \"{repo}\\pack\\mingling-pack\\plugins\\astrbot_plugin_dafeiyu_sing\\sing_server\\setup_windows.ps1\" -Root \"{base}\\sing\""
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "all",
+        "probes": [
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\sing\\SoulX-Singer"
+            ]
+          },
+          {
+            "kind": "file",
+            "paths": [
+              "{base}\\sing\\models\\SoulX-Singer\\model.pt"
+            ],
+            "min_bytes": 2800000000
+          }
+        ]
+      },
+      "manual_steps": [
+        "用插件自带 setup_windows.ps1 装（2.8GB 模型 + CUDA PyTorch），bootstrap 只检测"
+      ],
+      "notes": "manual：上游模型没有发布固定 sha256，脚本不盲下大文件。"
+    },
+    {
+      "id": "dsh-pet",
+      "name": "DSH 桌宠联动（可选）",
+      "version": "manual",
+      "requires": [],
+      "optional": true,
+      "default_install": false,
+      "manual": true,
+      "detect": {
+        "kind": "file",
+        "paths": [
+          "{base}\\private\\pet-key.txt"
+        ]
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "纯人工状态，无安装资产；DSH 插件由用户在 DSH 内自行安装，bootstrap 不下载"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "先在 DSH 的插件管理里装 dsh-pet，再跑：powershell -NoProfile -ExecutionPolicy Bypass -File \"{repo}\\tools\\setup-pet.ps1\" -Dir \"{base}\""
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "file",
+        "paths": [
+          "{base}\\private\\pet-key.txt"
+        ]
+      },
+      "manual_steps": [
+        "DSH 插件市场装 dsh-pet，然后跑 tools\\setup-pet.ps1 -Dir <机器人根>"
+      ],
+      "notes": "manual：依赖 DSH 客户端里的插件安装，只能检测 pet-key.txt 判断是否接过。"
+    },
+    {
+      "id": "edge-tts",
+      "name": "Edge 语音依赖",
+      "version": "edge-tts 7.3.1 / pyffmpeg 2.5.2.3.2",
+      "requires": [
+        "astrbot"
+      ],
+      "optional": true,
+      "default_install": false,
+      "manual": false,
+      "detect": {
+        "kind": "command",
+        "exe": "{bots}\\AstrBot\\tools\\astrbot\\Scripts\\python.exe",
+        "args": [
+          "-c",
+          "import edge_tts, pyffmpeg"
+        ],
+        "expect_exit": 0,
+        "timeout": 60
+      },
+      "source": {
+        "kind": "uv-lock",
+        "url": "https://pypi.org/project/edge-tts/7.3.1/",
+        "urls": [
+          "https://pypi.org/project/edge-tts/7.3.1/"
+        ],
+        "sha256": "889c13b325e79e7377d04e4cbf314168d0d4b50438a8c44cdc821efafd6f3261",
+        "lock": "tools\\edge-tts-requirements.txt",
+        "trust": "uv 生成的 Windows x64/Python 3.12 全依赖锁；edge-tts 与 pyffmpeg 传递依赖逐包 sha256"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "uv_tool",
+            "package": "edge-tts",
+            "uv_exe": "{base}\\uv\\bin\\uv.exe",
+            "tool_dir": "{bots}\\AstrBot\\tools\\astrbot",
+            "bin_dir": "{bots}\\AstrBot\\bin",
+            "python_dir": "{bots}\\AstrBot\\python",
+            "python_exe": "{bots}\\AstrBot\\tools\\astrbot\\Scripts\\python.exe",
+            "exe_name": "edge-tts.exe",
+            "requirements": "{repo}\\tools\\edge-tts-requirements.txt",
+            "requirements_sha256": "889c13b325e79e7377d04e4cbf314168d0d4b50438a8c44cdc821efafd6f3261",
+            "needs_network": true
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "{bots}\\AstrBot\\tools\\astrbot\\Scripts\\python.exe",
+        "args": [
+          "-c",
+          "import edge_tts, pyffmpeg"
+        ],
+        "expect_exit": 0,
+        "timeout": 60
+      },
+      "notes": "只有 voice=1 才装；self-setup 通过 bootstrap -Component edge-tts 调用，不再让 AstrBot 后端执行未锁定的 /pip/install。"
+    },
+    {
+      "id": "bots-launchers",
+      "name": "组件启动脚本",
+      "version": "bundled",
+      "requires": [],
+      "optional": false,
+      "default_install": true,
+      "manual": false,
+      "detect": {
+        "kind": "file",
+        "paths": [
+          "{bots}\\start-all.cmd"
+        ]
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "bootstrap 生成，无外部或二级下载资产"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "write_file",
+            "path": "{bots}\\start-all.cmd",
+            "encoding": "ansi",
+            "content": "@echo off\r\ntitle 冥零 · 全部启动\r\nfor %%n in (Ollama SnowLuma Breeze AstrBot) do (\r\n  if exist \"%~dp0%%n\\start.cmd\" (\r\n    echo 起 %%n\r\n    start \"%%n\" /min cmd /c \"\"%~dp0%%n\\start.cmd\"\"\r\n    timeout /t 6 /nobreak >nul\r\n  )\r\n)\r\n"
+          }
+        ]
+      },
+      "verify": {
+        "kind": "file",
+        "paths": [
+          "{bots}\\start-all.cmd"
+        ]
+      },
+      "notes": "老布局（<base>\\start-xxx.cmd）不受影响；这个只补 bots 布局的 start-all.cmd。"
+    },
+    {
+      "id": "qq-login",
+      "name": "QQ 人工登录态",
+      "version": "manual",
+      "requires": [
+        "snowluma"
+      ],
+      "optional": false,
+      "default_install": true,
+      "manual": true,
+      "detect": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "qq",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 30
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "人工状态，无安装资产；不代扫码、不保存伪造凭据"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "启动 SnowLuma，用手机 QQ 扫码登录；只有实际 OneBot 连接建立后本项才会满足"
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "qq",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 30
+      },
+      "manual_steps": [
+        "手机 QQ 扫码并登录小号；软件安装成功不等于登录完成"
+      ],
+      "notes": "独立人工项；依据真实 OneBot WebSocket 连接与对应目录进程判定。"
+    },
+    {
+      "id": "bili-login",
+      "name": "B 站人工登录态",
+      "version": "manual",
+      "requires": [
+        "bili-whale",
+        "node"
+      ],
+      "optional": true,
+      "default_install": true,
+      "manual": true,
+      "detect": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "bili",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 45
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "人工状态，无安装资产；不代扫码、不写入真实账号"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "用 B 站扫码或粘贴 Cookie 完成登录，并运行 bili-whale 会话校验"
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "bili",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 45
+      },
+      "manual_steps": [
+        "B 站扫码/Cookie 登录；bili-whale 安装成功不等于已登录"
+      ],
+      "notes": "独立人工项；调用 bili-whale 的真实 nav 会话校验，凭据缺失/过期时不通过。"
+    },
+    {
+      "id": "deepseek-provider",
+      "name": "模型 API Key 人工配置",
+      "version": "manual",
+      "requires": [
+        "astrbot"
+      ],
+      "optional": false,
+      "default_install": true,
+      "manual": true,
+      "detect": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "api-key",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 60
+      },
+      "source": {
+        "kind": "none",
+        "url": "",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "asset_count": 0,
+        "trust": "人工凭据状态，无安装资产；不自动登录真实账号"
+      },
+      "install": {
+        "steps": [
+          {
+            "kind": "manual",
+            "steps": [
+              "在 secrets\\deepseek-key.txt 填入用户自己的 Key，再跑自设定 provider 块并验证"
+            ]
+          }
+        ]
+      },
+      "verify": {
+        "kind": "command",
+        "exe": "powershell.exe",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "{repo}\\tools\\verify-manual.ps1",
+          "-Kind",
+          "api-key",
+          "-Base",
+          "{base}",
+          "-Bots",
+          "{bots}"
+        ],
+        "expect_exit": 0,
+        "timeout": 60
+      },
+      "manual_steps": [
+        "填写有效 API Key 并完成 provider 配置；没有 Key 时只能显示人工待完成"
+      ],
+      "notes": "独立人工项；只读检查 Key 存在和 provider 配置，不把密钥写入日志或状态。"
+    }
+  ]
+}

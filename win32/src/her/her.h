@@ -63,7 +63,7 @@ J JBool(bool v);
 
 // ================================================================ 路径与配置
 std::wstring Base();                      // 工作区根目录（默认 D:\）
-std::wstring Root();                      // D:\MinglingWorkbench（工作台自己）
+std::wstring Root();                      // tools/pack 所在目录：安装目录 → 开发树 → 工作区
 std::wstring P(const wchar_t* rel);       // Base()\rel
 std::wstring BotPath(const wchar_t* name);   // <工作区>\bots\name 优先，老布局兜底
 // 组件启动脚本：先 <组件目录>\start.cmd（bots 布局），再 <组件目录>\start-breeze.cmd，
@@ -319,6 +319,8 @@ ActionResult RunAction(const std::wstring& op, const std::wstring& arg);
 // 「功能」页用：写覆盖文件（不动 answers.json）。
 // arg 形如 "plugin:dafeiyu_petlink:1" / "memory:2" / "voice:5"。
 ActionResult SetFeature(const std::wstring& arg);
+J FeatureSettings();  // 仅公开配置和凭据存在状态，不把密钥送到页面
+ActionResult ConfigureFeature(const J& request);
 std::wstring GroupReplyMode();
 std::wstring MemeMode();
 std::wstring VoiceMode();
@@ -336,9 +338,11 @@ struct SetupReport {
     std::wstring summary;
 };
 // onStep(百分比, 当前步骤)。只做回调，调用方自己决定怎么回 UI。
+// 环境（WebView2/Node/ffmpeg/Python）交给 tools\bootstrap.ps1（-Component 点名）补齐，幂等；五个组件归 BotsSetup。
 SetupReport AutoSetup(const std::function<void(int, const std::wstring&)>& onStep);
 // 五个组件（AstrBot/SnowLuma/Breeze/Ollama/bili-whale）装进 <工作区>\bots。
-// 真正的下载在 tools\auto-setup.ps1，这里只拉起它并把 ##STEP/##OK/##RESULT 翻成步骤。
+// 和 AutoSetup 用同一份 tools\bootstrap.ps1（-Component uv,astrbot,snowluma,breeze,ollama,bili-whale,bots-launchers，幂等），
+// 这里只把 ##STEP/##OK/##FAIL/##RESULT 翻成步骤。
 SetupReport BotsSetup(const std::function<void(int, const std::wstring&)>& onStep);
 // 自设定：拿 pack\mingling-pack\pack.json 把 DeepSeek、QQ 平台、聊天设置、人设都配成冥零。
 // 真正的活在 tools\self-setup.ps1（分 provider/platform/chat/plugins/memory/voice/persona/verify 八块），

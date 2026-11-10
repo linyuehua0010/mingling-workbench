@@ -34,32 +34,32 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define APP_VERSION_MAJOR 3
-#define APP_VERSION_MINOR 0
+#define APP_VERSION_MINOR 1
 #define APP_VERSION_PATCH 0
-#define APP_VERSION_BUILD 3
+#define APP_VERSION_BUILD 0
 
 // 渠道后缀：正式版是空串，快照版写 "-snapshot"。tools\check-version.ps1 核对它和 APP_SNAPSHOT。
-#define APP_VERSION_SUFFIX "-snapshot"
+#define APP_VERSION_SUFFIX ""
 
 // 快照通道：1 = 和正式版并存（独立状态目录 / 窗口类 / AppUserModelID / 卸载项 / 安装目录），
 // 0 = 正式通道。必须与 APP_VERSION_SUFFIX 是否为空保持一致。
-#define APP_SNAPSHOT 1
+#define APP_SNAPSHOT 0
 
 // 快照序号：正式版固定 0，且必须等于 APP_VERSION_BUILD。
-#define APP_SNAPSHOT_N 3
+#define APP_SNAPSHOT_N 0
 
 // 资源文件用：FILEVERSION / PRODUCTVERSION（3,0,0,0）
 #define APP_VERSION_NUM APP_VERSION_MAJOR,APP_VERSION_MINOR,APP_VERSION_PATCH,APP_VERSION_BUILD
 
 // 窄字符串：.rc / Inno Setup / NSIS / 脚本
-#define APP_VERSION_STR   "3.0.0.3"        // 文件版本（四段数字）
-#define APP_VERSION_PLAIN "3.0.0"          // 只有数字，不带渠道
-#define APP_VERSION_TAG   "V3-snapshot-3"  // 给人看的完整串
-#define APP_VERSION_SHORT "3-snapshot-3"   // 安装包文件名用
+#define APP_VERSION_STR   "3.1.0.0"        // 文件版本（四段数字）
+#define APP_VERSION_PLAIN "3.1.0"          // 只有数字，不带渠道
+#define APP_VERSION_TAG   "V3.1.0"         // 给人看的完整串
+#define APP_VERSION_SHORT "3.1.0"          // 安装包文件名用
 
 // 宽字符串：C++ / GDI+ 绘制
-#define APP_VERSION         L"V3-snapshot-3"
-#define APP_VERSION_PLAIN_W L"3.0.0"
-#define APP_VERSION_FULL_W  L"3.0.0.3"
-#define APP_VERSION_SHORT_W L"3-snapshot-3"
+#define APP_VERSION         L"V3.1.0"
+#define APP_VERSION_PLAIN_W L"3.1.0"
+#define APP_VERSION_FULL_W  L"3.1.0.0"
+#define APP_VERSION_SHORT_W L"3.1.0"
 #define APP_NAME            L"冥零工作台"

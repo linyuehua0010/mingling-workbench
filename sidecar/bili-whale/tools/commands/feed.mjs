@@ -11,7 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { config } from '../lib/config.mjs'
 import crypto from 'node:crypto'
-import { dshPath } from '../lib/paths.mjs'
+import { dshPath, logsRoot } from '../lib/paths.mjs'
 
 
 const argv = process.argv.slice(2)
@@ -36,6 +36,13 @@ const audit = path.join(HOME, '.bili-ai', 'commented-videos.md')
 let prefs = [...(config().preferences?.like ?? [])]   // 偏好来自统一配置（首选）
 let dislike = [...(config().preferences?.dislike ?? [])]
 let seen = new Set()
+for (const bv of String(opt.exclude ?? '').split(',')) if (/^BV[0-9A-Za-z]{10}$/.test(bv)) seen.add(bv)
+// Workbench watches are recorded in its shared ledger rather than the DSH diary.
+try {
+  for (const line of fs.readFileSync(path.join(logsRoot(), 'jobs.jsonl'), 'utf8').split(/\r?\n/)) {
+    try { const row = JSON.parse(line); if (row.status === 'ok' && /^BV[0-9A-Za-z]{10}$/.test(row.bv)) seen.add(row.bv) } catch {}
+  }
+} catch {}
 try {
   const text = fs.readFileSync(diary, 'utf8')
   const m = text.match(/^-\s*\*\*爱看\*\*：(.+)$/m)
@@ -106,7 +113,7 @@ async function searchCached(kw, order) {
   let store = {}
   try { store = JSON.parse(fs.readFileSync(SEARCH_CACHE, 'utf8')) } catch {}
   const hit = store[key]
-  if (hit && Date.now() - Number(hit.at ?? 0) < SEARCH_TTL_MS) return hit.data
+  if (!opt.refresh && hit && Date.now() - Number(hit.at ?? 0) < SEARCH_TTL_MS) return hit.data
   const j = await (await fetch(`https://api.bilibili.com/x/web-interface/wbi/search/type?${wbi({ search_type: 'video', keyword: kw, order, page: 1 })}`, { headers: H })).json()
   if (j && j.code === 0) {
     store[key] = { at: Date.now(), data: j }

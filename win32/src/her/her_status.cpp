@@ -183,8 +183,7 @@ bool LaunchOllama() {
         }
         RegCloseKey(k);
     }
-    LaunchExe(exe, L"serve", BotPath(L"Ollama"), env, true);
-    return true;
+    return LaunchExe(exe, L"serve", ParentDir(exe), env, true) != 0;
 }
 
 std::vector<wstring> OllamaModels(bool* ok) {

@@ -28,6 +28,8 @@ function Find-Script([string]$Name) {
     $dirs = @($PSScriptRoot, $tools)
     $home_ = if (Test-Path "$tools\skill-home.txt") { (Get-Content "$tools\skill-home.txt" -Raw -Encoding UTF8).Trim() } else { '' }
     if ($home_) { $dirs += "$home_\scripts" }
+    # 旧安装保留的大肥鱼工具也可以复用；冥零安装包同时携带需要的桥接工具。
+    $dirs += "$env:USERPROFILE\.agents\skills\dafeiyu-install\scripts"
     foreach ($d in $dirs) { if (Test-Path "$d\$Name") { return "$d\$Name" } }
     return ''
 }
@@ -72,6 +74,7 @@ if ($Check) {
     Say "DSH 和 dsh-pet 的设置：$(if ($s -and $s.ok) { '都指向她' } elseif ($s) { "还没弄全（自定义模型 $(@($s.profiles.PSObject.Properties | Where-Object { $_.Value }).Count) 个 profile、口令 $(if ($s.credential) { '有' } else { '没有' })、对话模型 $(if ($s.chat_model) { '是她' } else { '不是她' })）" } else { '读不出来' })"
     $ok = $hasKey -and $h -and $h.astrbot -eq 'ok' -and $s -and $s.ok
     Say "RESULT pet=$(if ($ok) { 'ok' } else { 'partial' })$(if (-not $ok) { ' next=跑一次 setup-pet.ps1（不带 -Check）补上' })"
+    if (-not $ok) { exit 1 }
     exit 0
 }
 
@@ -102,14 +105,15 @@ Say "找到了桌宠插件 dsh-pet$(if ($d.pet_version) { " $($d.pet_version)" }
 
 # 1 桌宠用的 key + 调桥的口令
 $as = Find-Script 'astr_setup.py'
+if (-not $as) { Say 'RESULT pet=fail reason=missing-helper next=缺少 astr_setup.py，先修复安装包中的桌宠工具'; exit 1 }
 & $py -X utf8 $as --dir $Dir pet-key 2>&1 | ForEach-Object { Say "  $_" }
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$Dir\private\pet-key.txt")) { Say 'RESULT pet=fail reason=pet-key next=后台建不了 key：看 AstrBot 开没开（工作台「大脑」那一项），再跑一次'; exit 1 }
 
 # 2 互通插件 + 记忆范围
-$ip = Find-Script 'import-pack.ps1'
-$imp = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $ip -Dir $Dir -Only pet 2>&1 | ForEach-Object { "$_" })
+$ip = Find-Script 'self-setup.ps1'
+$imp = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $ip -Base $Dir -Only 'plugins,memory' 2>&1 | ForEach-Object { "$_" })
 $imp | Where-Object { $_ -match '^\s*\[|插件|记忆|RESULT|MIGRATE|没|失败' } | Select-Object -Last 12 | ForEach-Object { Say "  $_" }
-$petRes = ($imp | Where-Object { $_ -match 'RESULT pet=' } | Select-Object -Last 1)
+$petRes = if ($imp -match '##RESULT ok=1') { 'RESULT pet=ok' } else { 'RESULT pet=partial' }
 $migrate = [bool]($imp | Where-Object { $_ -match 'MIGRATE private-memories' })
 
 # 3 桥：拷进 tools\（他删了 Skill 也能跑），写启动脚本，后台起来，开机自启

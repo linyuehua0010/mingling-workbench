@@ -309,6 +309,7 @@ void SetBaseDir(const wstring& dir) {
 
 void EnsureWorkspaceLayout(const wstring& root) {
     if (root.empty()) return;
+    if (IsUpdateRestart()) return;
     EnsureDirTree(root);
     EnsureDirTree(JoinPath(root, L"out"));
     EnsureDirTree(JoinPath(root, L"tmp"));
@@ -338,6 +339,7 @@ wstring SecretFile(const wchar_t* name) {
 }
 
 bool EnsureSecrets() {
+    if (IsUpdateRestart()) return true;
     wstring dir = SecretsDir();
     EnsureDirTree(dir);
     wstring readme = JoinPath(dir, L"README.txt");
@@ -437,6 +439,37 @@ bool CopyDirTree(const wstring& from, const wstring& to) {
 void MigrateWorkspaceData(const wstring& from, const wstring& to) {    if (from.empty() || to.empty() || from == to) return;
     const wchar_t* sub[] = {L"out", L"tmp", L"logs"};
     for (auto s : sub) CopyTree(JoinPath(from, s), JoinPath(to, s));
+}
+
+// ---------------------------------------------------------------- 升级重启抑制
+// 安装器在 HKCU 留一次性标记；旧版独立助手升级后重启时也会走到这里。
+// 首次读取后把标记消费掉，所以只影响升级后的那一次启动。
+static int g_updateRestart = -1;
+
+bool IsUpdateRestart() {
+    if (g_updateRestart >= 0) return g_updateRestart == 1;
+    g_updateRestart = 0;
+    wchar_t env[32] = {0};
+    if (GetEnvironmentVariableW(L"MINGLING_UPDATE_RESTART", env, 32) && env[0] == L'1') g_updateRestart = 1;
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\MinglingWorkbench\\Installer", 0, KEY_READ, &key) == ERROR_SUCCESS) {
+        DWORD value = 0, size = sizeof(value), type = 0;
+        if (RegQueryValueExW(key, L"SuppressStartupWrites", nullptr, &type, (BYTE*)&value, &size) == ERROR_SUCCESS &&
+            type == REG_DWORD && value == 1)
+            g_updateRestart = 1;
+        RegCloseKey(key);
+    }
+    return g_updateRestart == 1;
+}
+
+void ConsumeUpdateRestart() {
+    if (!IsUpdateRestart()) return;
+    SetEnvironmentVariableW(L"MINGLING_UPDATE_RESTART", L"1");
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\MinglingWorkbench\\Installer", 0, KEY_SET_VALUE, &key) == ERROR_SUCCESS) {
+        RegDeleteValueW(key, L"SuppressStartupWrites");
+        RegCloseKey(key);
+    }
 }
 
 // ---------------------------------------------------------------- 卸载项（应用和功能）

@@ -182,11 +182,13 @@ ActionResult StartBreeze() {
 }
 
 ActionResult StartOllama() {
-    if (Listening(11434)) return Ok(L"Ollama 本来就开着。");
-    if (OllamaExe().empty()) return Bad(L"找不到 ollama.exe。交给 Agent 装一下。");
-    LaunchOllama();
-    if (!WaitFor([] { return Listening(11434); }, 60)) return Bad(L"一分钟了 Ollama 还没开。看看任务管理器里有没有 ollama。");
-    WaitFor([] {
+    if (!Listening(11434)) {
+        if (OllamaExe().empty()) return Bad(L"找不到 ollama.exe。交给 Agent 装一下。");
+        if (!LaunchOllama()) return Bad(L"Ollama 进程没能启动，请检查程序路径和权限。");
+        if (!WaitFor([] { return Listening(11434); }, 60)) return Bad(L"一分钟了 Ollama 还没开。看看任务管理器里有没有 ollama。");
+    }
+    const wstring model = MemoryWiring().model;
+    bool ready = WaitFor([&] {
         bool ok = false;
         std::vector<wstring> ms = OllamaModels(&ok);
         if (!ok) return false;
@@ -194,10 +196,12 @@ ActionResult StartOllama() {
             wstring b = m;
             size_t q = b.find(L':');
             if (q != wstring::npos) b = b.substr(0, q);
-            if (b == L"bge-m3") return true;
+            wstring expected = model.empty() ? L"bge-m3" : model;
+            if (m == expected || (expected.find(L':') == wstring::npos && b == expected)) return true;
         }
         return false;
     }, 20);
+    if (!ready) return Bad(L"Ollama 已启动，但记忆模型还不可用，请检查模型目录和模型是否已安装。");
     return Ok(L"Ollama 开好了，记忆模型也在。");
 }
 
@@ -258,7 +262,7 @@ ActionResult AutostartFix() {
     // 老布局才指 <机器人根> 下的那几个。空串交给 PowerShell 那段的 Test-Path 挡掉。
     wstring astrCmd = ComponentStartCmd(L"AstrBot", L"start-astrbot.cmd");
     wstring breezeCmd = ComponentStartCmd(L"Breeze", L"breeze-tts\\start-breeze.cmd");
-    wstring ollamaExe = JoinPath(BotPath(L"Ollama"), L"ollama.exe");
+    wstring ollamaExe = OllamaExe();
     wstring ps =
         L"$ErrorActionPreference='Stop';"
         L"$Dir=$env:DFY_DIR;$proto=$env:DFY_PROTO;$mem=$env:DFY_MEM;$voice=$env:DFY_VOICE;"
@@ -270,18 +274,16 @@ ActionResult AutostartFix() {
         L"if($as -and (Test-Path $as) -and -not (Test-Path \"$startup\\大肥鱼-AstrBot.lnk\")){"
         L"L \"$startup\\大肥鱼-AstrBot.lnk\" $as (Split-Path $as) '大肥鱼的大脑，别关'};"
         L"Set-QQAutostart $Dir $proto;"
-        L"if($mem -eq '1' -and -not (Test-Path \"$startup\\Ollama.lnk\")){"
-        L"$o=@($ol,\"$env:LOCALAPPDATA\\Programs\\Ollama\\ollama.exe\")|Where-Object{$_ -and (Test-Path $_)}|Select-Object -First 1;"
-        L"if($o){L \"$startup\\Ollama.lnk\" \"$env:SystemRoot\\System32\\conhost.exe\" (Split-Path $o) '大肥鱼的记忆' \"--headless `\"$o`\" serve\"}};"
+        L"if($mem -eq '1'){Set-OllamaAutostart -Dir $Dir -Script \"$env:DFY_SCRIPTS\\start-ollama.ps1\" -Exe $ol};"
         L"if($voice -eq '4' -and $bz -and (Test-Path $bz) -and -not (Get-ChildItem $startup -Filter '*Breeze*' -ErrorAction SilentlyContinue)){"
         L"L \"$startup\\启动Breeze语音.lnk\" $bz (Split-Path $bz) '大肥鱼的语音'};"
         L"'DONE'";
     EnvList env;
     env.push_back({L"DFY_DIR", Base()});
     env.push_back({L"DFY_PROTO", Protocol()});
-    env.push_back({L"DFY_MEM", std::to_wstring(Memory())});
+    env.push_back({L"DFY_MEM", (Memory() == 1 || MemoryWiring().ollama) ? L"1" : L"0"});
     env.push_back({L"DFY_VOICE", std::to_wstring(Voice())});
-    env.push_back({L"DFY_SCRIPTS", JoinPath(Base(), L"tools")});
+    env.push_back({L"DFY_SCRIPTS", JoinPath(Root(), L"tools")});
     env.push_back({L"DFY_ASTR", astrCmd});
     env.push_back({L"DFY_BREEZE", breezeCmd});
     env.push_back({L"DFY_OLLAMA", ollamaExe});
@@ -766,6 +768,7 @@ static wstring MinglingSkillDir() {
 // 平时只探几次路径；用户自己从更新页升到更新版本时不会往回退。
 // 铺 Skill 的实活（只在本文件里用，对外由下面的 EnsureBundledSkill 转一手）
 static void ApplyBundledSkill() {
+    if (IsUpdateRestart()) return;
     wstring src;
     for (const wstring& r : {ExeDir(), Root()}) {
         wstring d = JoinPath(JoinPath(r, L"skill"), kSkillDir);
@@ -1278,7 +1281,7 @@ static UpdatesInfo FetchUpdates() {
     up.Set(L"ok", JBool(okAll));
     J all = ReadJson(CachePath());
     all.Set(L"updates", up);
-    WriteJsonAtomic(CachePath(), all);
+    if (!IsUpdateRestart()) WriteJsonAtomic(CachePath(), all);
     return ParseUpdates(up);
 }
 
@@ -1433,7 +1436,7 @@ ActionResult SelfSetup(const std::wstring& block) {
     std::wstring script = JoinPath(JoinPath(Root(), L"tools"), L"self-setup.ps1");
     if (!FileExists(script)) {
         std::wstring legacy = JoinPath(JoinPath(Root(), L"tools"), L"import-mingling.ps1");
-        if (!FileExists(legacy)) return Bad(L"没找到 tools\\self-setup.ps1（这一版没带）");
+        if (!FileExists(legacy)) return Bad(L"找不到自设定脚本：" + script + L"。请修复安装，补齐 tools 和 pack 后再试。");
         return Bad(L"这一版工作台还没有自设定引擎（缺 tools\\self-setup.ps1），"
                    L"先用「导入冥零人设」把她说上话，再把工作台更新到带自设定的版本");
     }
@@ -1498,6 +1501,7 @@ std::wstring UpdatesSummary(const UpdatesInfo& u) {
 }
 
 ActionResult RunAction(const wstring& op, const wstring& arg) {
+    if (op == L"feature_config") return ConfigureFeature(J::Parse(arg));
     if (op == L"restart_brain" || op == L"restart_astrbot") return StartBrain(true);
     if (op == L"start_brain" || op == L"start_astrbot") return StartBrain(false);
     if (op == L"relogin") return Relogin();

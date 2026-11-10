@@ -13,6 +13,7 @@ wstring WebUiState() {
     s.Set(L"checkBusy", g_checkBusy); s.Set(L"maintBusy", g_mBusy);
     s.Set(L"watchStatus", g_watchStatus); s.Set(L"progress", g_watchPct);
     s.Set(L"feedNote", g_feedNote); s.Set(L"input", g_bvInput);
+    J agent = g_ba; agent.Set(L"busy", g_baBusy); agent.Set(L"note", g_baNote); s.Set(L"biliAgent", agent);
     s.Set(L"check", g_checkText); s.Set(L"log", g_logText); s.Set(L"logsrc", g_logSrc);
     s.Set(L"result", g_result.raw); s.Set(L"resultTitle", g_result.title);
     s.Set(L"resultOk", g_hasResult); s.Set(L"jobDetail", g_jobDetail);
@@ -31,6 +32,7 @@ wstring WebUiState() {
     const wchar_t* names[] = {L"astrbot_plugin_dafeiyu_petlink", L"astrbot_plugin_dafeiyu_sing", L"astrbot_plugin_seed_audio_tts", L"astrbot_plugin_breeze_online_tts"};
     for (auto n : names) features.Push(J(FeatureOn(n, false)));
     s.Set(L"features", features); s.Set(L"memory", ModeNum(L"memory", 0)); s.Set(L"voice", ModeNum(L"voice", 0));
+    if (g_tab == 5) s.Set(L"featureSettings", FeatureSettings());
     s.Set(L"group", g_mGroup); s.Set(L"meme", g_mMeme); s.Set(L"voiceFreq", g_mVoice);
     s.Set(L"watchOn", g_mWatchOn); s.Set(L"gameOn", g_mGameOn); s.Set(L"gameCan", g_mGameCan);
     J asks = JArr(); for (int i = 0; i < (int)(sizeof(ASKS)/sizeof(ASKS[0])); ++i) { J v = JObj(); v.Set(L"title", AskTitle(i)); v.Set(L"body", AskBody(i)); asks.Push(v); } s.Set(L"asks", asks);
@@ -39,11 +41,12 @@ wstring WebUiState() {
     if (g_notify) { J n = JObj(); n.Set(L"title", g_notify->title); n.Set(L"body", g_notify->body); s.Set(L"notify", n); }
     if (g_tab == 1 && g_bSec == 3) {
         J rows = JArr();
-        for (size_t i = 0; i < BiliCfgFields().size(); ++i) { auto& f = BiliCfgFields()[i]; J v = JObj(); v.Set(L"label", f.label); v.Set(L"hint", f.hint); v.Set(L"kind", f.kind); v.Set(L"value", BiliCfgShow(g_bcfgRoot, f)); rows.Push(v); } s.Set(L"bconfig", rows);
+        for (size_t i = 0; i < BiliCfgFields().size(); ++i) { auto& f = BiliCfgFields()[i]; J v = JObj(); v.Set(L"row", (int)i); v.Set(L"label", f.label); v.Set(L"hint", f.hint); v.Set(L"kind", f.kind); v.Set(L"value", BiliCfgShow(g_bcfgRoot, f)); rows.Push(v); } s.Set(L"bconfig", rows);
         rows = JArr();
         for (auto& r : g_lcRows) if (r.src) { J v = JObj(); v.Set(L"row", (int)(&r - g_lcRows.data())); v.Set(L"label", LcLabel(r)); v.Set(L"hint", LcHint(r)); v.Set(L"kind", LcKind(r)); v.Set(L"value", LcKind(r) == 5 ? L"" : r.src == 1 && r.idx == 3 ? g_lcLink.ua : LcShow(r)); rows.Push(v); }
         s.Set(L"lconfig", rows);
         s.Set(L"configNote", g_bcfgMsg + L" " + g_lcMsg);
+        s.Set(L"apiTestBusy", g_lcTestBusy);
     }
     return s.Dump();
 }
@@ -54,6 +57,12 @@ void WebUiCommand(const wstring& message) {
     bool ok = false; J m = J::Parse(message, &ok); if (!ok || !m.Obj()) return;
     wstring cmd = m.Str(L"cmd"), value = m.Str(L"value"); int index = (int)m.Int(L"index", -1);
     if (cmd == L"ready") { RefreshStatus(false); return; }
+    if (cmd == L"featureconfig") {
+        if (g_mBusy) { UiToast(L"上一项操作还没结束"); return; }
+        const J* fields = m.Get(L"fields");
+        if (!fields || !fields->Obj()) return;
+        RunHerOp(L"feature_config", m.Dump()); return;
+    }
     if (cmd == L"window") {
         if (value == L"minimize") ShowWindow(g_hwnd, SW_MINIMIZE);
         else if (value == L"maximize") ShowWindow(g_hwnd, IsZoomed(g_hwnd) ? SW_RESTORE : SW_MAXIMIZE);
@@ -81,6 +90,7 @@ void WebUiCommand(const wstring& message) {
     }
     if (cmd == L"watch") { if (value.size() > 8192) return; g_bvInput = value; g_tab = 1; g_bSec = 1; StartWatch(); return; }
     if (cmd == L"feed") { RefreshFeed(); return; }
+    if (cmd == L"biliagent") { BiliAgentCommand(value); return; }
     if (cmd == L"pick" && index >= 0 && index < (int)g_feed.size()) { g_bvInput = g_feed[index].bv; g_bSec = 1; return; }
     if (cmd == L"job" && index >= 0 && index < (int)g_jobs.size()) { g_jobSel = index; LoadJobDetail(index); return; }
     if (cmd == L"log" && index >= 0 && index < 3) { g_logSrc = index; RefreshLogsNow(); return; }
@@ -89,7 +99,9 @@ void WebUiCommand(const wstring& message) {
     if (cmd == L"doc" && index >= 0 && index < DOC_COUNT) { g_docSel = index; DocLoad(index); return; }
     if (cmd == L"askcopy" && index >= 0 && index < (int)(sizeof(ASKS)/sizeof(ASKS[0]))) { CopyText(AskBody(index)); UiToast(L"复制好了，发给 Agent 就行。"); return; }
     if (cmd == L"asksave" && index >= 0 && index < (int)(sizeof(ASKS)/sizeof(ASKS[0])) && value.size() < 16000) { SetAskText(index, value); UiToast(L"记下了。"); return; }
-    if (cmd == L"configsave") {
+    if (cmd == L"configsave" || cmd == L"configtest") {
+        const bool test = cmd == L"configtest";
+        if (test && g_lcTestBusy) return;
         const J* fields = m.Get(L"fields"); if (!fields || !fields->Arr()) return;
         wstring err;
         // 「链接与对话 API」那张表先在内存草稿上校验，通过才落盘。
@@ -101,8 +113,11 @@ void WebUiCommand(const wstring& message) {
                 if (LcKind(g_lcRows[r]) == 5 && f.Str(L"value").empty()) continue;
                 if (!LcApply(g_lcRows[r], f.Str(L"value"), &err)) { g_lcLink = oldLink; g_lcApi = oldApi; UiToast(err); return; }
             }
-            LinkCfgClose(true);
-        } else if (value == L"bili") {
+            if (test) {
+                LinkCfgTest();
+                g_lcLink = oldLink; g_lcApi = oldApi;
+            } else LinkCfgClose(true);
+        } else if (!test && value == L"bili") {
             J draft = g_bcfgRoot;
             for (auto& f : fields->a) { int r = (int)f.Int(L"row", -1); if (r < 0 || r >= (int)BiliCfgFields().size() || BiliCfgFields()[r].kind == 4) continue;
                 if (!BiliCfgApply(draft, BiliCfgFields()[r], f.Str(L"value"), &err)) { UiToast(err); return; }

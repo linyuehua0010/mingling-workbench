@@ -109,3 +109,11 @@ win32/build.local.bat
 # 装完 Skill 之后由它的收尾脚本写下的两个标记（每台机器各不相同，不进仓库）
 tools/skill-version.json
 tools/skill-home.txt
+
+# ---------- 10. 验收现场（本轮 V3.1.0 验收工具链的产物，不进 Git） ----------
+# 工具与文档要提交；证据、缓存、stage 里的安装包副本不提交。
+acceptance/evidence/
+acceptance/cache/
+acceptance/stage/
+acceptance/v2/stage/
+.workbuddy/

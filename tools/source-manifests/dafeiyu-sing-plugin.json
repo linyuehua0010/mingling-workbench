@@ -1,0 +1,88 @@
+{
+    "schema":  1,
+    "algorithm":  "sha256(path\\0size\\0file_sha256, sorted, UTF-8)",
+    "root":  "astrbot_plugin_dafeiyu_sing",
+    "digest":  "f1eb34a503098954e8c93ae697cda6b696441a8f515f0d3b4292538e33ad2839",
+    "files":  [
+                  {
+                      "path":  "_conf_schema.json",
+                      "size":  1295,
+                      "sha256":  "37d55c5d136b19d3404f948b5c20983b3ec8ddeb5e09adc95dd179db189c6a0c"
+                  },
+                  {
+                      "path":  "doubao_sing.py",
+                      "size":  6088,
+                      "sha256":  "89de87ab931902dc9ffcf220ef53067c64547186139c5b77b4785a0317738c2f"
+                  },
+                  {
+                      "path":  "main.py",
+                      "size":  8026,
+                      "sha256":  "30aa0f9470677092beafaeeae68dd1546966df7efe80126e42e6bcfa759e92a8"
+                  },
+                  {
+                      "path":  "metadata.yaml",
+                      "size":  337,
+                      "sha256":  "56aad4871ef725c4e5916014c368eb42d64d71df5d66dc2e6ca65af26ef70e92"
+                  },
+                  {
+                      "path":  "README.md",
+                      "size":  4456,
+                      "sha256":  "069bd194eb4b72a105c5358125d156fbea63ab94b822a3f48a2783c00a40ed33"
+                  },
+                  {
+                      "path":  "sing_server/__pycache__/sing_server.cpython-312.pyc",
+                      "size":  18574,
+                      "sha256":  "c66b9a2037ae78a2ec6ea3137cb31283b3b4d8ede510a136b53c212fdef21ead"
+                  },
+                  {
+                      "path":  "sing_server/doubao_backend.py",
+                      "size":  5416,
+                      "sha256":  "d4e9f203e79259877263653981a6f3227292e2fc70b37615af2aaf0119cc8ef2"
+                  },
+                  {
+                      "path":  "sing_server/melodies.py",
+                      "size":  6838,
+                      "sha256":  "bd92cc27c0db18ee5e8584aa7b1800dffe9150d9375125b29bfad1699f80ee5a"
+                  },
+                  {
+                      "path":  "sing_server/pitch_check.py",
+                      "size":  2805,
+                      "sha256":  "4192eb63a1275305ea46766d12c4183fdacb132309fb457736311540825a5b32"
+                  },
+                  {
+                      "path":  "sing_server/requirements.txt",
+                      "size":  106,
+                      "sha256":  "ad2b2e1bc1e7de8ff6823e48feebbc4178de926152fa19694970b4647eb056f7"
+                  },
+                  {
+                      "path":  "sing_server/setup_windows.ps1",
+                      "size":  572,
+                      "sha256":  "2041b843e6720012b24ae459280e3aa6cc148ea7bead479a1d430f23e8f74318"
+                  },
+                  {
+                      "path":  "sing_server/sing_server.py",
+                      "size":  10228,
+                      "sha256":  "cc0fc79764ca778fdf49cd52ce2cc138e1d2cb949ca5c26d9f89ec416ca3fc86"
+                  },
+                  {
+                      "path":  "sing_server/start_sing_server.bat",
+                      "size":  159,
+                      "sha256":  "5cfa1cf7e567577cfef25aca5490e2482ce019ab1225430c852161c8163a2c0a"
+                  },
+                  {
+                      "path":  "sing_server/voice/prompt.json",
+                      "size":  702,
+                      "sha256":  "2ced7302aca3c93cf6c3e41dbb090dac0be8e99934eb7ad815d5ccc025940dd4"
+                  },
+                  {
+                      "path":  "sing_server/voice/prompt.wav",
+                      "size":  207404,
+                      "sha256":  "f2f41be7145a52328ddaa492b34aeea98f2bd063e9d4d3bcf587844eaaba98bf"
+                  },
+                  {
+                      "path":  "sing_server/voice/reference.json",
+                      "size":  270,
+                      "sha256":  "3e7ef7175fac68b185e69e4aa18ce5e0b71f7d2df718f6f4499d894a4d6e0496"
+                  }
+              ]
+}

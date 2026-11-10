@@ -1,0 +1,618 @@
+{
+  "meta": {
+    "criterion": "2 — 来源完整性（supply-chain integrity）",
+    "repo": "F:\\dsh工作区\\MinglingWorkbench",
+    "platform": "Windows 10/11, MSYS bash, PowerShell 5.1",
+    "audited_at": "2026-11-09",
+    "auditor": "teammate integrity-audit (read-only)",
+    "working_tree_dirty_files": 83,
+    "product_files_modified": false,
+    "end_to_end_definition": "manifest hash exists AND fail-closed code compares computed==expected before asset use AND mismatch aborts installation",
+    "notes": "格式校验（64 位 hex）与安装后可用性探针均不计入端到端校验"
+  },
+  "verdict": {
+    "total_components": 21,
+    "enforced_e2e": 12,
+    "enforced_but_bypassable": 2,
+    "pin_present_but_ineffective_or_semantically_wrong": 3,
+    "no_asset_or_manual_only": 6,
+    "strictly_unbypassable_user_bytes": 10,
+    "comment": "12 条强制链中 node/ffmpeg 可被随包二进制或 PATH 探针绕过，故对用户可见字节完全强校验的仅 10 个；另有 3 个 pin 未被消费或语义错误（bili-bridge-plugin、soulx-singer、embedding-model）；6 个无资产（sha256 为空串哈希 e3b0c442…）。memory-plugin 的强制链在 tools/self-setup.ps1:845-860，不在 bootstrap 内。"
+  },
+  "primitives": [
+    {
+      "name": "download_step",
+      "file": "tools/bootstrap.ps1",
+      "function": "Invoke-DownloadStep",
+      "lines": "473-529",
+      "checks": [
+        {"line": "475-476", "guard": "缺失或非 64 位 sha256 → throw '清单里 {0} 的下载没有有效 sha256，拒绝盲下'"},
+        {"line": "489-494", "guard": "缓存文件 Get-FileHash 比对，通过复用"},
+        {"line": "495-496", "guard": "离线且无有效缓存 → throw '离线模式：本机没有校验通过的缓存 {0}'"},
+        {"line": "503", "guard": "Get-File -Sha256（逐镜像下载并校验）"},
+        {"line": "504-505", "guard": "下载后再 Get-FileHash，不等 → throw 'SHA256 校验失败：' + name"}
+      ],
+      "mismatch": "hard-fail: component ##FAIL, ##RESULT ok=0",
+      "mandatory": true
+    },
+    {
+      "name": "mirror_loop",
+      "file": "tools/common.ps1",
+      "function": "Get-File",
+      "lines": "12-105",
+      "checks": [
+        {"line": "18-19", "guard": "已有文件哈希通过则复用"},
+        {"line": "56-60", "guard": "下满但哈希不符 → 删除重下"},
+        {"line": "89-92", "guard": "每个镜像下载后 Get-FileHash，不符换源"},
+        {"line": "100", "guard": "全部源失败 → throw"}
+      ],
+      "mismatch": "try next mirror; all fail → throw",
+      "mandatory": true
+    },
+    {
+      "name": "github_mirror_rewrite",
+      "file": "tools/bootstrap.ps1",
+      "function": "Resolve-Urls",
+      "lines": "455-471",
+      "behavior": "给 GitHub URL 套 mirrors.github 前缀（gh.dpik.top / edgeone.gh-proxy.com / gh-proxy.org 等）",
+      "integrity_impact": "无：代理只影响可达性，摘要校验在下载后与源无关"
+    },
+    {
+      "name": "python_lock",
+      "file": "tools/bootstrap.ps1",
+      "function": "Invoke-UvStep (uv tool / uv pip)",
+      "lines": "581-610",
+      "checks": [
+        {"line": "581", "guard": "expectedLock = step.requirements_sha256"},
+        {"line": "583", "guard": "requirements.txt 本体 Get-FileHash != expected → throw '依赖锁 SHA256 校验失败'"},
+        {"line": "593", "guard": "uv pip install --require-hashes --no-build --no-python-downloads --find-links pack\\mingling-vendor\\wheels"},
+        {"line": "610", "guard": "无带哈希锁 → throw '未提供带哈希的依赖锁，拒绝执行不固定版本的 uv 安装'"}
+      ],
+      "semantics": "只允许 wheel、逐包哈希强制、禁止 sdist 构建、禁止 uv 自行下载解释器",
+      "mismatch": "throw，组件 FAIL",
+      "mandatory": true,
+      "tested": "T3 环境阻断（代码可证，未实测）"
+    },
+    {
+      "name": "npm_step",
+      "file": "tools/bootstrap.ps1",
+      "function": "Invoke-NpmStep",
+      "lines": "630-678",
+      "argv": "install --omit=dev --no-audit --no-fund --ignore-scripts [--offline] [--registry <url>]",
+      "checks": [{"line": "664-668", "guard": "仅 require.resolve('$pkg') 存在性验证"}],
+      "missing": ["npm ci", "--prefer-offline", "package-lock 哈希固定", "integrity 断言"],
+      "mismatch": "只有 npm 自身失败才 throw（:677）",
+      "mandatory": false
+    },
+    {
+      "name": "source_tree",
+      "file": "tools/bootstrap.ps1",
+      "function": "Invoke-CopyTreeStep",
+      "lines": "704-723",
+      "checks": [{"line": "715", "guard": "source-manifest.ps1 -Verify 的 stdout digest != step.sha256 → throw '源码树 SHA256 校验失败：'"}],
+      "digest_algorithm": {
+        "file": "tools/source-manifest.ps1",
+        "function": "Get-TreeDigest",
+        "formula": "sha256( sorted( path \\0 size \\0 file_sha256 ), UTF-8 )",
+        "excludes": [".git", "node_modules", "Thumbs.db", ".DS_Store", "*.tmp|*.temp|*.log"],
+        "verify_failure_line": "65"
+      },
+      "mismatch": "throw，组件 FAIL",
+      "mandatory": true,
+      "tested": "T2 通过"
+    },
+    {
+      "name": "ollama_pull",
+      "file": "tools/components.json",
+      "component": "embedding-model",
+      "command": "{bots}\\Ollama\\ollama.exe pull bge-m3@sha256:0c4c9c2a325fb1cdafec606e6809cb745f1cb26a6d919994400d27372303e276",
+      "verify_probe": "ollama list | regex 'bge-m3'",
+      "mandatory": false,
+      "defect": "pin 值是 manifest.config.digest，不是 manifest digest；verify 只按名字"
+    },
+    {
+      "name": "preflight_format_check",
+      "file": "tools/bootstrap.ps1",
+      "lines": "881-893",
+      "behavior": "选中组件的 download step 缺 64 位 sha256 → :891 throw '清单里 {0} 的下载缺少 sha256，拒绝安装'",
+      "note": "仅格式校验（防呆），实质比对在 download_step"
+    },
+    {
+      "name": "post_install_probe",
+      "file": "tools/bootstrap.ps1",
+      "lines": "1033",
+      "behavior": "Test-Probe（file 存在 / min_bytes / command / 正则），manual 组件 detect 在 :987",
+      "integrity_impact": "仅可用性，不证明字节来源"
+    }
+  ],
+  "assets": [
+    {
+      "id": "webview2",
+      "version": "156.0.4314.58",
+      "asset": "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
+      "urls": ["https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/d5cc3c1c-bb59-4158-aedc-db0035e44466/MicrosoftEdgeWebView2RuntimeInstallerX64.exe"],
+      "hash_source": "components.json sha256 62863f0f…，trust=winget-pkgs manifest 1.28.0",
+      "verify_path": "bootstrap.ps1:473 Invoke-DownloadStep → :503 Get-File -Sha256 → common.ps1:89-92 → :504-505 复检",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw 'SHA256 校验失败：…'，组件 FAIL",
+      "delivery": "download-then-run",
+      "post_install": "/silent /install, accept_exit [0,-2147219416,-2147219187], timeout 900",
+      "status": "verified-e2e",
+      "local_check": "无本地副本"
+    },
+    {
+      "id": "node",
+      "version": "22.14.0",
+      "asset": "node-v22.14.0-win-x64.zip",
+      "urls": [
+        "https://npmmirror.com/mirrors/node/v22.14.0/node-v22.14.0-win-x64.zip",
+        "https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip"
+      ],
+      "hash_source": "components.json sha256 55b63929… size 34906389",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {sidecar}\\node",
+      "mandatory": "enforced-with-bypass",
+      "bypass": "detect 探针命中 {sidecar}\\node\\node.exe（随包）即判已满足，不触发下载校验",
+      "mismatch_behavior": "下载路径失配 → throw，组件 FAIL",
+      "delivery": "bundled+download",
+      "bundled_file": {"path": "sidecar/node/node.exe", "bytes": 93580104, "sha256": "ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32", "hash_pinned_anywhere": false},
+      "status": "verified-e2e",
+      "local_check": "fail: 随包 node.exe 无任何清单期望值"
+    },
+    {
+      "id": "ffmpeg",
+      "version": "autobuild-2026-11-08-12-35 (N-128691-gcc583787bb)",
+      "asset": "ffmpeg-N-128691-gcc583787bb-win64-gpl.zip",
+      "urls": ["https://github.com/…/FFmpeg-Builds/releases/download/…/ffmpeg-N-128691-gcc583787bb-win64-gpl.zip (经 GitHub 镜像前缀)"],
+      "hash_source": "components.json sha256 33c5d91e… size 201796363",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {sidecar}\\ffmpeg\\bin，find_parent 找 ffmpeg.exe",
+      "mandatory": "enforced-with-bypass",
+      "bypass": ["detect 探针 'command ffmpeg' → PATH 里任意 ffmpeg 即满足", "随包 sidecar/bili-whale/bin/ffmpeg.exe"],
+      "mismatch_behavior": "下载路径失配 → throw，组件 FAIL",
+      "delivery": "bundled+download",
+      "bundled_file": {"path": "sidecar/bili-whale/bin/ffmpeg.exe", "hash_pinned_anywhere": false, "built_by": "tools/fetch-runtime.ps1:48-51 (gyan.dev rolling release, no hash)"},
+      "status": "verified-e2e",
+      "local_check": "fail: PATH 探针可完全绕过"
+    },
+    {
+      "id": "uv",
+      "version": "0.13.7",
+      "asset": "uv-x86_64-pc-windows-msvc.zip",
+      "urls": ["https://github.com/astral-sh/uv/releases/download/0.13.7/uv-x86_64-pc-windows-msvc.zip"],
+      "hash_source": "components.json sha256 0cdc5b38… size 15236317",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {base}\\uv\\bin",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw，组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e",
+      "local_check": "warn: dev 树 uv/bin/uv.exe sha256 1791d7a9…（版本自报 0.13.7），非清单固定 zip 产物；uv/ 不进安装包"
+    },
+    {
+      "id": "python",
+      "version": "3.12.16+20261026",
+      "asset": "cpython-3.12.16+20261026-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+      "urls": [
+        "https://npmmirror.com/mirrors/python-build-standalone/…",
+        "https://github.com/astral-sh/python-build-standalone/releases/download/…"
+      ],
+      "hash_source": "components.json sha256 1f2ab538… size 22014416, trust='GitHub asset digest'",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {bots}\\AstrBot\\python",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw，组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e"
+    },
+    {
+      "id": "astrbot",
+      "version": "4.29.4",
+      "asset": "PyPI astrbot + tools/astrbot-requirements.txt",
+      "urls": ["PyPI via uv (index 默认/镜像轮询)", "file: tools/astrbot-requirements.txt"],
+      "hash_source": "requirements_sha256 53d20a66ed025b7305db0227dcf02d1d5d5c8456cda436cf31ba0d2817f44317；逐包 --hash=sha256 ×3252；声明 package_sha256 189e9b07… 但 bootstrap 从不读取",
+      "verify_path": "bootstrap.ps1:581-583 锁本体哈希 → :593 uv pip install --require-hashes --no-build --no-python-downloads",
+      "mandatory": "enforced",
+      "mismatch_behavior": "'依赖锁 SHA256 校验失败' / uv 逐包哈希不符退出 → 组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e",
+      "local_check": "pass: 文件 285804 B sha256 53d20a66… 与清单一致；stage 副本一致"
+    },
+    {
+      "id": "snowluma",
+      "version": "2.4.2",
+      "asset": "SnowLuma-v2.4.2-win-x64.zip",
+      "urls": ["https://github.com/…/SnowLuma/releases/download/v2.4.2/SnowLuma-v2.4.2-win-x64.zip"],
+      "hash_source": "components.json sha256 0912926c… size 43361462",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {bots}\\SnowLuma",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw，组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e"
+    },
+    {
+      "id": "breeze",
+      "version": "0.1.7",
+      "asset": "breeze-tts-2-v0.1.7-windows-x64-vulkan.zip",
+      "urls": ["https://github.com/HoppouAI/Breeze-TTS-2.cpp/releases/download/v0.1.7/breeze-tts-2-v0.1.7-windows-x64-vulkan.zip"],
+      "hash_source": "components.json sha256 63fb117e… size 72930161",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {bots}\\Breeze",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw，组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e"
+    },
+    {
+      "id": "ollama",
+      "version": "0.40.15",
+      "asset": "ollama-windows-amd64.zip",
+      "urls": ["https://github.com/ollama/ollama/releases/download/v0.40.15/ollama-windows-amd64.zip"],
+      "hash_source": "components.json sha256 9ca74a7a… size 1614941966",
+      "verify_path": "bootstrap.ps1:473 → :503 → common.ps1:89-92 → :504-505；dest {bots}\\Ollama",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw，组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e"
+    },
+    {
+      "id": "ollama-service",
+      "version": "n/a",
+      "asset": "none",
+      "hash_source": "sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855（空串哈希，占位）",
+      "verify_path": "无；install=command start-ollama.ps1 -Base -Exe {bots}\\Ollama\\ollama.exe",
+      "mandatory": "none",
+      "mismatch_behavior": "n/a",
+      "delivery": "bundled-script",
+      "status": "no-asset"
+    },
+    {
+      "id": "bili-whale",
+      "version": "0.4.6",
+      "asset": "sidecar/bili-whale 源码树（126 文件）",
+      "urls": ["file: sidecar/bili-whale"],
+      "hash_source": "source.sha256 ee758a98… + tools/source-manifests/bili-whale.json",
+      "verify_path": "bootstrap.ps1:704-723 copy_tree → source-manifest.ps1 -Verify → :715 throw",
+      "mandatory": "enforced",
+      "mismatch_behavior": "throw '源码树 SHA256 校验失败：'",
+      "delivery": "bundled",
+      "then": "copy_file package-lock.json + npm_install qrcode@1.5.4（npm 侧 best-effort）",
+      "status": "verified-e2e",
+      "local_check": "pass: -Verify 输出 ee758a98…，exit 0"
+    },
+    {
+      "id": "memory-plugin",
+      "version": "manual",
+      "asset": "codeload tar.gz (livingmemory commit f8bfee88…)",
+      "urls": ["https://codeload.github.com/…/tar.gz/f8bfee88…"],
+      "hash_source": "source.sha256 ff2056ce… size 2352991",
+      "verify_path": "tools/self-setup.ps1:845-860：读 components.json sha256 → :845 非 64 hex 拒绝 → :851 缓存 Get-FileHash → :857-860 下载后复检，失配删缓存并 FailLine",
+      "mandatory": "enforced",
+      "mismatch_behavior": "FailLine '长期记忆插件 SHA256 校验失败，已删除缓存并拒绝安装' + return false，块失败",
+      "delivery": "manual-download",
+      "status": "verified-e2e",
+      "local_check": "缓存 .workbuddy/acceptance/livingmemory-f8bfee8.tar.gz 2352991 B sha256 ff2056ce… ✅ 与清单一致"
+    },
+    {
+      "id": "bili-bridge-plugin",
+      "version": "manual",
+      "asset": "plugin/astrbot_plugin_bili_bridge 源码树（9 文件）",
+      "urls": ["file: plugin/astrbot_plugin_bili_bridge"],
+      "hash_source": "e060e1b5… + tools/source-manifests/bili-bridge-plugin.json",
+      "verify_path": "机制存在（copy_tree），但 install 只有 manual 一句 → 无步骤消费清单",
+      "mandatory": "not-enforced",
+      "mismatch_behavior": "不适用",
+      "delivery": "bundled",
+      "status": "pin-unused",
+      "local_check": "pass: -Verify 输出 e060e1b5…，exit 0；但无安装步骤引用"
+    },
+    {
+      "id": "embedding-model",
+      "version": "bge-m3",
+      "asset": "Ollama registry bge-m3",
+      "urls": ["ollama://bge-m3@sha256:0c4c9c2a325fb1cdafec606e6809cb745f1cb26a6d919994400d27372303e276"],
+      "hash_source": "components.json source.kind=ollama digest=sha256:0c4c9c2a…；layers daec91ff…(1157671200) / a406579c…(1068)",
+      "verify_path": "install: ollama.exe pull；verify: bootstrap.ps1:1033 Test-Probe = ollama list | regex 'bge-m3'",
+      "mandatory": "not-enforced",
+      "defect": "0c4c9c2a 实为 manifest.config.digest；manifest 自身 sha256 = 7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab；verify 只按名字",
+      "mismatch_behavior": "名字在即 PASS，digest 不符不会失败",
+      "delivery": "download (needs_network, timeout 3600)",
+      "status": "pin-wrong"
+    },
+    {
+      "id": "soulx-singer",
+      "version": "manual",
+      "asset": "SoulX-Singer 源码归档 + 2.8GB model.pt + CUDA torch + py3.10",
+      "urls": [
+        "https://codeload.github.com/Soul-AILab/SoulX-Singer/tar.gz/81aeb3ae772c70093c3de74dc23c92d983801ae4",
+        "https://github.com/Soul-AILab/SoulX-Singer.git (实际使用的 git clone)",
+        "https://hf-mirror.com/Soul-AILab/SoulX-Singer/resolve/main/model.pt",
+        "https://huggingface.co/Soul-AILab/SoulX-Singer/resolve/main/model.pt"
+      ],
+      "hash_source": "source.sha256 b1a1e961… size 12975795 commit 81aeb3ae…（安装步骤不读取）",
+      "verify_path": "install=manual 跑 pack/…/sing_server/setup_windows.ps1 → tools/setup-singing.ps1:76-79 git clone --depth 1（无 pin）",
+      "mandatory": "not-enforced",
+      "mismatch_behavior": "不适用（无校验）",
+      "delivery": "manual-download",
+      "status": "pin-unused",
+      "local_check": "缓存 .workbuddy/acceptance/SoulX-Singer-81aeb3a.tar.gz 12975795 B sha256 b1a1e961… ✅，但无步骤用它",
+      "details_ref": "acceptance/analysis/soulx.md"
+    },
+    {
+      "id": "dsh-pet",
+      "version": "manual",
+      "asset": "none",
+      "hash_source": "e3b0c442…（空串哈希占位）",
+      "verify_path": "无；人工跑 tools\\setup-pet.ps1",
+      "mandatory": "none",
+      "delivery": "bundled-script",
+      "status": "no-asset"
+    },
+    {
+      "id": "edge-tts",
+      "version": "PyPI",
+      "asset": "PyPI edge-tts + tools/edge-tts-requirements.txt",
+      "urls": ["PyPI via uv", "file: tools/edge-tts-requirements.txt"],
+      "hash_source": "requirements_sha256 889c13b325e79e7377d04e4cbf314168d0d4b50438a8c44cdc821efafd6f3261；逐包 --hash=sha256 ×741",
+      "verify_path": "bootstrap.ps1:581-583 → :593（--require-hashes --no-build --no-python-downloads）",
+      "mandatory": "enforced",
+      "mismatch_behavior": "同 astrbot：锁哈希/逐包哈希失配 → 组件 FAIL",
+      "delivery": "download",
+      "status": "verified-e2e",
+      "local_check": "pass: 64080 B sha256 889c13b3… 与清单一致"
+    },
+    {
+      "id": "bots-launchers",
+      "version": "n/a",
+      "asset": "none（只 write_file {bots}\\start-all.cmd）",
+      "hash_source": "e3b0c442…（空串哈希占位）",
+      "verify_path": "无",
+      "mandatory": "none",
+      "delivery": "bundled-script",
+      "status": "no-asset"
+    },
+    {
+      "id": "qq-login",
+      "version": "manual",
+      "asset": "none",
+      "hash_source": "e3b0c442…（空串哈希占位）",
+      "verify_path": "只有 detect 探针",
+      "mandatory": "none",
+      "delivery": "none",
+      "status": "no-asset"
+    },
+    {
+      "id": "bili-login",
+      "version": "manual",
+      "asset": "none",
+      "hash_source": "e3b0c442…（空串哈希占位）",
+      "verify_path": "只有 detect 探针",
+      "mandatory": "none",
+      "delivery": "none",
+      "status": "no-asset"
+    },
+    {
+      "id": "deepseek-provider",
+      "version": "manual",
+      "asset": "none",
+      "hash_source": "e3b0c442…（空串哈希占位）",
+      "verify_path": "只有 detect 探针",
+      "mandatory": "none",
+      "delivery": "none",
+      "status": "no-asset"
+    }
+  ],
+  "python_locks": {
+    "astrbot": {
+      "file": "tools/astrbot-requirements.txt",
+      "physical_lines": 3768,
+      "logical_lines": 516,
+      "requirements": 154,
+      "sha256_hash_entries": 3252,
+      "requirements_without_hash": 0,
+      "environment_markers": 0,
+      "sdist_or_no_binary": false,
+      "bytes": 285804,
+      "sha256": "53d20a66ed025b7305db0227dcf02d1d5d5c8456cda436cf31ba0d2817f44317",
+      "matches_manifest_requirements_sha256": true
+    },
+    "edge_tts": {
+      "file": "tools/edge-tts-requirements.txt",
+      "physical_lines": 780,
+      "logical_lines": 39,
+      "requirements": 14,
+      "sha256_hash_entries": 741,
+      "requirements_without_hash": 0,
+      "bytes": 64080,
+      "sha256": "889c13b325e79e7377d04e4cbf314168d0d4b50438a8c44cdc821efafd6f3261",
+      "matches_manifest_requirements_sha256": true
+    },
+    "distinct_hashes_union": 3263,
+    "uv_flags": ["--require-hashes", "--no-build", "--no-python-downloads", "--find-links pack\\mingling-vendor\\wheels"],
+    "vendor_wheels": [
+      {"file": "pack/mingling-vendor/wheels/aiocqhttp-1.4.4-py3-none-any.whl", "sha256": "c706536d2399cf8f58ab9d5e4bba23d0eed104d497df6cf86ad0cf5862aa9ee2", "in_lock": true},
+      {"file": "pack/mingling-vendor/wheels/jieba-0.42.1-py3-none-any.whl", "sha256": "bb0b3f305325e2cc7df2b95de34275094a420bc6836bc6db40941433706ffdad", "in_lock": true}
+    ],
+    "lock_generation_audited": false,
+    "note": "锁的解析/生成过程不在仓库内，无法审计哈希抓取时的索引与时间；锁只保证字节恒等，不保证当初干净。"
+  },
+  "npm": {
+    "lockfile": "sidecar/bili-whale/package-lock.json",
+    "lockfileVersion": 3,
+    "name": "dsh-bili-whale",
+    "packages_entries": 30,
+    "node_modules_entries": 29,
+    "entries_with_integrity": 29,
+    "entries_missing_integrity": 0,
+    "root_dependencies": {"qrcode": "1.5.4"},
+    "install_command": "npm install --omit=dev --no-audit --no-fund --ignore-scripts [--registry <url>]",
+    "uses_npm_ci": false,
+    "lock_hash_pinned": false,
+    "integrity_asserted_by_workbench": false,
+    "post_check": "require.resolve('qrcode') only (bootstrap.ps1:664-668)",
+    "verdict": "best-effort；29 个 integrity 仅在 npm 自愿复用锁时生效"
+  },
+  "ollama_model": {
+    "component": "embedding-model",
+    "model": "bge-m3",
+    "pinned_value": "sha256:0c4c9c2a325fb1cdafec606e6809cb745f1cb26a6d919994400d27372303e276",
+    "pinned_value_actual_role": "manifest.config.digest (config blob, size 337)",
+    "manifest_sha256": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+    "layers": [
+      {"digest": "sha256:daec91ffb5dd0c27411bd71f29932917c49cf529a641d0168496c3a501e3062c", "size": 1157671200},
+      {"digest": "sha256:a406579cd136771c705c521db86ca7d60a6f3de7c9b5460e6193a2df27861bde", "size": 1068}
+    ],
+    "manifest_local_copy": {"path": ".workbuddy/acceptance/bge-m3-manifest.json", "bytes": 563, "sha256": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab"},
+    "verify_probe": "ollama list | regex 'bge-m3'（不比对 digest）",
+    "verdict": "pin 语义错误 + 装后不校验 digest"
+  },
+  "source_trees": [
+    {"path": "sidecar/bili-whale", "files": 126, "expected": "ee758a98aa9e841bead17712314b83789f7035ffaf9f1377ff1a0a6743a2f7d6", "actual": "ee758a98aa9e841bead17712314b83789f7035ffaf9f1377ff1a0a6743a2f7d6", "match": true, "consumed_by": "bootstrap.ps1:704-723 copy_tree（强制）"},
+    {"path": "plugin/astrbot_plugin_bili_bridge", "files": 9, "expected": "e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f", "actual": "e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f", "match": true, "consumed_by": "无（install=manual）", "verdict": "dead-manifest"},
+    {"path": "pack/mingling-pack/plugins/astrbot_plugin_dafeiyu_sing", "files": 16, "expected": "f1eb34a503098954e8c93ae697cda6b696441a8f515f0d3b4292538e33ad2839", "actual": "f1eb34a503098954e8c93ae697cda6b696441a8f515f0d3b4292538e33ad2839", "match": true, "consumed_by": "无（全仓库无引用 tools/source-manifests/dafeiyu-sing-plugin.json）", "verdict": "dead-manifest"}
+  ],
+  "shipped_binaries": [
+    {"path": "sidecar/node/node.exe", "bytes": 93580104, "sha256": "ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32", "pinned": false, "built_by": "tools/fetch-runtime.ps1:33-38（nodejs.org/dist/index.json 最新 LTS，Invoke-WebRequest，无哈希）"},
+    {"path": "sidecar/bili-whale/bin/ffmpeg.exe", "pinned": false, "built_by": "tools/fetch-runtime.ps1:48-51（gyan.dev ffmpeg-release-essentials.zip，无哈希）"},
+    {"path": "uv/bin/uv.exe (dev tree only)", "bytes": 31803184, "sha256": "1791d7a9ed5b6df13ccf80f102e025c333010d96326b4ff0262aa3b578835c5a", "version_reported": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)", "pinned": false, "shipped_in_installer": false}
+  ],
+  "installer": {
+    "file": "dist/MinglingWorkbench-3.1.0-setup.exe",
+    "bytes": 88869111,
+    "sha256": "AB8443BB94678115BBA720C8FA8012F48DE067702A9043055056C0751D172FBF",
+    "authenticode": {
+      "status": "NotSigned",
+      "status_message": "The file F:\\dsh工作区\\MinglingWorkbench\\dist\\MinglingWorkbench-3.1.0-setup.exe is not digitally signed. The file may have been tampered with or corrupted. …",
+      "signer_certificate": null
+    },
+    "checksums_record": "acceptance/stage/checksums.txt 记 ab8443bb…（值一致）",
+    "ships": ["sidecar/* (含 node.exe, bili-whale/bin/ffmpeg.exe)", "tools/*.ps1|*.py|*.cmd|*.txt", "tools/components.json", "tools/astrbot-requirements.txt", "tools/edge-tts-requirements.txt", "tools/source-manifests/*.json", "tools/python/*", "pack/mingling-pack/*", "pack/mingling-vendor/*", "skill/mingling-install/*", "plugin/*"],
+    "install_time_run": "installer/mingling.iss:126 → bootstrap.ps1 -Check（只 detect，不下载、不校验已存在资产的哈希）",
+    "registry": "installer/mingling.iss:336 写 HKCU\\Software\\MinglingWorkbench\\ProgramRoot = {app}"
+  },
+  "updater": {
+    "code": ["win32/src/her/her_selfupdate.cpp:409-443", "win32/src/ui_update.inc:306-333", "win32/src/her/her_selfupdate.cpp:571-595"],
+    "asset_discovery": "release 中 name 含 setup 的 .exe；:432-434 顺带找 <setup名>.sha256 存 a.shaUrl",
+    "size_check": "ui_update.inc:306-313 只比 a.size 与下载大小",
+    "sha256_check": "ui_update.inc:314-333 best-effort：.sha256 缺失或下载失败静默跳过；不符 → '校验没通过（哈希对不上），已经放弃安装'",
+    "sha256_impl": "her::Sha256File（her_selfupdate.cpp:141），仅 main.cpp:503（--wb-get）与 ui_update.inc:323 调用",
+    "authenticode_check": false,
+    "installer_launch": "setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /FORCECLOSEAPPLICATIONS /WORKSPACE … /DIR … /LOG …（不再校验）",
+    "finish_update": "tools/finish-update.ps1:25 复制前算 .new 的 sha256，:42-43 复制后再算 target 比对（exit 6）→ 仅复制完整性"
+  },
+  "skill_self_update": {
+    "code": "win32/src/her/her_actions.cpp:1312-1346",
+    "download": "https://github.com/<repo>/releases/latest/download/mingling-install.zip（私有仓库走 api.github.com assets + token，:1322）",
+    "only_check": "if ((Get-Item $zp).Length -gt 10000) { $got = $true }",
+    "structure_check": ":1335 包内需有 SKILL.md / version.json / scripts\\finish.ps1",
+    "execute": ":1346 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fin -Dir $Dir（执行刚下载的 finish.ps1）",
+    "hash_verification": false,
+    "signature_verification": false,
+    "verdict": "未校验的远程代码执行面；信任仅 TLS + GitHub 账号/token"
+  },
+  "bootstrap_spawn": {
+    "expected_path_installer_layout": "{app}\\tools\\bootstrap.ps1",
+    "expected_path_skill_layout": "<program-root>\\tools\\bootstrap.ps1，program-root 由 resolve-program-root.ps1 解析",
+    "hash_computed_or_checked": false,
+    "callers": [
+      {"file": "win32/src/her/her_setup.cpp", "line": 92, "detail": "script = JoinPath(JoinPath(Root(), L\"tools\"), L\"bootstrap.ps1\")；:93-95 缺文件报「没找到 …（这一版没带 bootstrap.ps1）」"},
+      {"file": "win32/src/her/her_setup.cpp", "lines": "105-118", "detail": "powershell -NoProfile -ExecutionPolicy Bypass -File <script> -Base <Base> -Workspace <WorkspaceDir> -Bots <BotRoot> + extra；:118 RunCaptureStream 45 分钟超时；:124-133 只认 ##RESULT ok=1 且无 ##FAIL"},
+      {"file": "win32/src/her/her_setup.cpp", "lines": "142-168", "detail": "AutoSetup → -Component webview2,node,ffmpeg,python"},
+      {"file": "win32/src/her/her_setup.cpp", "line": 224, "detail": "BotsSetup → -Component uv,astrbot,snowluma,breeze,ollama,bili-whale,bots-launchers"},
+      {"file": "win32/src/main.cpp", "lines": "393,406", "detail": "CLI 入口 --bots-setup / --autosetup"},
+      {"file": "installer/mingling.iss", "line": 126, "detail": "安装收尾 bootstrap.ps1 -Base {code:WorkspacePath} -Check（只 detect）"},
+      {"file": "skill/mingling-install/scripts/bootstrap.ps1", "lines": "5-14", "detail": "调 resolve-program-root.ps1 得 $program；Test-Path $program\\tools\\bootstrap.ps1，否则「程序目录里没有 bootstrap.ps1」exit 2；存在则打印 ##BOOTSTRAP 并 & $bootstrap @args（无哈希）"}
+    ],
+    "root_resolver_workbench": {
+      "file": "win32/src/her/her_config.cpp",
+      "lines": "48-63",
+      "order": ["exe 目录含 tools\\", "exe 在 bin\\ → 上一级", "exe 在 build\\ → 上两级", "WorkspaceDir() 含 tools\\", "Base() 含 tools\\", "回退 exe 目录"]
+    },
+    "root_resolver_skill": {
+      "file": "skill/mingling-install/scripts/resolve-program-root.ps1",
+      "lines": "4-28",
+      "valid_root": "<p>\\tools\\bootstrap.ps1 必须存在（:4-9）",
+      "order": ["HKCU:\\Software\\MinglingWorkbench 的 ProgramRoot", "HKCU:\\…\\Uninstall\\MinglingWorkbench_is1 的 InstallLocation", "%LOCALAPPDATA%\\Programs\\MinglingWorkbench"],
+      "failure": ":28 报错；SKILL.md:82 用 <这个 skill>\\scripts\\bootstrap.ps1，:86-87 警告不要写成 <工作区>\\tools\\bootstrap.ps1"
+    },
+    "divergence_cases": [
+      "安装版标准布局：两侧都解析到 {app}\\tools\\bootstrap.ps1，一致",
+      "自定义 /DIR 且注册表 ProgramRoot 缺失：skill 回退 LOCALAPPDATA → exit 2，GUI 正常",
+      "dev/portable（exe 在 bin\\，tools\\ 在工作区）：workbench 回退 WorkspaceDir；skill 只认注册表/LOCALAPPDATA → exit 2 或跑另一份脚本",
+      "两份 bootstrap.ps1 同时存在：同一操作可能执行不同代码，且谁先被解析到谁生效（均无哈希）"
+    ]
+  },
+  "local_checks": [
+    {"path": "tools/components.json", "bytes": 50504, "sha256": "f9ac5a7890ff3ee3a6c4f250021bef0138281df5720b2260573c55780eb0b02c", "expected_source": "acceptance/stage/checksums.txt f9ac5a78…", "result": "match", "note": "acceptance/stage/components.json 逐字节相同"},
+    {"path": "tools/astrbot-requirements.txt", "bytes": 285804, "sha256": "53d20a66ed025b7305db0227dcf02d1d5d5c8456cda436cf31ba0d2817f44317", "expected_source": "requirements_sha256", "result": "match"},
+    {"path": "tools/edge-tts-requirements.txt", "bytes": 64080, "sha256": "889c13b325e79e7377d04e4cbf314168d0d4b50438a8c44cdc821efafd6f3261", "expected_source": "requirements_sha256", "result": "match"},
+    {"path": "sidecar/bili-whale", "files": 126, "tree_digest": "ee758a98aa9e841bead17712314b83789f7035ffaf9f1377ff1a0a6743a2f7d6", "expected": "ee758a98…", "result": "match"},
+    {"path": "plugin/astrbot_plugin_bili_bridge", "files": 9, "tree_digest": "e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f", "expected": "e060e1b5…", "result": "match"},
+    {"path": "pack/mingling-pack/plugins/astrbot_plugin_dafeiyu_sing", "files": 16, "tree_digest": "f1eb34a503098954e8c93ae697cda6b696441a8f515f0d3b4292538e33ad2839", "expected": "f1eb34a5…", "result": "match", "note": "清单无消费者"},
+    {"path": ".workbuddy/acceptance/SoulX-Singer-81aeb3a.tar.gz", "bytes": 12975795, "sha256": "b1a1e9615f8832012396aa306a5de5a6157f4c193c4ce08b3ee35a7983dcee7b", "expected": "b1a1e961…", "result": "match"},
+    {"path": ".workbuddy/acceptance/livingmemory-f8bfee8.tar.gz", "bytes": 2352991, "sha256": "ff2056ce7c048072117c393f5c2e73555107f2d10a865cd2091c6b2788276822", "expected": "ff2056ce…", "result": "match"},
+    {"path": ".workbuddy/acceptance/bge-m3-manifest.json", "bytes": 563, "sha256": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab", "expected": null, "result": "no-expectation", "note": "内容 config.digest=0c4c9c2a… 与清单 pin 值同源但语义层级不同"},
+    {"path": "sidecar/node/node.exe", "bytes": 93580104, "sha256": "ba4e6d110e8c1592a1ecd390f6b05f3da124b13871a5be62b341a07a853c6c32", "expected": null, "result": "uncovered"},
+    {"path": "uv/bin/uv.exe", "bytes": 31803184, "sha256": "1791d7a9ed5b6df13ccf80f102e025c333010d96326b4ff0262aa3b578835c5a", "expected": null, "result": "no-expectation", "note": "版本自报 0.13.7，非清单固定 zip 产物；不进安装包"},
+    {"path": "dist/MinglingWorkbench-3.1.0-setup.exe", "bytes": 88869111, "sha256": "AB8443BB94678115BBA720C8FA8012F48DE067702A9043055056C0751D172FBF", "expected_source": "acceptance/stage/checksums.txt ab8443bb…", "result": "match", "note": "文件完整但未签名"}
+  ],
+  "tamper_tests": [
+    {
+      "id": "T1",
+      "name": "下载缓存投毒",
+      "status": "passed",
+      "setup": "在临时 base 下造 logs/setup/dl/node-node-v22.14.0-win-x64.zip，内容 'THIS-IS-NOT-NODE-ZIP'",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/bootstrap.ps1 -Base <tmp> -Component node -Offline -LogFile <tmp>\\t.log",
+      "observed": ["[安装] Node.js 运行时（22.14.0）", "##FAIL node|装失败：离线模式：本机没有校验通过的缓存 node-node-v22.14.0-win-x64.zip", "##RESULT ok=0 fixed=0 satisfied=0 manual=1 missing=0 failed=1"],
+      "mechanism": "bootstrap.ps1:490 缓存 Get-FileHash + :496 throw",
+      "note": "-Component node 顺带拉入 manual 依赖 bili-login，故 manual=1"
+    },
+    {
+      "id": "T2",
+      "name": "源码树单文件篡改",
+      "status": "passed",
+      "setup": "复制 plugin/astrbot_plugin_bili_bridge 到 /tmp/mltree，向 main.py 追加 '\\n# tampered\\n'",
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/source-manifest.ps1 -Root /tmp/mltree -Verify -Manifest tools/source-manifests/bili-bridge-plugin.json",
+      "observed": "源码树摘要不符：清单 e060e1b57194297f783ec0c93610d7e737f06bdeade7792ad69901dc35b28d4f，实际 370ab5e182a4b8726d886a7b94fd19bcdc598ab488a2051bfc642e1da350f9ac",
+      "exit_code": 1,
+      "mechanism": "tools/source-manifest.ps1:65 throw"
+    },
+    {
+      "id": "T3",
+      "name": "uv --require-hashes 逐包哈希篡改",
+      "status": "blocked",
+      "attempted": "对 aiocqhttp 传全零 sha256 运行 uv pip install --require-hashes",
+      "observed": ["error: 拒绝访问。 (os error 5) at path \"C:\\\\Users\\\\Mingling\\\\AppData\\\\Local\\\\Temp\\\\.tmpNrnosC\"", "failed to open file ...\\uvtamper\\cache\\.lock: 拒绝访问。 (os error 5)", "uv venv 同样失败（默认 C:\\\\Users\\\\Mingling\\\\AppData\\\\Local\\\\uv\\\\cache\\\\.lock 拒绝访问）"],
+      "network_used": false,
+      "installed_anything": false,
+      "conclusion": "环境阻断，未实测；机制仅代码可证（bootstrap.ps1:593 + uv 语义），锁文件哈希本身由 T2 同类机制覆盖"
+    }
+  ],
+  "uncovered": [
+    {"id": "U1", "item": "安装包未签名", "detail": "Get-AuthenticodeSignature = NotSigned；dist/*.sha256 边车无消费者", "severity": "high"},
+    {"id": "U2", "item": "随包 sidecar/node/node.exe 无哈希", "detail": "tools/fetch-runtime.ps1:33-38 取 nodejs.org 最新 LTS，无版本固定、无哈希；sha256 ba4e6d11… 不在任何清单", "severity": "high"},
+    {"id": "U3", "item": "随包 sidecar/bili-whale/bin/ffmpeg.exe 无哈希", "detail": "tools/fetch-runtime.ps1:48-51 取 gyan.dev 滚动 release", "severity": "high"},
+    {"id": "U4", "item": "ffmpeg detect 接受 PATH 任意 ffmpeg", "detail": "components.json command ffmpeg 探针先满足，下载校验不触发", "severity": "medium"},
+    {"id": "U5", "item": "node detect 接受随包 exe", "detail": "与 U2 组合，下载路径 sha256 通常不执行", "severity": "medium"},
+    {"id": "U6", "item": "npm 依赖无强制完整性", "detail": "无 npm ci、锁无哈希固定、integrity 未断言", "severity": "medium"},
+    {"id": "U7", "item": "embedding-model digest pin 语义错误且 verify 只按名", "detail": "0c4c9c2a 是 config.digest；manifest sha256 79076464…", "severity": "medium"},
+    {"id": "U8", "item": "soulx-singer 固定哈希未被使用", "detail": "b1a1e961…/commit 81a3eb3a 与实际 git clone 默认分支 HEAD 脱钩；模型/CUDA/py3.10 全无哈希", "severity": "high"},
+    {"id": "U9", "item": "memory-plugin 的校验不在 bootstrap 内", "detail": "tools/self-setup.ps1:845-860 完整校验（64hex 检查 + 缓存/下载后 Get-FileHash + 失配删缓存拒绝），但只在用户跑 memory 块时执行；bootstrap 仅 detect", "severity": "low"},
+    {"id": "U10", "item": "bili-bridge-plugin 清单是死资产", "detail": "无 install step 消费 source-manifest", "severity": "low"},
+    {"id": "U11", "item": "dafeiyu-sing-plugin.json 是死资产", "detail": "树匹配 f1eb34a5… 但全仓库无引用", "severity": "low"},
+    {"id": "U12", "item": "skill 自更新无校验并执行包内 finish.ps1", "detail": "her_actions.cpp:1312-1346，仅 >10000 字节 + 三个文件名", "severity": "critical"},
+    {"id": "U13", "item": "程序自更新只看大小 + 可选 .sha256，无签名", "detail": "ui_update.inc:306-333；.sha256 缺失静默跳过", "severity": "high"},
+    {"id": "U14", "item": "guest-acceptance.ps1 经明文 HTTP 下发", "detail": "acceptance/stage/download-guest.txt 用 certutil -urlcache -f http://192.168.206.1:8000/…", "severity": "medium"},
+    {"id": "U15", "item": "SoulX 的 uv python 3.10 与 uv 自带解释器下载无 hash", "detail": "setup-singing.ps1:80", "severity": "medium"},
+    {"id": "U16", "item": "锁的生成过程不可审计", "detail": "无 uv.lock/生成脚本；哈希抓取时点与索引未知", "severity": "low"},
+    {"id": "U17", "item": "installer -Check 不校验已存在资产哈希", "detail": "mingling.iss:126 只 detect", "severity": "medium"},
+    {"id": "U18", "item": "self-setup.ps1 的 plugins 块无任何哈希校验", "detail": "全文件仅 memory 块（:844-860）有 sha256 逻辑；其余 10 个随包插件走 AstrBot API 安装，无逐树摘要，也不消费 dafeiyu-sing-plugin.json", "severity": "medium"}
+  ],
+  "criterion": {
+    "beyond_format_check": true,
+    "full_asset_coverage": false,
+    "judgement": "部分满足：核心二进制与 Python 依赖链有真实比对与两条实测拒绝证据；随包二进制、npm、Ollama 模型、SoulX 人工链、自更新与 skill 自更新上不成立",
+    "minimal_remediation": [
+      "构建期把 node.exe/ffmpeg.exe 的实际 sha256 写回 components.json，并在 -Check 中比对",
+      "npm ci + package-lock.json 哈希固定 + integrity 断言",
+      "修正 embedding-model 的 digest 语义并按 digest verify",
+      "skill 自更新改用 release 旁挂 .sha256 强校验，未校验拒绝执行 finish.ps1",
+      "SoulX 改为解压已固定归档（b1a1e961…）或 git clone 固定 commit"
+    ]
+  }
+}

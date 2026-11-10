@@ -1,11 +1,10 @@
 # 冥零专属 Skill（mingling_skill）
 
-给「冥零工作台 v2」用的人设模板：结构照大肥鱼那套（`dafeiyu-install`），但**人设正文故意留空**——`persona/mingling.md` 里的 `{user_persona}`（她是谁）和 `{user_tone}`（她怎么说话）由你填。
+给「冥零工作台 V3」用的完整默认人设：`persona/mingling.md` 是公孙冥零的正文，已包含身份、性格、与主人的死党关系、说话习惯、底线和对话示例，可直接导入。
 
 ## 三步
 
-1. **填**：打开 `persona/mingling.md`，把 `{user_persona}` / `{user_tone}` 换成你自己的角色设定。
-   不想改模板文件也行：复制 `persona/mingling-persona.sample.json` 到 `<Base>\private\mingling-persona.json` 再填。
+1. **查看**：打开 `persona/mingling.md` 核对正文。默认人设没有待填占位符；要换角色可直接编辑整篇正文。
 2. **预览**：`powershell -ExecutionPolicy Bypass -File tools\import-mingling.ps1 -DryRun`
    只生成 `<Base>\logs\mingling-persona.filled.md`，不碰后台。
    已经有一份写好的整篇人设（不是模板）时，直接用 `-PersonaFile <那个.md>` 跳过填空，例如：
@@ -23,7 +22,9 @@
 
 SnowLuma 只管登 QQ、收发消息，它的配置文件只有 `onebot / notifications / runtime / ui / webui`，**没有人设字段**；硬塞进去下次启动就被覆盖。人设只存在 AstrBot 的数据库里。
 
-## 占位符
+## 自定义模板的占位符
+
+默认人设为完整正文，下面的占位符仅在你自行编写的模板包含它们时替换。使用自定义模板时，可复制 `persona/mingling-persona.sample.json` 到 `<Base>\private\mingling-persona.json` 填写；它不会改写默认正文中已经写好的内容。
 
 | 占位 | 填什么 | 会进人设正文吗 |
 |------|--------|----------------|
@@ -35,7 +36,7 @@ SnowLuma 只管登 QQ、收发消息，它的配置文件只有 `onebot / notifi
 | `{user_tone}` | 她怎么说话 | 进 |
 | `{user_examples}` | 3~6 段对话示例，可留空 | 进 |
 
-> 没填的 `{user_persona}` / `{user_tone}` 会被替换成一句「这里还没填」的提示，不会留一行花括号。
+> 自定义模板里未填写的 `{user_persona}` / `{user_tone}` 会被替换成一句「这里还没填」的提示。默认人设不包含这些占位符。
 
 ## 常见问题
 

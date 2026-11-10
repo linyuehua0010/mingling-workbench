@@ -32,7 +32,7 @@ static const LcRowDef kLinkRows[] = {
 static const int kLinkRowCount = (int)(sizeof(kLinkRows) / sizeof(kLinkRows[0]));
 
 static const LcRowDef kApiRows[] = {
-    {L"enabled", L"启用对话 API", L"关掉只是「问一句」不能用，别的功能照旧", 2},
+    {L"enabled", L"启用对话 API", L"用于「问一句」与「今天看啥」中的 API 自动安排", 2},
     {L"base", L"Base URL", L"OpenAI 兼容的接口根地址，例如 https://api.deepseek.com/v1", 0},
     {L"path", L"路径", L"默认 /chat/completions（拼在 Base URL 后面）", 0},
     {L"model", L"模型名", L"例如 deepseek-chat", 0},
@@ -266,7 +266,6 @@ static void LinkCfgOpen() {
     g_lcLink = LinkLoad();
     g_lcApi = DshApiLoad();
     g_lcMsg.clear();
-    g_lcTestBusy = false;
     g_lcOpen = true;
     g_lcScroll = 0;
     UiRequestRepaint();

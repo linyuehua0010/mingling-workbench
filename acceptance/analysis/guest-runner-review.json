@@ -1,0 +1,289 @@
+{
+  "report": "acceptance/analysis/guest-runner-review.md",
+  "reviewer": "guest-runner-review (static only, no product/guest files modified)",
+  "target": "acceptance/v2/guest/Invoke-Phase.ps1",
+  "frozen_snapshot": "acceptance/analysis/_frozen-Invoke-Phase.b0cad635.ps1.txt",
+  "frozen_lines": 2356,
+  "frozen_content_md5": "8a8c385cc6da6f5c90fbfc10682c23b0",
+  "frozen_file_md5": "b0cad6351c5a",
+  "line_number_basis": "all line numbers refer to the 2356-line frozen snapshot",
+  "scope": ["13 requirements coverage", "Add-PhaseCheck preconditions/evidence", "old defects a-g", "parameter quoting", "failure path", "synthetic vs real interrupt", "false-pass/hang/timeout"],
+  "counts": {
+    "fatal": 6,
+    "needs_fix": 25,
+    "old_defects_reintroduced": 0,
+    "requirements_with_checks": 13,
+    "add_phase_check_call_sites": 55,
+    "distinct_check_ids": 54
+  },
+  "coverage": [
+    {
+      "criterion": 1,
+      "requirement": "组件清单唯一/字段/id 唯一/依赖不悬空无环/source.sha256 64hex/纯人工 asset_count=0",
+      "phase": "pre",
+      "checks": [
+        {"id": "c1-manifest-schema", "line": 511, "assertion": "21 components, fields present, ids unique", "evidence": "components.json", "verdict": "ok (21 hard-coded)"},
+        {"id": "c1-dependency-dag", "line": 548, "assertion": "Kahn topo sort, no dangling deps, no cycle", "evidence": "components.json", "verdict": "ok"},
+        {"id": "c1-source-hashes", "line": 576, "assertion": "empty-hash (e3b0c442...) components listed separately, not failed", "evidence": "components.json", "verdict": "weak: only lists, never cross-checks manual set / asset_count=0"},
+        {"id": "c1-state-model", "line": 600, "assertion": "state.json schema=1 and components>0", "evidence": "state.json", "verdict": "ok but dead branch at 606"}
+      ],
+      "gaps": ["asset_count=0 / empty-hash not cross-asserted against manual component set (576-584)"]
+    },
+    {
+      "criterion": 2,
+      "requirement": "全资产 SHA256 + 逐资产校验 + 篡改拒绝 + 离线三态",
+      "phase": "pre + full",
+      "checks": [
+        {"id": "c2-stage-integrity", "line": 397, "assertion": "5 named files match checksums.txt", "evidence": "stage-checksums.json", "verdict": "weak: mismatch -> evidence-incomplete only (402); checksums.txt itself not self-verified (386)"},
+        {"id": "c2-source-real-chain", "line": 674, "assertion": "requirements/edge hashes, bili tree, lock file, model digest string", "evidence": "source-chain.json, two requirements files", "verdict": "weak: model digest only proves URL contains same string (661)"},
+        {"id": "c2-tamper-reject", "line": 696, "assertion": "forged uv cache + offline -> exit 2, no uv.exe, output mentions cache/checksum", "evidence": "forged zip, stdout", "verdict": "ok; cache filename confirmed against bootstrap.ps1:489"},
+        {"id": "c2-download-cache-hashes", "line": 1180, "assertion": "download cache sha match, mismatch=0 and matched>=5", "evidence": "download-cache-hashes.json", "verdict": "ok"}
+      ],
+      "gaps": ["tampered installer is classified evidence-incomplete(14) instead of fail-product(10)"]
+    },
+    {
+      "criterion": 3,
+      "requirement": "普通用户静默安装 exit0 + exe + 日志非管理模式",
+      "phase": "pre",
+      "checks": [
+        {"id": "c3-normal-user-install", "line": 438, "assertion": "exit=0 and current process not admin (445)", "evidence": "inno log, stdout/stderr", "verdict": "weak: assertion text says log shows non-admin mode, but $modeLine(430) never participates"},
+        {"id": "c3-program-exe-version", "line": 449, "assertion": "exe exists and FileVersion ^3.1.", "evidence": "inno log, app exe", "verdict": "ok"},
+        {"id": "c3-program-workspace-separate", "line": 467, "assertion": "no exe in Ws, no bots/secrets in App, logged WsPath equal", "evidence": "inno log, {App} dir", "verdict": "ok (dir used as evidence)"}
+      ],
+      "gaps": []
+    },
+    {
+      "criterion": 4,
+      "requirement": "/DIR /WORKSPACE 中文+空格不截断、日志 WsPath 一致",
+      "phase": "pre",
+      "checks": [
+        {"id": "c4-chinese-space-paths", "line": 477, "assertion": "exe in requested dir and logged WsPath equals requested", "evidence": "inno log, app exe", "verdict": "weak: Expected $App vs Actual $AppExe (481); duplicates c3 separation check"}
+      ],
+      "gaps": ["no independent proof of no-truncation beyond one WsPath log line"]
+    },
+    {
+      "criterion": 5,
+      "requirement": "同一实例 Check：未装=2 / 装后=0 / 恢复后仍 0",
+      "phase": "pre + full",
+      "checks": [
+        {"id": "c5-check-before-components", "line": 706, "assertion": "not installed -> exit 2 and missing>0", "evidence": "installer-check.log, stdout", "verdict": "ok"},
+        {"id": "c5-webview2-missing-branch", "line": 747, "assertion": "not-run when WebView2 present, separate branch when missing", "evidence": "webview2 probe json", "verdict": "ok"},
+        {"id": "c5-check-after-components", "line": 1131, "assertion": "installed -> exit 0, missing=0, failed=0", "evidence": "post installer-check.log", "verdict": "ok; before read cross-phase (1140-1144)"}
+      ],
+      "gaps": []
+    },
+    {
+      "criterion": 6,
+      "requirement": "第二次全跳过 fixed=0 且工作区+程序 sidecar 零变化（含 mtime）",
+      "phase": "full",
+      "checks": [
+        {"id": "c6-idempotent-exit", "line": 1237, "assertion": "second run exit=0, ok=1, fixed=0", "evidence": "second stdout", "verdict": "ok"},
+        {"id": "c6-idempotent-files", "line": 1247, "assertion": "installerChanges==0 over Ws+App maps", "evidence": "filemap before/after json", "verdict": "ok boundary (includes program root); ambiguous attribution can hide real writes (1254)"}
+      ],
+      "gaps": ["paths that change naturally inside the 90s window are marked ambiguous and ignored (1196, 1254)"]
+    },
+    {
+      "criterion": 7,
+      "requirement": "中断后离线不伪装成功、联网只补缺失、已完成 Node 不重装",
+      "phase": "recovery",
+      "checks": [
+        {"id": "c0-recovery-precondition", "line": 1358, "assertion": "binaries exist", "evidence": "none extra", "verdict": "placeholder precondition"},
+        {"id": "c7-interrupt-observed", "line": 1395, "assertion": "##STEP observed and tree killed", "evidence": "victim stdout", "verdict": "gap: break pattern 'npm|bili|node_modules' almost always true for bili-whale"},
+        {"id": "c7-offline-fails-after-interrupt", "line": 1438, "assertion": "killed and offline exit!=0 and no qrcode", "evidence": "offline stdout", "verdict": "depends on F-04"},
+        {"id": "c7-online-recovers", "line": 1448, "assertion": "killed and online exit=0, qrcode present, resolve=0", "evidence": "online stdout, resolve stdout", "verdict": "ok; no 'only missing packages' assertion"},
+        {"id": "c7-completed-not-reinstalled", "line": 1459, "assertion": "killed and node dir unchanged (sha/size/mtime)", "evidence": "snapshot jsons", "verdict": "ok"},
+        {"id": "c7-half-install-synthetic", "line": 1519, "assertion": "synthetic half instance -> offline exit=2, no qrcode, resolve!=0", "evidence": "fixture dir", "verdict": "ok (constructed)"},
+        {"id": "c7-half-install-online-fix", "line": 1546, "assertion": "online exit=0, qrcode present, node half changes=0", "evidence": "online stdout", "verdict": "gap: resolve=0 in assertion (1549) not judged (1553)"}
+      ],
+      "gaps": ["real interrupt may kill before any install work starts (F-04)", "online recovery does not assert only-missing-packages behaviour (M-07)"]
+    },
+    {
+      "criterion": 8,
+      "requirement": "真断网：普通模式非 0 且无产物、Offline 空缓存=2、有效缓存=0",
+      "phase": "recovery",
+      "checks": [
+        {"id": "c8-offline-valid-cache", "line": 1606, "assertion": "valid cache + -Offline -> exit 0 and uv.exe present", "evidence": "stdout", "verdict": "ok"},
+        {"id": "c8-offline-empty-cache", "line": 1616, "assertion": "empty cache + -Offline -> exit 2 and no uv.exe", "evidence": "stdout", "verdict": "ok"},
+        {"id": "c8-offline-bad-cache", "line": 1626, "assertion": "first byte flipped -> exit 2 and no uv.exe", "evidence": "bad cache, stdout", "verdict": "ok"},
+        {"id": "c8-real-network-cut", "line": 1703, "assertion": "external unreachable, host channel reachable, empty offline cache=2, adapter restored", "evidence": "netcut json", "verdict": "gap: only -Offline is run during the cut (1685-1687)"}
+      ],
+      "gaps": ["normal (non -Offline) mode under real network cut is never tested (F-05)"]
+    },
+    {
+      "criterion": 9,
+      "requirement": "全量装 exit0 + 装后 Check=0 + AstrBot 真后台 + self-setup ok=1 done=8 fail=0",
+      "phase": "full",
+      "checks": [
+        {"id": "c0-full-precondition", "line": 938, "assertion": "bootstrap.ps1 exists", "evidence": "none extra", "verdict": "placeholder precondition"},
+        {"id": "c9-full-install", "line": 954, "assertion": "exit=0, ok=1, failed=0", "evidence": "full stdout", "verdict": "ok but 14400s > host 10800s"},
+        {"id": "c9-astrbot-init", "line": 977, "assertion": ".astrbot, bin\\astrbot.exe, python ^3.12.16", "evidence": "probe json", "verdict": "ok"},
+        {"id": "c9-astrbot-process", "line": 1008, "assertion": "6185 listen, root-owned, HTTP responds", "evidence": "listener/http json", "verdict": "weak: 4xx accepted (999); 5xx with response accepted (1003)"},
+        {"id": "c9-selfsetup-apply", "line": 1086, "assertion": "exit=0 and RESULT ok=1 done=8 fail=0", "evidence": "apply stdout", "verdict": "ok"},
+        {"id": "c9-selfsetup-verify", "line": 1097, "assertion": "same for verify", "evidence": "verify stdout", "verdict": "ok"},
+        {"id": "c9-model-stub-protocol", "line": 1120, "assertion": "config points to 127.0.0.1:18080 and no api.deepseek.com", "evidence": "config scan json", "verdict": "weak: stub.Listening not required (1127)"}
+      ],
+      "gaps": ["real model availability never exercised (stub may be dead while config passes)"]
+    },
+    {
+      "criterion": 10,
+      "requirement": "合成 Key 不得出现在 secrets 外（含日志），unreadable=0",
+      "phase": "full",
+      "checks": [
+        {"id": "c10-key-scan", "line": 1278, "assertion": "Scanned>0 and bad==0", "evidence": "key-scan json", "verdict": "weak: unreadable not judged (1281 vs 1284); scope misses %LOCALAPPDATA%\\Programs; >64MB skipped"}
+      ],
+      "gaps": ["unreadable=0 not enforced (M-08)"]
+    },
+    {
+      "criterion": 11,
+      "requirement": "manual 门禁：默认 manual>=3，点名 snowluma 也不得 ##OK qq-login",
+      "phase": "pre + full",
+      "checks": [
+        {"id": "c11-pre-snowluma-manual", "line": 776, "assertion": "manual>=1 and qq-login not in ##OK when -Component snowluma", "evidence": "check stdout", "verdict": "false evidence: -Base $Ws makes qq-login detect fail necessarily (Detail 783 admits)"},
+        {"id": "c11-default-manual", "line": 1298, "assertion": "manual>=3 and no ##OK for qq-login/bili-login/deepseek-provider", "evidence": "full check stdout", "verdict": "ok; depends on bili-login verify mapping to manual not failed"}
+      ],
+      "gaps": ["pre-phase manual gate is guaranteed by harness base choice, proves nothing about product detection"]
+    },
+    {
+      "criterion": 12,
+      "requirement": "三条 V3.0->3.1 路径 exit0 + 版本 ^3.0->^3.1 + protected 零变化 + 备份含 unins 与 backup-manifest",
+      "phase": "upgrade",
+      "checks": [
+        {"id": "c0-upgrade-precondition", "line": 1801, "assertion": "both installers exist", "evidence": "none extra", "verdict": "placeholder precondition"},
+        {"id": "c12-custom-upgrade", "line": 1906, "assertion": "upd1 exit=0 and version ^3.1.", "evidence": "updater log, version probe", "verdict": "gap: start version only recorded (1846)"},
+        {"id": "c12-custom-protected", "line": 1917, "assertion": "protected snapshot unchanged", "evidence": "before/after snapshots", "verdict": "certain conflict: snapshot includes logs, product writes logs\\setup\\installer-check.log (iss:126)"},
+        {"id": "c12-custom-backup", "line": 1926, "assertion": "backup-manifest exists, includes unins000.exe/.dat, per-file sha matches pre-upgrade", "evidence": "manifest, snapshots", "verdict": "ok"},
+        {"id": "c12-default-upgrade", "line": 1967, "assertion": "upd2 exit=0 and ^3.1.", "evidence": "updater log", "verdict": "gap: -Dir $def passed explicitly (1939-1945), default detection not tested; Detail 1974 contradicts code"},
+        {"id": "c12-default-protected", "line": 1977, "assertion": "changes2==0", "evidence": "snapshots", "verdict": "same logs conflict"},
+        {"id": "c12-old-helper-upgrade", "line": 2015, "assertion": "upd3 exit=0 and ^3.1.", "evidence": "helper log", "verdict": "gap: start version not asserted (1992)"},
+        {"id": "c12-old-helper-protected", "line": 2025, "assertion": "changes3==0", "evidence": "only after snapshot (2028)", "verdict": "gap: no before evidence"}
+      ],
+      "gaps": ["3.0 baseline not asserted (F-02)", "backup only asserted on custom path (M-18)", "default dir not truly default (M-17)", "old-helper protected lacks before snapshot (M-19)", "240s version wait shorter than product 600s (M-24)"]
+    },
+    {
+      "criterion": 13,
+      "requirement": "工作台 --autosetup 子进程与技能包装解析到同一个 {App}\\tools\\bootstrap.ps1（路径+SHA256）",
+      "phase": "final",
+      "checks": [
+        {"id": "c13-installer-metadata", "line": 2113, "assertion": "exists + sha256 + signature status recorded", "evidence": "installer-metadata.json", "verdict": "ok"},
+        {"id": "c13-entry-static", "line": 2140, "assertion": "resolve-program-root output equals {App}", "evidence": "resolve stdout", "verdict": "ok"},
+        {"id": "c13-autosetup-trace", "line": 2174, "assertion": "within 90s a process whose cmdline contains {App}\\tools\\bootstrap.ps1", "evidence": "autosetup-trace.json", "verdict": "weak: parentPid recorded but never compared to entryPid (2039-2051, 2056)"},
+        {"id": "c13-skill-wrapper", "line": 2203, "assertion": "##BOOTSTRAP path equals appBoot and hashes equal", "evidence": "skill-wrapper.json", "verdict": "weak: both hashes computed locally, hash equality is tautological"},
+        {"id": "c13-evidence-inventory", "line": 2227, "assertion": "inventory count>0", "evidence": "evidence-inventory.json", "verdict": "weak"},
+        {"id": "c0-evidence-upload", "line": 2258, "assertion": "all uploads 2xx and rows>0", "evidence": "upload receipts json", "verdict": "ok but only first 40 check files (2248)"},
+        {"id": "c0-harness-fatal", "line": 2285, "assertion": "catch-all harness failure", "evidence": "exception text", "verdict": "ok, but environment failures also become fail-fixture"}
+      ],
+      "gaps": ["no parent-child verification (M-12)", "hash self-certification (M-13)", "upload truncation at 40 checks (M-15)"]
+    }
+  ],
+  "fatal": [
+    {"id": "F-01", "lines": "93, 100, 107-112, 114-121, 130", "title": "Add-PhaseCheck neutralises both Check.ps1 pass gates and writes pre-downgrade status", "impact": "any check omitting -Status passes; missing preconditions/evidence never observable; checks/<id>.json can disagree with results.jsonl"},
+    {"id": "F-02", "lines": "1846, 1913, 1949, 1967, 1992, 2015", "title": "three upgrade paths never assert starting version ^3.0", "impact": "upgrade can be a no-op (leftover 3.1) and still pass"},
+    {"id": "F-03", "lines": "1725-1744, 1917-1922, 1977-1982, 2025-2029; installer/mingling.iss:126", "title": "protected snapshot includes logs and does not whitelist installer-check.log", "impact": "all three protected checks likely fail-product by construction"},
+    {"id": "F-04", "lines": "1378-1379, 1383-1385, 1398", "title": "interrupt trigger matches 'bili' almost always + unconditional 45s fallback", "impact": "kill may happen before install starts; 'interrupt then offline fails' tests nothing"},
+    {"id": "F-05", "lines": "1685-1687", "title": "real network cut only runs -Offline", "impact": "requirement 8 'normal mode must not silently succeed' untested"},
+    {"id": "F-06", "lines": "951-952 vs host Run-Acceptance.ps1:39", "title": "guest full install timeout 14400s > host full phase 10800s", "impact": "slow machine deterministically killed as fail-fixture(11)"}
+  ],
+  "fixes": [
+    {"id": "M-01", "lines": "441, 445", "title": "c3 log-mode assertion not judged"},
+    {"id": "M-02", "lines": "481, 483", "title": "c4 Expected/Actual semantic mismatch, duplicated with c3"},
+    {"id": "M-03", "lines": "606", "title": "c1-state-model identical branches"},
+    {"id": "M-04", "lines": "386, 402", "title": "c2-stage-integrity mismatch -> evidence-incomplete; checksums.txt not self-verified"},
+    {"id": "M-05", "lines": "661, 681", "title": "c2 model digest is a string self-check"},
+    {"id": "M-06", "lines": "1549, 1553", "title": "c7 half-install online fix does not judge resolve=0"},
+    {"id": "M-07", "lines": "1448-1457", "title": "c7 online recovery does not assert only-missing-packages"},
+    {"id": "M-08", "lines": "1259-1268, 1275, 1281, 1284", "title": "c10 unreadable not judged; scope gaps"},
+    {"id": "M-09", "lines": "788-837, 1127", "title": "c9 model stub Listening not required"},
+    {"id": "M-10", "lines": "999, 1003", "title": "c9 HTTP 4xx/5xx accepted"},
+    {"id": "M-11", "lines": "769-772, 783", "title": "c11 pre-phase manual gate guaranteed by -Base $Ws"},
+    {"id": "M-12", "lines": "2039-2051, 2056, 2172", "title": "c13 autosetup no parent-child verification"},
+    {"id": "M-13", "lines": "2195-2198, 2209", "title": "c13 skill wrapper hash self-certification"},
+    {"id": "M-14", "lines": "2218, 2219, 2232", "title": "c13 inventory only non-empty"},
+    {"id": "M-15", "lines": "2248", "title": "upload silently truncated to 40 check files"},
+    {"id": "M-16", "lines": "2341; acceptance/lib/Evidence.ps1:104", "title": "wrong manifest sha filename in fallback upload"},
+    {"id": "M-17", "lines": "1939-1945, 1974", "title": "default-dir path passes -Dir explicitly; Detail contradicts code"},
+    {"id": "M-18", "lines": "1926-1935", "title": "backup asserted only on custom path"},
+    {"id": "M-19", "lines": "2028", "title": "old-helper protected check lacks before snapshot"},
+    {"id": "M-20", "lines": "1196, 1254", "title": "idempotency ambiguous attribution can hide real writes"},
+    {"id": "M-21", "lines": "349-358, 410, 2281", "title": "stage download failure classified fail-fixture instead of blocked-env, no retry"},
+    {"id": "M-22", "lines": "2316-2318; host Run-Acceptance.ps1:232-234", "title": "phases/<Phase> not in host collection tree; Save-MwPhase errors swallowed"},
+    {"id": "M-23", "lines": "2270-2314", "title": "no expected-check-set assertion; skipped checks leave no trace"},
+    {"id": "M-24", "lines": "1862, 1961, 2007", "title": "upgrade version wait 240s shorter than product ~600s"},
+    {"id": "M-25", "lines": "2080-2081, 2239-2251", "title": "final serial uploads up to 55 files x 180s may exceed host 45min"}
+  ],
+  "old_defects": {
+    "a_match_overwrite": {"status": "avoided", "lines": "379-380, 431-433, 418-419, 355"},
+    "b_same_check_twice": {"status": "avoided", "lines": "706-721, 1131-1153, 1140-1144"},
+    "c_literalpath_wildcard": {"status": "avoided", "lines": "1319-1320, 1481, 1577, 1578, 1814, 1822, 1997"},
+    "d_qrcode_no_cwd": {"status": "avoided", "lines": "1341-1354"},
+    "e_hardcoded_nodeexe": {"status": "avoided", "lines": "1324-1339, 1408-1410"},
+    "f_filemap_missing_program_root": {"status": "avoided", "lines": "1193, 1195, 1253"},
+    "g_upload_only_final": {"status": "avoided_with_filename_bug", "lines": "2338-2352, 2239-2251, 2341"}
+  },
+  "parameter_quoting": {
+    "param_block": "13-22",
+    "installer_args": "418-419 (array elements only, no manual quoting)",
+    "encoder": "acceptance/lib/Capture.ps1 ConvertTo-MsvcrtArg via Start-MwCommand",
+    "chinese_space_paths": "46-53 (e.g. {GuestRoot}\\冥零 验收\\程序 3.1)",
+    "empty_arg": "impossible: Join-Path over Mandatory GuestRoot (47-48)",
+    "trailing_backslash": "shell library doubles it; not verified on a real VM (uncertain)",
+    "verdict": "compliant, no self-built quotes"
+  },
+  "failure_path": {
+    "statuses": {"fail-product": "445,455,473,483,696-702,1186,1253,1612,1622,1632,1710,1913,1922,1933,1975,1982,2021,2028,2145,2180,2209", "fail-fixture": "1398-1401,2285-2293", "blocked-precondition": "938,1358,1526,1801,1913,2021,2120,2145,2180,2209", "blocked-env": "445,1710", "evidence-incomplete": "402,1186-1188,2120,2263", "not-run": "747/757 only"},
+    "done_json": "2320-2333",
+    "save_phase": "2316 (errors swallowed to save-error.txt)",
+    "exit_code": "2298-2300, 2354",
+    "notes": ["status='completed' even when exitCode is 12/13/14 (2303-2304); host recomputes from counts so verdict is safe but status field misleads", "phase abort loses later checks silently (no not-run placeholders)"]
+  },
+  "interrupt_vs_synthetic": {
+    "real_interrupt": "1364-1467",
+    "synthetic_half_install": "1469-1528",
+    "separated": true,
+    "observable_stage_wait": "not effective (F-04)",
+    "state_comparison": "real (1405-1413 snapshot -> offline 1416-1418 -> online 1421-1423 -> 1431 -> 1459-1467 unchanged)",
+    "missing": "only-missing-packages assertion in online recovery (M-07)"
+  },
+  "timeouts": {
+    "host": {"pre_min": 90, "full_min": 180, "recovery_min": 120, "upgrade_min": 120, "final_min": 45, "poll_seconds": 20},
+    "guest": {"stage_download": 900, "install_31": 900, "full_install": 14400, "second_install": 7200, "astrbot_start": 600, "selfsetup_apply": 1800, "selfsetup_verify": 900, "recovery_offline": 900, "recovery_online": 1800, "uv_online": 900, "uv_offline": 300, "upgrade_install": 1200, "upgrade_update": 1200, "version_wait": 240, "autosetup_trace": 90, "upload": 180}
+  },
+  "uncertainties": [
+    "trailing backslash restore through MSVCRT/Inno not verified on a real VM",
+    "bili-login verify may return failed instead of manual when offline -> c11 manual>=3 could fail",
+    "whether installer [Run] executes under /VERYSILENT assumed yes, not executed",
+    "taskkill /T coverage over npm child processes not measured",
+    "host phase timeout constants read from declarations only"
+  ],
+  "live_drift": {
+    "observed_at": "2026-11-09T20:49:14+08:00",
+    "live_lines": 2527,
+    "live_md5": "12f0da3327f2d6832dc585195251acc4",
+    "counts_basis": "2356-line frozen snapshot",
+    "note": "live file changed at least 5 times during review (2337 -> 2356 -> 2482 -> 2506 -> 2527 lines); at 20:50:39 still 2527 lines but content changed again (md5 4e4b0619e0a9738063e50aaba5cdd4ce, 59 Add-PhaseCheck call sites); findings and line numbers apply to the frozen snapshot only, the live_lines_by_item table is a point-in-time snapshot",
+    "still_present": ["F-01", "F-03", "F-04 (weakened but 45s fallbackKill remains)", "F-05", "F-06", "M-09", "M-10", "M-11", "M-12", "M-13", "M-15", "M-17"],
+    "already_addressed": ["F-02", "M-01", "M-08", "M-16 (not found in live)", "M-18", "M-19", "M-21"],
+    "live_lines_by_item": {
+      "F-01": "93, 114-121",
+      "F-02": "2027, 2096, 2169",
+      "F-03": "1787, 2037",
+      "F-04": "1431-1432, 1452-1455",
+      "F-05": "1738",
+      "F-06": "971",
+      "M-01": "461-467",
+      "M-08": "1319-1322",
+      "M-09": "1146-1155",
+      "M-10": "1029",
+      "M-11": "788-789",
+      "M-12": "2204",
+      "M-13": "2366-2379",
+      "M-15": "2419",
+      "M-17": "2064, 2097",
+      "M-18": "2109, 2181",
+      "M-19": "2138"
+    }
+  },
+  "artifacts": {
+    "report": "acceptance/analysis/guest-runner-review.md",
+    "summary": "acceptance/analysis/guest-runner-review.json"
+  }
+}

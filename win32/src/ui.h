@@ -20,7 +20,8 @@ enum TaskKind {
     TK_OP = 8,
     TK_UPDATES = 9,
     TK_DSHTEST = 10,   // DSH 对话 API：action 0=测试连接 1=问一句 2=链接与应用测试连接
-    TK_SELFUPD = 11    // 工作台一键更新：ptr = her::UpdatePlan*（归 UiOnTask 释放）
+    TK_SELFUPD = 11,   // 工作台一键更新：ptr = her::UpdatePlan*（归 UiOnTask 释放）
+    TK_BILIPLAN = 12
 };
 
 struct TaskData {

@@ -262,7 +262,7 @@ function Install-Ollama([string]$dst) {
 
 function Install-SnowLuma([string]$dst) {
     # 资产名有两种：SnowLuma-v2.4.0-win-x64.zip / -lite.zip，只挑非 lite 的 win-x64
-    $u = Get-ReleaseAsset -Repo 'SnowLuma/SnowLuma' -Pattern 'win-x64\.zip$' -Exclude 'lite'
+    $u = Get-ReleaseAsset -Repo 'TomyJan/SnowLuma' -Pattern 'win-x64\.zip$' -Exclude 'lite'
     ...
     # 启动脚本跟官方 Release 的 launcher.bat 对齐，密码仍读 private\
     & {

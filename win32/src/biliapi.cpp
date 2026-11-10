@@ -366,6 +366,12 @@ std::wstring DshApiUrl(const DshApiCfg& cfg) {
     std::wstring path = Trim(cfg.path);
     if (path.empty()) path = L"/chat/completions";
     if (path[0] != L'/') path = L"/" + path;
+    if (base.size() >= path.size() && base.compare(base.size() - path.size(), path.size(), path) == 0) return base;
+    // Accept both a root URL and a complete chat/completions endpoint.
+    for (size_t n = path.size() - 1; n > 0; --n) {
+        if (path[n] == L'/' && base.size() >= n && base.compare(base.size() - n, n, path, 0, n) == 0)
+            return base + path.substr(n);
+    }
     return base + path;
 }
 
@@ -374,6 +380,8 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
         if (err) *err = L"对话 API 还没启用（在 B 站页的配置里打开）";
         return false;
     }
+    if (reply) reply->clear();
+    if (err) err->clear();
     std::wstring url = DshApiUrl(cfg);
     if (url.empty()) {
         if (err) *err = L"还没填 Base URL";
@@ -395,8 +403,18 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
         if (err) *err = L"连不上（断网、地址写错或者超时）";
         return false;
     }
+    std::wstring detail;
+    bool parsedError = false;
+    her::J errorBody = her::J::Parse(r.body, &parsedError);
+    if (parsedError) {
+        if (const auto* e = errorBody.Path(L"error.message")) detail = e->s;
+        if (detail.empty()) detail = errorBody.Str(L"message");
+        if (!cfg.key.empty()) detail = ReplaceAll(detail, cfg.key, L"[密钥已隐藏]");
+        detail = detail.substr(0, 240);
+        if (!detail.empty()) detail = L"：" + detail;
+    }
     if (r.code == 401 || r.code == 403) {
-        if (err) *err = L"API Key 不对或者没权限（HTTP " + Num(r.code) + L"）";
+        if (err) *err = L"API Key 不对或者没权限（HTTP " + Num(r.code) + L"）" + detail;
         return false;
     }
     if (r.code == 404) {
@@ -408,7 +426,7 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
         return false;
     }
     if (r.code >= 400) {
-        if (err) *err = L"服务端说不行（HTTP " + Num(r.code) + L"）";
+        if (err) *err = L"服务端说不行（HTTP " + Num(r.code) + L"）" + detail;
         return false;
     }
 
@@ -424,7 +442,11 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
     const her::J* choices = j.Get(L"choices");
     if (choices && choices->Arr() && !choices->a.empty()) {
         const her::J& c0 = choices->a[0];
-        if (const her::J* m = c0.Get(L"message")) content = m->Str(L"content");
+        if (const her::J* m = c0.Get(L"message")) {
+            content = m->Str(L"content");
+            if (const auto* parts = m->Get(L"content"); parts && parts->Arr())
+                for (const auto& part : parts->a) if (part.Str(L"type") == L"text") content += part.Str(L"text");
+        }
         if (content.empty()) content = c0.Str(L"content");
         if (content.empty()) content = c0.Str(L"text");
     }
@@ -436,7 +458,8 @@ bool DshChat(const std::wstring& prompt, const DshApiCfg& cfg, std::wstring* rep
                 if (e->t == her::J::STR) why = e->s;
             }
         }
-        if (err) *err = why.empty() ? L"连上了，但没取到回复内容（返回里没有 choices）" : (L"服务端返回错误：" + why);
+        if (!cfg.key.empty()) why = ReplaceAll(why, cfg.key, L"[密钥已隐藏]");
+        if (err) *err = why.empty() ? L"连上了，但没取到回复内容（返回里没有 choices）" : (L"服务端返回错误：" + why.substr(0, 240));
         return false;
     }
     if (reply) *reply = content;

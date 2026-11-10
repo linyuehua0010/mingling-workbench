@@ -19,6 +19,10 @@ static void WatchTest();
 static void FreeNotifyState();
 static void RefreshFeed();
 static void StartWatch();
+static void BiliAgentLoad();
+static void BiliAgentTick();
+static void BiliAgentOnPlan(TaskData* d);
+static void BiliAgentOnWatch(TaskData* d);
 static void RunCheck(int action);
 static void OpenPath(const wstring& p);
 static void CopyText(const wstring& s);
@@ -370,12 +374,14 @@ static void RefreshFeed() {
     if (g_feedBusy) return;
     g_feedBusy = true;
     g_feedNote = L"正在捞选题…";
-    std::thread([]() {
+    wstring exclude;
+    for (const auto& f : g_feed) { if (!exclude.empty()) exclude += L","; exclude += f.bv; }
+    std::thread([exclude]() {
         TaskData* d = new TaskData();
         d->kind = TK_FEED;
-        CmdResult r = RunWhale(L"feed --n 8", 180000);
+        CmdResult r = RunWhale(L"feed --n 8 --refresh" + (exclude.empty() ? wstring() : L" --exclude " + exclude), 180000);
         d->feed = ParseFeed(r.out);
-        d->ok = !d->feed.empty();
+        d->ok = r.code == 0 && !d->feed.empty();
         d->text = r.out;
         if (!d->ok) d->title = Trim(r.out.size() > 300 ? r.out.substr(0, 300) : r.out);
         PostTask(d);
@@ -1411,6 +1417,7 @@ static void PaintCheck(Graphics& g) {
 #include "ui_bili_cfg.inc"
 #include "ui_link_cfg.inc"
 #include "ui_dsh.inc"
+#include "ui_bili_agent.inc"
 #include "ui_center.inc"
 
 void UiPaint(HDC hdc, int w, int h) {
@@ -2124,14 +2131,16 @@ void UiOnTask(TaskData* d) {
             break;
         case TK_FEED:
             g_feedBusy = false;
-            g_feed = d->feed;
+            if (d->ok) g_feed = d->feed;
             g_feedScroll = 0;
-            if (g_feed.empty()) {
-                g_feedNote = L"没捞到候选";
-                if (d->text.find(L"已看过") != wstring::npos) g_feedNote = L"候选都被看过啦";
+            if (!d->ok) {
+                g_feedNote = L"刷新失败：" + (d->title.empty() ? wstring(L"没捞到候选，请检查 B 站登录和网络") : d->title);
             } else {
                 g_feedNote = L"按日记口味捞的 · " + Num((long long)g_feed.size()) + L" 条";
             }
+            break;
+        case TK_BILIPLAN:
+            BiliAgentOnPlan(d);
             break;
         case TK_WATCH: {
             g_watchBusy = false;
@@ -2167,7 +2176,7 @@ void UiOnTask(TaskData* d) {
             j.bv = d->bv;
             j.title = d->title;
             j.up = d->up;
-            j.source = L"console";
+            j.source = g_baWatching ? L"auto" : L"console";
             j.chat = L"工作台";
             j.status = d->ok ? L"ok" : L"fail";
             j.seconds = d->seconds;
@@ -2188,6 +2197,7 @@ void UiOnTask(TaskData* d) {
             } else {
                 UiToast(L"没看成功，去「哪儿卡了」看看");
             }
+            BiliAgentOnWatch(d);
             break;
         }
         case TK_CHECK:
@@ -2344,6 +2354,7 @@ void UiInit(HWND hwnd) {
     g_whaleNote = we.err;
     LoadJobs();
     g_clock = NowStamp();
+    BiliAgentLoad();
     for (int i = 0; i < 2; i++) {
         int port = i == 0 ? 5099 : 6199;
         g_svcUp[i] = PortOpen(port, 80);
@@ -2358,6 +2369,7 @@ void UiTick() {
     bool dirty = (c != g_clock);
     TickNotifyBanner();
     g_clock = c;
+    BiliAgentTick();
     for (int i = 0; i < 2; i++) {
         int port = i == 0 ? 5099 : 6199;
         bool up = PortOpen(port, 60);

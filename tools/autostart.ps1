@@ -1,5 +1,24 @@
-﻿﻿﻿# 只管当前 Windows 用户的启动项。旧入口移走/禁用并留清单，不删除。
+﻿# 只管当前 Windows 用户的启动项。旧入口移走/禁用并留清单，不删除。
 function Get-UserStartupDir { [Environment]::GetFolderPath('Startup') }
+function Set-OllamaAutostart([string]$Dir, [string]$Script = '', [string]$Exe = '') {
+    if (-not $Script) { $Script = Join-Path $Dir 'tools\start-ollama.ps1' }
+    if (-not (Test-Path -LiteralPath $Script)) { throw "找不到记忆启动脚本：$Script" }
+    $entry = Join-Path (Get-UserStartupDir) 'Ollama.lnk'
+    if (Test-Path -LiteralPath $entry) {
+        $archive = Join-Path $Dir ("旧版\Ollama自启-" + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+        New-Item -ItemType Directory -Path $archive -Force | Out-Null
+        Copy-Item -LiteralPath $entry -Destination $archive -ErrorAction Stop
+    }
+    $link = (New-Object -ComObject WScript.Shell).CreateShortcut($entry)
+    $link.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $link.Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Script`" -Base `"$Dir`""
+    if ($Exe) { $link.Arguments += " -Exe `"$Exe`"" }
+    $link.WorkingDirectory = $Dir
+    $link.WindowStyle = 7
+    $link.Description = '冥零的本机记忆，使用已有模型并隐藏启动'
+    $link.Save()
+    Write-Output 'ADDED Ollama.lnk'
+}
 function Get-UserStartupIdentity {
     $me = [Security.Principal.WindowsIdentity]::GetCurrent()
     return @($me.Name, $me.User.Value, $env:USERNAME)
