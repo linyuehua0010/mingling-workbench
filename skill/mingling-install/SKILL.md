@@ -1,6 +1,6 @@
 ---
 name: mingling-install
-description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、QQ 登录端（或 NapCat）、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」「部署本地唱歌」「SoulX 唱歌」「切换豆包唱歌」「用冥零声音唱歌」「用已有 Breeze 音色制作唱歌参考」时使用。
+description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（MinglingWorkbench V3，C++ 工作台 + bots 组件 + pack 配置包）：一键自动配置装齐 AstrBot、QQ 接入端（NapCat 等）、uv、ffmpeg、Ollama、Breeze，跑八块自设定（模型、平台、聊天、插件、记忆、语音、人设、自检），换人设换声音、让她看视频、搬去云服务器、备份还原、卸干净、看不懂的报错先体检。用户说「装冥零」「冥零工作台起不来」「自设定没成」「她记不住事」「换个声音」「换成我自己的角色」「她看不见视频」「搬到服务器上」「备份/还原/卸载冥零」「工作台日志是空的」「更新页说没找到安装」「部署本地唱歌」「SoulX 唱歌」「切换豆包唱歌」「用冥零声音唱歌」「用已有 Breeze 音色制作唱歌参考」时使用。
 ---
 
 # 帮人装、修、搬、卸冥零工作台（skill 0.6.0，2026-11-10）
@@ -16,7 +16,6 @@ description: 在 Windows 10/11 上装、修、搬、卸「冥零工作台」（M
 ├─ pack\mingling-pack\            配置包：pack.json、plugins\、voice\
 ├─ bots\                          组件都在这（不是散在工作区根！）
 │   ├─ AstrBot\                   大脑；入口 bots\AstrBot\bin\astrbot.exe；日志 bots\AstrBot\run.log；端口 6199
-│   ├─ <登录端目录>\node.exe      登 QQ 的程序；日志在该目录的 logs\ 下；端口 5099
 │   ├─ Ollama\ + ollama-models\   本机记忆用的 bge-m3；端口 11434
 │   ├─ asr\                       本机语音识别模型（手工装的，不在组件清单里）
 │   └─ Breeze\                    本机 Breeze 语音；端口 8137
@@ -61,12 +60,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\prob
 ## 第 1 步：装
 
 安装包在 `https://github.com/linyuehua0010/mingling-workbench/releases`，当前正式版是
-**V3.2.0**，名字是 `MinglingWorkbench-3.2.0-setup.exe`（约 85 MB，88,892,091 字节）。
+**V3.2.0**，名字是 `MinglingWorkbench-3.2.0-setup.exe`（约 85 MB）。
 它自带 sidecar\（node、bili-whale）、pack\、skill\、tools\（含 components.json + bootstrap.ps1），
 **bots\ 里的组件不预装**，装完要跑一次「一键自动配置」联网装（这台没网就用 `-Offline` 走缓存）。
-同一版还有一份 `MinglingWorkbench-3.2.0-setup-login.exe`（约 126 MB / 131,675,213 字节），
-多带一份 QQ 登录端 2.4.2，装完省掉那 41 MB 下载；这是出包时显式加 `-BundleLogin` 才有的产物，
-默认不内置，涉及上游 EULA 授权（见 `docs\THIRD-PARTY.md` 第 4 节），用户没特别要求就给默认那份。
 以后换了版本，文件名里的版本号跟着 `version.h` 走。
 
 1. 问他装哪个盘，默认「不是 C 盘、空间够的那个」。工作区就是装完后的那个文件夹。
@@ -96,7 +92,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<这个 skill>\scripts\boot
 `auto-setup.ps1` 仍可用，它内部转发到 `bootstrap.ps1`——老教程里的命令不用改，但新写的命令一律用 `bootstrap.ps1`。
 
 它读 `tools\components.json` 那份 21 项清单，按依赖顺序装/补：环境（WebView2、node、ffmpeg、uv、Python）
-加上 AstrBot、QQ 登录端（或 NapCat）、Breeze、Ollama、bili-whale、启动脚本。默认装 16 项；
+加上 AstrBot、QQ 接入端（NapCat 等）、Breeze、Ollama、bili-whale、启动脚本。默认装 16 项；
 `embedding-model`、`bili-bridge-plugin`、`soulx-singer`、`dsh-pet`、`edge-tts` 这几项要显式加
 `-IncludeOptional` 才装。可以重复跑，已经有的会跳过。慢的是下模型和 python 包装，先说清「在下什么、多大」。
 `answers.json` 不是装组件用的——那是第 3 步自设定的答卷。
@@ -140,8 +136,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.p
   安装包；从快照版转正式版要重装一次，配置不自动迁移。临时要用，就让他用指向工作区
   `bin\MinglingWorkbench.exe` 的快捷方式。
 - **日志页说「日志是空的：服务可能还没启动过」，但服务在跑**：日志要看
-  `bots\AstrBot\data\run.log`（组件生成的 `start.cmd` 就是往这写）和 `bots\<登录端目录>\logs\` 下那份运行日志。
-  工作台日志页读的是 `bots\AstrBot\run.log` —— 老布局（`AstrBot\run.log`、QQ 登录端目录直接在工作区根）
+  `bots\AstrBot\data\run.log`（组件生成的 `start.cmd` 就是往这写）。
+  工作台日志页读的是 `bots\AstrBot\run.log` —— 老布局（`AstrBot\run.log` 直接在工作区根）
   才和它重合，所以新装的机器上日志页可能看不到东西，直接开这两个文件看更准。
 - **她记不住事**：先看 `bots\AstrBot\data\plugins\astrbot_plugin_livingmemory\` 在不在，再看
   `bots\AstrBot\data\config\astrbot_plugin_livingmemory_config.json` 有没有写出来；
@@ -168,7 +164,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "$program\tools\self-setup.p
 - 卸载：**先问要不要备份**，再删安装目录 + 工作区。开机自启不是脚本能一键摘掉的——
   `tools\autostart.ps1` 是给 `common.ps1` 用的函数库，没有 `-Remove` 开关，也没有命令行入口。
   真正要清的是 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\` 下这几个快捷方式：
-  `大肥鱼-AstrBot.lnk`、`大肥鱼-<登录端>.lnk`（快捷方式名里带着 QQ 登录端的名字；NapCat 那份是 `大肥鱼-NapCat.lnk`）、`大肥鱼-掉线提醒.lnk`、
+  `大肥鱼-AstrBot.lnk`、`大肥鱼-NapCat.lnk`、`大肥鱼-掉线提醒.lnk`、
   `启动Breeze语音.lnk`、`Ollama.lnk`。让他自己删，或者你代删前先问一句。
   用户回「确认」才删。
 

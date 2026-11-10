@@ -299,7 +299,7 @@ bool CollectStatus(Status& st, wstring* err) {
     wstring proto = Protocol();
     bool cli = IsCli();
     bool up = Listening(port);
-    wstring pname = proto == L"napcat" ? L"NapCat" : L"QQ 登录端";
+    wstring pname = proto == L"napcat" ? L"NapCat" : L"QQ";
     wstring proot = BotPath(proto == L"napcat" ? L"NapCat" : L"SnowLuma");
 
     // ---- 1 大脑
@@ -348,7 +348,7 @@ bool CollectStatus(Status& st, wstring* err) {
         wstring oldRoot = P(proto == L"napcat" ? L"NapCat" : L"SnowLuma");
         bool prun = !PidsUnder(Lc(proot)).empty() || !PidsUnder(Lc(oldRoot)).empty() ||
                     Listening(proto == L"napcat" ? 6099 : 5099);   // 进程名可能被包装过（自带 node.exe），端口在听也算起来了
-        c.linkLbl = proto == L"napcat" ? L"NapCat 后台" : L"登录端后台";
+        c.linkLbl = proto == L"napcat" ? L"NapCat 后台" : L"QQ 后台";
         c.linkHref = proto == L"napcat" ? L"http://127.0.0.1:6099/webui" : L"http://127.0.0.1:5099";
         if (online) {
             c.state = L"ok";

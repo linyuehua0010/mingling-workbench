@@ -1,6 +1,6 @@
 #requires -Version 5.1
 <#
-  冥零工作台 · 把 QQ 登录端的官方原版包备到 pack\login（给 -BundleLogin 用）
+  冥零工作台 · 把 QQ 接入组件的官方原版包备到 pack\login（给 -BundleLogin 用）
 
   默认不做任何事，只把 installer\login_auto.iss 写成「不内置」；
   加 -Enable 才会去准备那份 zip，并写成「内置」。
@@ -14,7 +14,7 @@
         只用本地已有的副本，找不到就失败（CI/断网出包用）。
 
   校验基准不在本脚本里写死：版本、地址、SHA256、字节数全部读 tools\components.json
-  里那个登录端组件（id 仍是 snowluma），跟 bootstrap.ps1 安装时用的那一份完全一致，
+  里那个 QQ 接入组件（id 仍是 snowluma），跟 bootstrap.ps1 安装时用的那一份完全一致，
   避免两处各记一个哈希。
 
   产物是一份「原版 zip 一字节未改」的副本，只是落了中性文件名，装包列表里不会出现上游名字。
@@ -53,15 +53,15 @@ if (-not $Enable) {
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw "缺少 tools\components.json：$manifestPath" }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $comp = @($manifest.components | Where-Object { $_.id -eq 'snowluma' })[0]
-if (-not $comp) { throw 'tools\components.json 里没有登录端组件（id snowluma）' }
+if (-not $comp) { throw 'tools\components.json 里没有 QQ 接入组件（id snowluma）' }
 
 $step = @($comp.install.steps | Where-Object { $_.kind -eq 'download' })[0]
-if (-not $step) { throw '登录端组件没有 download 步骤' }
+if (-not $step) { throw 'QQ 接入组件没有 download 步骤' }
 $ver = [string]$comp.version
 $sha = ([string]$step.sha256).ToUpper()
 $size = 0
 try { if ($step.size) { $size = [long]$step.size } } catch { }
-if (-not $sha -or $sha.Length -ne 64) { throw '登录端的 download 步骤缺少 64 位 sha256，拒绝内置' }
+if (-not $sha -or $sha.Length -ne 64) { throw 'QQ 组件的 download 步骤缺少 64 位 sha256，拒绝内置' }
 
 # 舞台里用中性文件名，安装包的文件列表里不出现上游名字；内容是原版 zip，一个字节都不动。
 $stageLeaf = 'login-client-v' + $ver + '-win-x64.zip'
@@ -98,7 +98,7 @@ foreach ($c in $candidates) {
 
 if (-not $found) {
     if ($Offline) {
-        throw ('离线模式：本机没有校验通过的登录端原版包（找过：' + (($candidates | ForEach-Object { $_ }) -join '、') + '，要找的是 ' + $upstreamLeaf + '）')
+        throw ('离线模式：本机没有校验通过的组件原版包（找过：' + (($candidates | ForEach-Object { $_ }) -join '、') + '，要找的是 ' + $upstreamLeaf + '）')
     }
     $urls = @()
     foreach ($u in @($step.urls)) { if ($u) { $urls += [string]$u } }
@@ -118,7 +118,7 @@ if (-not $found) {
         }
     }
     Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
-    if (-not $ok) { throw ('没能拿到校验通过的登录端原版包（' + $upstreamLeaf + '），无法内置') }
+    if (-not $ok) { throw ('没能拿到校验通过的组件原版包（' + $upstreamLeaf + '），无法内置') }
     $found = $stagePath
 }
 
@@ -134,6 +134,6 @@ if ($found -ne $stagePath) {
 
 $mb = [math]::Round((Get-Item -LiteralPath $stagePath).Length / 1MB, 1)
 Write-Iss 1 ('..\pack\login\' + $stageLeaf) $ver $sha
-Write-Host ('[bundle] 内置 QQ 登录端 {0}（{1} MB，SHA256 {2}…）' -f $ver, $mb, $sha.Substring(0, 12))
+Write-Host ('[bundle] 内置 QQ 接入组件 {0}（{1} MB，SHA256 {2}…）' -f $ver, $mb, $sha.Substring(0, 12))
 Write-Host '[bundle] 提示：上游许可协议 §5.4 要求「并入第三方安装包」须事先取得书面授权，请自行确认。'
 exit 0

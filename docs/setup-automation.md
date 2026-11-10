@@ -41,7 +41,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\bootstrap.ps1 `
 ```
 
 工作台图形入口：维护页「一键自动配置」= 补环境（Node/ffmpeg/Python/WebView2）→ 装组件
-（AstrBot、QQ 登录端、Breeze、Ollama、bili-whale、启动脚本）→ 自设定八块，三段共用同一批脚本。
+（AstrBot、Breeze、Ollama、bili-whale、启动脚本）→ 自设定八块，三段共用同一批脚本。
 
 ## 2. bootstrap.ps1 参数
 
@@ -161,8 +161,8 @@ npm/pip/uv_python 在各自镜像列表里轮询，全部失败才报错。下�
   URL 里的 `user:pass@`、`QQ/账号=数字`。代理只记主机端口。
 - 下载缓存：`<Base>\logs\setup\dl\<id>-<文件名>`，校验通过才复用；离线模式只认这些。
 - 装包自带包：程序目录下的 `pack\<组件id>\` 里只要放了 sha256 对得上的文件，直接用它，
-  不下载也不联网（离线模式下同样有效）。目前只有出包时加 `-BundleLogin` 的那版安装包会带
-  QQ 登录端那一份（`pack\login\`）；日志里对应一行 `用装包自带的 <文件名>（不用下载）`。
+  不下载也不联网（离线模式下同样有效）。目前只有出包时加 `-BundleLogin` 的那版安装包会把组件包一起带进来
+  （`pack\login\`）；日志里对应一行 `用装包自带的 <文件名>（不用下载）`。
 
 ## 6. 密钥与账号
 
@@ -173,7 +173,7 @@ npm/pip/uv_python 在各自镜像列表里轮询，全部失败才报错。下�
   `deepseek-key.txt`、`owner-qq.txt`、`backend.txt`、`napcat-ws-token.txt`。
 - 安装包只带 `secrets-README.txt` 说明；真实 Key / QQ 账号不进安装包，也不进日志。
 - 八块自设定读这些文件；安装包只带 `pack/` 模板，不带真实 Key。
-- 需要人工的：QQ 扫码登录（QQ 登录端/NapCat）、B 站登录（bili-whale 扫码）、
+- 需要人工的：QQ 扫码登录（NapCat）、B 站登录（bili-whale 扫码）、
   填 DeepSeek / 硅基流动 Key、AstrBot 插件市场装 LivingMemory、SoulX 唱歌、DSH 桌宠。
   清单里这些组件标 `manual=true` 并附 `manual_steps`。
 
@@ -226,9 +226,9 @@ verify 模式输出同样的 `##STEP/##OK/##FAIL`，`##RESULT` 里多一个 `mod
 
 ## 9. 旧命令兼容
 
-`tools/auto-setup.ps1` 保留原参数（`-Workspace -Bots -Base -Force -SkipOllama -Skip<登录端>
--SkipBreeze -SkipAstrBot -SkipWhale`，另加 `-Offline/-Proxy`；跳过 QQ 登录端那个开关的名字本身带着
-QQ 登录端的名字，这里不写全名），内部把开关翻译成
+`tools/auto-setup.ps1` 保留原参数（`-Workspace -Bots -Base -Force -SkipOllama -Skip<QQ 组件>
+-SkipBreeze -SkipAstrBot -SkipWhale`，另加 `-Offline/-Proxy`；跳过 QQ 组件那个开关的名字本身带着
+它的名字，这里不写全名），内部把开关翻译成
 `bootstrap.ps1 -Component … -Exclude …` 后原样转发输出和退出码。
 老教程里的命令不用改，但新写的命令请直接用 `bootstrap.ps1`。
 
@@ -246,7 +246,7 @@ QQ 登录端的名字，这里不写全名），内部把开关翻译成
 ## 11. 已知限制（如实说明）
 
 1. **清单里的 sha256 会随上游发版过期**。现在钉的是：node 22.14.0、uv 0.13.7、
-   QQ 登录端 2.4.2、Breeze 0.1.7、Ollama 0.40.15、FFmpeg autobuild-2026-11-08-12-35。
+   Breeze 0.1.7、Ollama 0.40.15、FFmpeg autobuild-2026-11-08-12-35。
    上游换资产后要更新清单（`Get-FileHash` 取新值）；缺 hash 的下载会被拒绝而不是盲装。
 2. **WebView2 走 winget**（`Microsoft.EdgeWebView2Runtime`），需要机器上有 winget；
    没有 winget 时只检测、不静默装（Evergreen 安装器也不适合静默分发）。
@@ -258,13 +258,13 @@ QQ 登录端的名字，这里不写全名），内部把开关翻译成
    仍未验证：跨版本原地升级的完整链路（只静态核对了升级目录与备份路径）。
 4. **没有在本机跑完整全量安装**（Ollama 1.6GB、SoulX 2.8GB 模型等），只实测了
    下载/校验/解压/写文件/检测/离线/代理这些路径（node 22.14.0 实装成功）。
-   2026-11-09 接手复测：隔离中文/空格目录真实安装 uv 0.13.7、QQ 登录端 2.4.2、bots-launchers，
+   2026-11-09 接手复测：隔离中文/空格目录真实安装 uv 0.13.7、bots-launchers，
    exit 0，`##RESULT ok=1 fixed=3 satisfied=0 manual=0 missing=0 failed=0`；两个下载包 SHA256/字节数均匹配清单。
 5. 可选项（Breeze、Ollama、bili-whale、embedding-model、SoulX、桌宠）失败默认不阻断
    必需项判定；但如果你 `-Component` 点名它们，失败就会让退出码变 2。
 6. `write_file` 生成的是 ANSI 启动脚本（`start.cmd` 等），与仓库既有约定一致；
    在 UTF-8 编辑器里看到中文是乱码属正常，cmd 里执行正常。
-7. QQ 登录端/Breeze 的启动脚本按「目录里找 exe / 模型」生成，模型文件（`.gguf`）需要
+7. QQ 侧/Breeze 的启动脚本按「目录里找 exe / 模型」生成，模型文件（`.gguf`）需要
    用户自备或另下，脚本只标注「缺模型」，不会假装装好。
 8. 人工项（扫码、登录、填 Key、插件市场装记忆插件）脚本只检测完成状态，不代替用户完成。
 9. 机器人根所在机器如果 PATH 里已经有 node/ffmpeg，检测会直接命中 PATH，不会强制把

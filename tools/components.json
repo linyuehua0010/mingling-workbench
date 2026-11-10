@@ -211,7 +211,7 @@
           }
         ]
       },
-      "notes": "装到 sidecar\\node，和 V3.0.0 的布局一致；也认登录端自带的 node.exe。"
+      "notes": "装到 sidecar\\node，和 V3.0.0 的布局一致；也认 bots 下 QQ 组件自带的 node.exe。"
     },
     {
       "id": "ffmpeg",
@@ -556,7 +556,7 @@
     },
     {
       "id": "snowluma",
-      "name": "QQ 登录端",
+      "name": "QQ",
       "version": "2.4.2",
       "requires": [],
       "optional": false,
@@ -637,9 +637,9 @@
         ]
       },
       "manual_steps": [
-        "启动登录端后要手机 QQ 扫码登录；扫码脚本只检测状态，不代扫"
+        "用手机 QQ 扫码登录；扫码脚本只检测状态，不代扫"
       ],
-      "notes": "已经装了 NapCat 也算这个组件满足（两个登录端二选一）。"
+      "notes": "装了 NapCat 也算这个组件满足。"
     },
     {
       "id": "breeze",
@@ -1426,7 +1426,7 @@
           {
             "kind": "manual",
             "steps": [
-              "启动 QQ 登录端，用手机 QQ 扫码登录；只有实际 OneBot 连接建立后本项才会满足"
+              "用手机 QQ 扫码登录；只有实际 OneBot 连接建立后本项才会满足"
             ]
           }
         ]

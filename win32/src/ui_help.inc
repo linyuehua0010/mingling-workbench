@@ -30,7 +30,7 @@ static const AskDef ASKS[] = {
      L"用冥零的安装 Skill（mingling-install），帮我把这台电脑上的冥零搬到云服务器上（记忆、人设、表情包一起搬）："
      L"先讲清楚利弊和要花多少钱，我还没买的话帮我挑，我回「搬」了再动。"},
     {"napcat", L"QQ 升级后先换成 NapCat",
-     L"用冥零的安装 Skill（mingling-install），QQ 升级后登录端暂时用不了，帮我先换成 NapCat；等登录端跟上了再告诉我怎么换回来。"},
+     L"用冥零的安装 Skill（mingling-install），QQ 升级以后这阵子用不了，帮我先换成 NapCat；好了再告诉我怎么换回来。"},
     {"backup", L"用备份还原",
      L"用冥零的安装 Skill（mingling-install），用桌面上的备份……还原冥零：先列出要动哪些东西，我确认了再动。"},
     {"uninstall", L"卸载她",
@@ -277,7 +277,7 @@ static std::wstring HelpText() {
     t += L"\n══════════ 组件路径 ══════════\n";
     t += L"组件根：" + BotRoot() + L"\n";
     t += L"AstrBot：" + her::BotPath(L"AstrBot") + L"\n";
-    t += L"QQ 登录端：" + her::BotPath(L"SnowLuma") + L"\n";
+    t += L"QQ：" + her::BotPath(L"SnowLuma") + L"\n";
     t += L"Breeze：" + her::BotPath(L"Breeze") + L"\n";
     t += L"Ollama：" + her::BotPath(L"Ollama") + L"\n";
     return t;

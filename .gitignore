@@ -27,7 +27,7 @@ win32/setup/
 installer/version_auto.iss
 # 出内置包用的开关片段：installer\prepare-login.ps1 每次出包前重新生成
 installer/login_auto.iss
-# 内置包舞台：build-installer.bat -BundleLogin 时把登录端原版 zip 备到这里（40 MB 级，不进 Git）
+# 内置包舞台：build-installer.bat -BundleLogin 时把组件原版 zip 备到这里（40 MB 级，不进 Git）
 pack/login/
 
 # ---------- 2. 大体积运行时（由 tools\fetch-runtime.ps1 现场拉取） ----------

@@ -62,7 +62,7 @@ $ans = @{}
 try { (Get-Content -Raw -Encoding UTF8 "$Dir\answers.json" | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $ans[$_.Name] = "$($_.Value)" } } catch {}
 $proto = "$(Get-Content -Raw "$Dir\private\protocol.txt" -ErrorAction SilentlyContinue)".Trim().ToLower()
 if ($proto -notin 'napcat', 'snowluma') { $proto = if ((Test-Path "$Dir\start-snowluma.cmd") -and -not (Test-Path "$Dir\start-napcat.cmd")) { 'snowluma' } else { 'napcat' } }
-$pname = if ($proto -eq 'snowluma') { 'QQ 登录端' } else { 'NapCat' }
+$pname = if ($proto -eq 'snowluma') { 'QQ' } else { 'NapCat' }
 $proot = Join-Bot $Dir $pname
 $bs = Get-BackendState $Dir
 $port = [int]$bs.port
@@ -119,7 +119,7 @@ elseif (-not $protoProcs) {
     Problem 'QQ-NOPROC' '小号没登上 QQ' "$pname 没在运行"
 } elseif ($suspect) {
     Check '出问题' "登 QQ 的程序 $pname" "$pname 开着但挂不上桌面 QQ（日志里有 retry exhausted），多半是 QQ 自动升级了"
-    Problem 'QQ-UPGRADE' '小号没登上 QQ' "登录端挂不上桌面 QQ（auto-load retry exhausted），多半是 QQ 自动升级了，登录端还没跟上"
+    Problem 'QQ-UPGRADE' '小号没登上 QQ' "挂不上桌面 QQ（auto-load retry exhausted），多半是 QQ 自动升级了，这边还没跟上"
 } else {
     Check '出问题' "登 QQ 的程序 $pname" "$pname 开着，但没连上大脑（$wsPort 上没有连接），像是小号被踢下线了"
     Problem 'QQ-OFF' '小号没登上 QQ' "$pname 开着，但没连上大脑，像是小号被踢下线了"
@@ -324,7 +324,7 @@ Sec '版本'
 $astV = Get-ChildItem (Join-Path (Join-Bot $Dir 'uv\tools\astrbot\Lib\site-packages') 'astrbot-*.dist-info') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
 W "AstrBot：$(if ($astV) { $astV.Name -replace '^astrbot-|\.dist-info$', '' } else { '（启动器装的，或者没找到）' })"
 if ($proto -eq 'snowluma') {
-    try { W "QQ 登录端：$((Get-Content -Raw (Join-Path (Join-Bot $Dir 'SnowLuma') 'release.json') | ConvertFrom-Json).version)" } catch { W 'QQ 登录端：没找到 release.json' }
+    try { W "QQ：$((Get-Content -Raw (Join-Path (Join-Bot $Dir 'SnowLuma') 'release.json') | ConvertFrom-Json).version)" } catch { W 'QQ：没找到 release.json' }
     $qqExe = Find-DesktopQQ
     if ($qqExe) {
         $qv = Get-ChildItem "$(Split-Path $qqExe)\versions" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^\d+\.\d+\.\d+-\d+$' } | Sort-Object { [version](($_.Name -replace '-', '.')) } | Select-Object -Last 1
@@ -341,7 +341,7 @@ $wbv = Select-String -Path "$PSScriptRoot\workbench\server.py" -Pattern '^VERSIO
 if ($wbv) { W "工作台：$($wbv.Matches[0].Groups[1].Value)" }
 
 Sec '端口'
-$pp = @(@($port, "大脑后台"), @($wsPort, "大脑等 QQ 程序来连"), @(8137, "Breeze 语音"), @(11434, "Ollama 记忆"), @(5099, "QQ 登录端后台"), @(6099, "NapCat 后台"))
+$pp = @(@($port, "大脑后台"), @($wsPort, "大脑等 QQ 程序来连"), @(8137, "Breeze 语音"), @(11434, "Ollama 记忆"), @(5099, "QQ 后台"), @(6099, "NapCat 后台"))
 foreach ($x in $pp) { W ("{0,-6}{1}：{2}" -f $x[0], $x[1], $(if (Listening $x[0]) { '在听' } else { '没在听' })) }
 W "$wsPort 上的连接：$($qqConn.Count) 个"
 

@@ -470,7 +470,7 @@ function Resolve-Urls([string[]]$Urls) {
     return @($out)
 }
 
-# 装包自带的组件：出包时 build-installer.bat -BundleLogin 会把登录端的官方原版包塞进
+# 装包自带的组件：出包时 build-installer.bat -BundleLogin 会把官方原版包塞进
 # <程序目录>\pack\login\，bootstrap 跑起来时 $script:Repo 正好就是 <程序目录>，
 # 开发树里则是仓库根 —— 两处同一句。约定按目录找，不按文件名找：上游改一次命名就失效的
 # 硬编码路径不值得写。命中与否一律以清单里的 sha256 为准，宁可不命中也不装错东西。

@@ -355,7 +355,7 @@ static void StartService(int idx) {
             if (!pw.empty()) env.emplace_back(L"SNOWLUMA_WEBUI_BOOTSTRAP_PASSWORD", pw);
             DWORD pid = SpawnDetached(exe, L"index.mjs", cwd, env, LogPath(0));
             d->ok = pid != 0;
-            d->text = pid ? L"登录端启动了（pid " + Num(pid) + L"）" : L"登录端起不来，看看 " + LogPath(0);
+            d->text = pid ? L"QQ 已连上（pid " + Num(pid) + L"）" : L"QQ 没连上，看看 " + LogPath(0);
         }
         PostTask(d);
     }).detach();
@@ -377,7 +377,7 @@ static void StopService(int idx) {
         d->kind = TK_STOP;
         d->action = idx;
         d->ok = true;
-        d->text = (idx == 0 ? wstring(L"登录端") : wstring(L"AstrBot")) + L" 已关";
+        d->text = (idx == 0 ? wstring(L"QQ") : wstring(L"AstrBot")) + L" 已关";
         PostTask(d);
     }).detach();
 }

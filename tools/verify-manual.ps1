@@ -38,7 +38,7 @@ if ($Kind -eq 'qq') {
             }
         }
     }
-    Exit-State 3 "QQ 未登录：端口 $port 的连接不属于本工作区登录端"
+    Exit-State 3 "QQ 未登录：端口 $port 的连接不属于本工作区"
 }
 
 if ($Kind -eq 'bili') {

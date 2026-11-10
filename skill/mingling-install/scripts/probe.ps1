@@ -97,7 +97,7 @@ if (-not (Test-Path $bots)) {
 
 # --- 4. 端口
 $svc = New-Object System.Collections.ArrayList
-foreach ($it in @(@(6185, 'AstrBot 后台'), @(6199, 'AstrBot 连接'), @(5099, 'SnowLuma'), @(8137, 'Breeze'), @(11434, 'Ollama'))) {
+foreach ($it in @(@(6185, 'AstrBot 后台'), @(6199, 'AstrBot 连接'), @(5099, 'QQ'), @(8137, 'Breeze'), @(11434, 'Ollama'))) {
     [void]$svc.Add("$($it[1])=" + $(if (PortOpen $it[0]) { '在听' } else { '没听' }))
 }
 Line '##服务' ((($svc -join '  ') -replace '=', ':'))

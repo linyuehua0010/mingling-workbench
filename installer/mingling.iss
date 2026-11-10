@@ -4,7 +4,7 @@
 #include "version_auto.iss"
 #define AppExe "MinglingWorkbench.exe"
 
-; ── 可选：把 QQ 登录端的官方原版包一起打进安装包 ──────────────────────────────
+; ── 可选：把 QQ 接入组件的官方原版包一起打进安装包 ──────────────────────────────
 ; 默认不内置（BundleLogin=0），装完由 bootstrap.ps1 联网下载，和以前一样。
 ; 想出内置版就 build-installer.bat -BundleLogin；那份片段由
 ; installer\prepare-login.ps1 生成（会先从 tools\components.json 抄校验值，
@@ -98,7 +98,9 @@ Source: "..\tools\backup-install.ps1"; Flags: dontcopy
 Source: "..\tools\finish-update.ps1"; Flags: dontcopy
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\art\*"; DestDir: "{app}\art"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 只装面向用户的文档：开发期的计划稿、验收记录、代码审查留在仓库里，不随包发（里面写着
+; 上游组件的名字与历史口径，装到用户机器上没有意义）。
+Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "plan-*.md,ACCEPTANCE.md,code-review-*.md"
 Source: "..\plugin\astrbot_plugin_bili_bridge\*"; DestDir: "{app}\plugin\astrbot_plugin_bili_bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\sidecar\*"; DestDir: "{app}\sidecar"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 安装 Skill（冥零自己的那份）：装在 {app}\skill 下，工作台第一次启动时铺到
@@ -127,7 +129,7 @@ Source: "..\pack\mingling-pack\*"; DestDir: "{app}\pack\mingling-pack"; Flags: i
 Source: "..\pack\mingling-vendor\*"; DestDir: "{app}\pack\mingling-vendor"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 密钥目录里放一份说明；已经有的不覆盖（用户的密钥在同一个文件夹里）
 
-; ── 内置的 QQ 登录端原版包（只在 -BundleLogin 出包时有） ────────────────────
+; ── 内置的 QQ 接入组件原版包（只在 -BundleLogin 出包时有） ────────────────────
 ; 落到 {app}\pack\login\ 之后，装完的 bootstrap.ps1 -Check / 一键自动配置会先看
 ; 这里有没有校验通过的那份，有就直接解压，不再联网下载（tools\bootstrap.ps1 的
 ; Find-BundledPackage，按目录 pack\<组件id> 找）。文件是上游发布的原版 zip，

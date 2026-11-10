@@ -7,14 +7,14 @@
 
 放什么（都是纯文本，一行一个，写成 键=值 或者只写值）：
 
-  snowluma-webui.txt   QQ 登录端网页后台的密码
+  snowluma-webui.txt   QQ 后台的密码（协议端自己的网页后台）
                        例：password=你的密码
   backend.txt          AstrBot 后台的账号密码（网页登录用的那对）
                        例：username=astrbot
                            password=你的密码
   deepseek-key.txt     DeepSeek 的 API Key
                        例：key=sk-xxxxxxxx
-  protocol.txt         QQ 用的是哪个协议端：napcat 或 snowluma（两个可选登录端之一）
+  protocol.txt         QQ 用的是哪个协议端：napcat 或 snowluma（两个可选协议端之一）
 
 读的顺序
 --------
