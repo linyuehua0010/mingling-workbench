@@ -74,6 +74,7 @@ def main():
     ap.add_argument("--asset-dir", default=os.path.join("dist", "release-3.1.0"))
     ap.add_argument("--notes", default=None)
     ap.add_argument("--skip", default="RELEASE-NOTES.md")
+    ap.add_argument("--only", default="", help="只传这些文件名（逗号分隔）")
     args = ap.parse_args()
 
     token = os.environ.get("GH_TOKEN", "").strip()
@@ -114,8 +115,10 @@ def main():
     status, data = req("GET", "%s/repos/%s/releases/%d/assets?per_page=100" % (API, args.repo, rid), token)
     existing = {a["name"]: a for a in (data or [])} if status == 200 else {}
 
+    only = [x.strip() for x in args.only.split(",") if x.strip()]
     files = sorted(f for f in os.listdir(args.asset_dir)
-                   if os.path.isfile(os.path.join(args.asset_dir, f)) and f != args.skip)
+                   if os.path.isfile(os.path.join(args.asset_dir, f)) and f != args.skip
+                   and (not only or f in only))
     for name in files:
         path = os.path.join(args.asset_dir, name)
         size = os.path.getsize(path)
