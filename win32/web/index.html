@@ -523,7 +523,7 @@ function jobs(){
     +card('这一次',state.jobDetail?`<pre>${esc(state.jobDetail)}</pre><div class="quick">${btn('复制记录','btn:copy_job')}${btn('打开产物','btn:open_shotdir')}</div>`:empty('挑一条，展开看看','点左边本子上的记录，详情会显示在这里','（翻页）'))+`</div>`;
 }
 function logs(){
-  const src=['B站 / bili-whale','AstrBot','SnowLuma'];
+  const src=['B站 / bili-whale','AstrBot','QQ'];
   return head('04','日志','<span class="act">（探头）</span>出什么事了，我看看。',btn('刷新','btn:log_refresh')+btn('日志目录','btn:logdir'))
     +`<div class="seg">${src.map((n,i)=>`<button data-log="${i}" class="${state.logsrc===i?'selected':''}">${n}</button>`).join('')}</div>`
     +card('运行日志',`<pre data-tail="log" aria-label="运行日志">${esc(state.log)||'安静得很，一行都没有。'}</pre>`);
