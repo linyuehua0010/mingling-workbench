@@ -4,7 +4,7 @@
 
 ---
 
-## V3.1.0 本地功能构建（2026-11-09，尚未发布）
+## V3.1.0 正式版（2026-11-10 发布）
 
 - 「她会做的事」增加唱歌、桌宠、豆包语音、在线 Breeze 配置界面；凭据保存在本机，不回显密钥，留空保留原值。
 - 唱歌可选择豆包云端或 SoulX 本地，配置覆盖独立保存，自设定不再将本地选择覆盖回豆包。
@@ -20,6 +20,24 @@
 - 八块自设定新增只读 `-Verify`（不 PUT、不拍快照、不写文件），与 `-Apply`/`-DryRun` 互斥；敏感项只从 `secrets\`（兼容旧 `private\`）读。
 - 安装包带 `tools\components.json`，装完跑一次 `bootstrap.ps1 -Check` 留证据；自更新把当前工作区作为 `/WORKSPACE` 传给安装包，
   收尾体检不会再查错目录。用法与限制见 [setup-automation.md](setup-automation.md)。
+
+### V3.1.0 发布时的安装链路修复（2026-11-10）
+
+- 修首装不产出主程序：安装器把本体装成 `MinglingWorkbench.exe.new.exe`，收尾脚本却找 `MinglingWorkbench.new.exe`，
+  导致安装器收尾每次 exit 5、桌面与开始菜单指向不存在的 exe。`DestName` 改回 `MinglingWorkbench.new.exe`。
+- 安装/升级不再改写受保护目录：收尾清单日志从 `{Workspace}\旧版` 移到 `%TEMP%`；安装器自检日志从
+  `{Workspace}\logs\setup` 移到 `{App}\logs\setup`，升级不会动用户的备份和工作区日志。
+- 严格幂等：`bootstrap.ps1 -LogFile` 不再把状态标记为脏；纯 `-Check` 不覆盖已安装的 `state.json`。
+- 清单里 12 处程序文件从 `{base}\tools`（工作区）改为 `{repo}\tools`（程序目录），修 AstrBot 依赖锁找不到、
+  Ollama 服务启动脚本 `-File` 找不到（-196608）两处必失败。
+- npm 包探测先剥离版本号再 `require.resolve`，修 bili-whale 后置校验必然失败。
+- 本机记忆模型改钉 manifest `sha256:79076464…` 与两层不可变 blob，新增 `tools\verify-embedding-model.ps1` 做层字节校验
+  （原钉值其实是 manifest 的 config.digest，该地址已 404）。
+- SnowLuma 上游仓库改名（`SnowLuma/SnowLuma` → `TomyJan/SnowLuma`），下载地址随之更新；资产哈希未变。
+- `start-ollama.ps1` 的 stdout/stderr 分开重定向到 `%TEMP%`（`Start-Process` 不允许两个流指向同一文件）。
+- 本地唱歌默认目录统一到 `{base}\sing`，skill 侧入口走 `resolve-program-root.ps1`，分离布局下也能找到部署脚本。
+- 发布产物：`MinglingWorkbench-3.1.0-setup.exe`（88,855,864 B，SHA256 `ff9982cd…809f8`）、源码快照、
+  安装 Skill 0.5.0；均见 GitHub Release V3.1.0。
 
 ## V3.0.1 正式补丁构建（2026-11-08）
 
